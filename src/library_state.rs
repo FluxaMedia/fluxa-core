@@ -435,7 +435,11 @@ pub(crate) fn compute_continue_watching_badges_json(
             "lastEpisodeName": next.get("name").or_else(|| next.get("title")).cloned().unwrap_or(Value::Null),
             "lastEpisodeSeason": next.get("season").cloned().unwrap_or(Value::Null),
             "lastEpisodeNumber": next.get("episode").or_else(|| next.get("number")).cloned().unwrap_or(Value::Null),
-            "lastEpisodeThumbnail": next.get("thumbnail").cloned().unwrap_or(Value::Null),
+            "lastEpisodeThumbnail": next.get("thumbnail")
+                .filter(|v| !v.is_null())
+                .cloned()
+                .or_else(|| if !is_new_target { candidate.get("lastEpisodeThumbnail").cloned().filter(|v| !v.is_null()) } else { None })
+                .unwrap_or(Value::Null),
             "continueWatchingBadge": badge,
             "newEpisodeReleasedAt": released_str,
             "savedAt": saved_at_new,
@@ -513,6 +517,122 @@ pub(crate) fn remember_last_watched_episodes_json(lib_json: &str, watched_ids_js
         obj.insert("lastWatchedEpisodes".to_string(), Value::Object(last_watched));
     }
     serde_json::to_string(&lib).unwrap_or_else(|_| lib_json.to_string())
+}
+
+/// Returns the next episode after (current_season, current_episode).
+/// If released_only is true, episodes whose `released` date is in the future
+/// (relative to now_ms) are excluded.
+pub(crate) fn resolve_next_episode_json(
+    videos_json: &str,
+    current_season: i64,
+    current_episode: i64,
+    now_ms: i64,
+    released_only: bool,
+) -> Option<String> {
+    let videos: Vec<Value> = serde_json::from_str(videos_json).ok()?;
+    let filtered: Vec<&Value> = videos
+        .iter()
+        .filter(|v| released_only || is_episode_released(v, now_ms))
+        .collect();
+    let next = first_episode_after(
+        &filtered.into_iter().cloned().collect::<Vec<_>>(),
+        current_season,
+        current_episode,
+    )?;
+    serde_json::to_string(&next).ok()
+}
+
+/// Formats a "S1:E2 Episode Name" line from the episode progress fields.
+/// Falls back to parsing season/episode from lastVideoId when the explicit
+/// season/episode numbers are absent.
+pub(crate) fn format_episode_line_json(
+    last_episode_name: Option<&str>,
+    last_episode_season: Option<i64>,
+    last_episode_number: Option<i64>,
+    last_video_id: Option<&str>,
+) -> String {
+    let mut season = last_episode_season;
+    let mut episode = last_episode_number;
+
+    if (season.is_none() || episode.is_none()) && last_video_id.is_some_and(|id| !id.is_empty()) {
+        let parts: Vec<&str> = last_video_id.unwrap().split(':').collect();
+        if parts.len() >= 3 {
+            if let (Ok(s), Ok(e)) = (
+                parts[parts.len() - 2].parse::<i64>(),
+                parts[parts.len() - 1].parse::<i64>(),
+            ) {
+                if s > 0 && e > 0 {
+                    if season.is_none() { season = Some(s); }
+                    if episode.is_none() { episode = Some(e); }
+                }
+            }
+        }
+    }
+
+    let code = match (season, episode) {
+        (Some(s), Some(e)) => format!("S{s}:E{e}"),
+        _ => String::new(),
+    };
+    let name = last_episode_name.map(str::trim).unwrap_or("").to_string();
+    [code, name]
+        .into_iter()
+        .filter(|s| !s.is_empty())
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// Selects the best artwork URL for a continue-watching card.
+/// `artwork_preference` is "poster", "background", or "episode" (default).
+/// `is_horizontal` controls whether the card layout is wide/horizontal.
+pub(crate) fn select_continue_watching_artwork_json(
+    item_json: &str,
+    artwork_preference: &str,
+    is_horizontal: bool,
+) -> Option<String> {
+    let item: Value = serde_json::from_str(item_json).ok()?;
+    let str_field = |key: &str| -> Option<String> {
+        item.get(key)
+            .and_then(Value::as_str)
+            .filter(|s| !s.trim().is_empty())
+            .map(str::to_string)
+    };
+
+    let poster = str_field("poster");
+    let background = str_field("background");
+    let logo = str_field("logo");
+    let thumbnail = str_field("lastEpisodeThumbnail");
+    let cw_poster = str_field("continueWatchingPoster");
+    let cw_background = str_field("continueWatchingBackground");
+
+    let is_real_backdrop = background.as_deref().is_some_and(|bg| {
+        poster.as_deref().map_or(true, |p| bg != p)
+            && !bg.to_lowercase().contains("/poster/")
+    });
+    let existing_backdrop = if is_real_backdrop { background.clone() } else { None };
+
+    let result = if !is_horizontal {
+        thumbnail
+            .or(cw_poster)
+            .or(poster)
+            .or(cw_background)
+            .or(background)
+    } else {
+        let content_type = item.get("type").and_then(Value::as_str).unwrap_or("");
+        let is_series = matches!(content_type, "series" | "tv" | "anime");
+        let _ = is_series;
+        match artwork_preference {
+            "poster" => poster.or(cw_background).or(existing_backdrop),
+            "background" => existing_backdrop.or(cw_background).or(poster),
+            _ => thumbnail
+                .or(cw_background)
+                .or(existing_backdrop)
+                .or(background)
+                .or(logo)
+                .or(poster),
+        }
+    };
+
+    result
 }
 
 #[cfg(test)]

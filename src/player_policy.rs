@@ -567,8 +567,13 @@ pub(crate) fn dv_proxy_plan_json(request_json: &str) -> Option<String> {
                 "p10_compat_id_1_hdr10_base",
                 vec!["does_not_convert_bitstream", "header_only_patch", "does_not_transcode", "does_not_remove_rpu_nals"],
             ),
-            // P4, P5, P10Other, Unknown already returned above.
-            _ => unreachable!(),
+            _ => (
+                "dvcc_strip",
+                "HDR10_assumed",
+                "medium",
+                "unknown_profile_dvcc_strip_fallback",
+                vec!["header_only_patch", "does_not_transcode", "does_not_remove_rpu_nals"],
+            ),
         };
 
     plan_rich(action, reason, profile.label(), compat, safety, &limitations)
@@ -799,6 +804,79 @@ fn episode_path_matches_id(path: &str, video_id: &str) -> bool {
     path_lower.contains(&pattern_s_e)
         || path_lower.contains(&pattern_sx_ex)
         || path_lower.contains(&pattern_ep)
+}
+
+/// Returns true when the player should attempt to pre-fetch the next episode's
+/// stream list. Uses the same binge-group / auto-selection rules as the desktop.
+pub(crate) fn can_prefetch_next_episode_json(prefs_json: &str, stream_json: &str) -> bool {
+    let prefs: Value = serde_json::from_str(prefs_json).unwrap_or(Value::Null);
+    let stream: Value = serde_json::from_str(stream_json).unwrap_or(Value::Null);
+    let try_binge = prefs.get("tryBingeGroup").and_then(Value::as_bool).unwrap_or(false);
+    let mode = prefs
+        .get("streamSourceSelectionMode")
+        .and_then(Value::as_str)
+        .unwrap_or("manual");
+    let has_binge_group = stream
+        .get("behaviorHints")
+        .and_then(|h| h.get("bingeGroup"))
+        .and_then(Value::as_str)
+        .map_or(false, |s| !s.is_empty());
+    (try_binge && has_binge_group) || mode != "manual"
+}
+
+/// Selects the best stream from `streams_json` for the next episode given the
+/// current stream and playback preferences. Returns the selected stream as JSON,
+/// or `null` if none qualifies.
+pub(crate) fn select_next_episode_stream_json(
+    streams_json: &str,
+    current_stream_json: &str,
+    prefs_json: &str,
+) -> Option<String> {
+    let streams: Vec<Value> = serde_json::from_str(streams_json).ok()?;
+    if streams.is_empty() { return None; }
+    let current: Value = serde_json::from_str(current_stream_json).ok()?;
+    let prefs: Value = serde_json::from_str(prefs_json).unwrap_or(Value::Null);
+
+    let try_binge = prefs.get("tryBingeGroup").and_then(Value::as_bool).unwrap_or(false);
+    let mode = prefs.get("streamSourceSelectionMode").and_then(Value::as_str).unwrap_or("manual");
+    let regex_pat = prefs.get("streamSourceRegexPattern").and_then(Value::as_str).unwrap_or("");
+    let cur_binge = current
+        .get("behaviorHints")
+        .and_then(|h| h.get("bingeGroup"))
+        .and_then(Value::as_str)
+        .filter(|s| !s.is_empty());
+
+    if try_binge {
+        if let Some(group) = cur_binge {
+            let matched = streams.iter().find(|s| {
+                s.get("behaviorHints")
+                    .and_then(|h| h.get("bingeGroup"))
+                    .and_then(Value::as_str)
+                    == Some(group)
+            });
+            if let Some(s) = matched {
+                return serde_json::to_string(s).ok();
+            }
+        }
+    }
+
+    if mode == "regex" && !regex_pat.is_empty() {
+        if let Ok(re) = regex::RegexBuilder::new(regex_pat).case_insensitive(true).build() {
+            let stream_text = |s: &Value| -> String {
+                [s.get("name"), s.get("title"), s.get("description"), s.get("url"), s.get("playableUrl"), s.get("infoHash")]
+                    .into_iter()
+                    .flatten()
+                    .filter_map(Value::as_str)
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            };
+            if let Some(matched) = streams.iter().find(|s| re.is_match(&stream_text(s))) {
+                return serde_json::to_string(matched).ok();
+            }
+        }
+    }
+
+    streams.first().and_then(|s| serde_json::to_string(s).ok())
 }
 
 #[cfg(test)]

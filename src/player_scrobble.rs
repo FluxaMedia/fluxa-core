@@ -59,6 +59,57 @@ fn has_token(token: Option<&str>) -> bool {
     token.is_some_and(|value| !value.trim().is_empty())
 }
 
+pub(crate) fn trakt_scrobble_plan_json(
+    ids_json: &str,
+    is_episode: bool,
+    season: Option<i64>,
+    ep_number: Option<i64>,
+    time_pos_sec: f64,
+    duration_sec: f64,
+) -> Option<String> {
+    let ids: serde_json::Value = serde_json::from_str(ids_json).ok()?;
+    if duration_sec <= 0.0 {
+        return None;
+    }
+    let progress = ((time_pos_sec / duration_sec) * 100.0).clamp(0.0, 100.0);
+    let action = if progress as f32 >= SCROBBLE_STOP_PROGRESS_PERCENT { "stop" } else { "pause" };
+    let body = if is_episode {
+        serde_json::json!({
+            "show": { "ids": ids },
+            "episode": { "season": season.unwrap_or(1), "number": ep_number.unwrap_or(1) },
+            "progress": progress
+        })
+    } else {
+        serde_json::json!({ "movie": { "ids": ids }, "progress": progress })
+    };
+    serde_json::to_string(&serde_json::json!({ "action": action, "body": body })).ok()
+}
+
+pub(crate) fn simkl_scrobble_body_json(
+    ids_json: &str,
+    is_episode: bool,
+    season: i64,
+    ep_number: i64,
+    time_pos_sec: f64,
+    duration_sec: f64,
+) -> Option<String> {
+    let ids: serde_json::Value = serde_json::from_str(ids_json).ok()?;
+    if duration_sec <= 0.0 {
+        return None;
+    }
+    let progress = ((time_pos_sec / duration_sec) * 100.0).clamp(0.0, 100.0);
+    let body = if is_episode {
+        serde_json::json!({
+            "show": { "ids": ids },
+            "episode": { "season": season, "number": ep_number },
+            "progress": progress
+        })
+    } else {
+        serde_json::json!({ "movie": { "ids": ids }, "progress": progress })
+    };
+    serde_json::to_string(&body).ok()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

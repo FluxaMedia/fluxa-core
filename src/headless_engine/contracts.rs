@@ -57,6 +57,11 @@ pub(super) enum AppAction {
         language: Option<String>,
         profile: Option<Value>,
     },
+    #[serde(rename = "detailStreamsAppended")]
+    DetailStreamsAppended {
+        streams: Vec<Value>,
+        available_addons: Vec<String>,
+    },
     #[serde(rename = "detailSelectedAddonChanged")]
     DetailSelectedAddonChanged { addon: Option<String> },
     #[serde(rename = "metaDetailRequested")]

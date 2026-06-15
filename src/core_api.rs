@@ -27,10 +27,6 @@ use crate::tmdb_plan;
 use crate::watchlist_plan;
 use serde_json::json;
 
-/// Platform-neutral Fluxa runtime API.
-///
-/// This surface deliberately avoids Android/JNI types. Platform shells can call
-/// it directly from Rust, or build their own thin FFI/UniFFI/WASM adapter on top.
 pub struct FluxaCore;
 
 impl FluxaCore {
@@ -925,7 +921,7 @@ impl FluxaCore {
         offline_download::offline_download_plan_json(request_json)
     }
 
-    // ── content_identity extras ───────────────────────────────────────────────
+    // content_identity extras
 
     pub fn parse_video_id_json(id: &str) -> String {
         content_identity::parse_video_id_json(id)
@@ -935,7 +931,7 @@ impl FluxaCore {
         content_identity::build_trakt_ids_json(video_id)
     }
 
-    // ── calendar extras ───────────────────────────────────────────────────────
+    // calendar extras
 
     pub fn calendar_items_from_meta_json(meta_json: &str, month_prefix: &str) -> Option<String> {
         calendar_plan::calendar_items_from_meta_json(meta_json, month_prefix)
@@ -945,7 +941,7 @@ impl FluxaCore {
         calendar_plan::calendar_item_matches_month_json(item_json, month_prefix)
     }
 
-    // ── external_sync: Trakt high-level ──────────────────────────────────────
+    // external_sync: Trakt high-level
 
     pub fn trakt_playback_items_to_library_json(items_json: &str) -> Option<String> {
         external_sync::trakt_playback_items_to_library_json(items_json)
@@ -975,7 +971,7 @@ impl FluxaCore {
         external_sync::merge_continue_watching_lists_json(local_json, external_json, progress_json)
     }
 
-    // ── external_sync: Simkl ─────────────────────────────────────────────────
+    // external_sync: Simkl
 
     pub fn simkl_watching_to_items_json(shows_json: &str, movies_json: &str) -> Option<String> {
         external_sync::simkl_watching_to_items_json(shows_json, movies_json)
@@ -989,7 +985,30 @@ impl FluxaCore {
         external_sync::simkl_watched_to_ids_json(shows_json, movies_json)
     }
 
-    // ── library_state extras ─────────────────────────────────────────────────
+    pub fn trakt_scrobble_plan_json(
+        video_id: &str,
+        is_episode: bool,
+        season: Option<i64>,
+        ep_number: Option<i64>,
+        time_pos_sec: f64,
+        duration_sec: f64,
+    ) -> Option<String> {
+        let ids_json = content_identity::build_trakt_ids_json(video_id)?;
+        player_scrobble::trakt_scrobble_plan_json(&ids_json, is_episode, season, ep_number, time_pos_sec, duration_sec)
+    }
+
+    pub fn simkl_scrobble_body_json(
+        ids_json: &str,
+        is_episode: bool,
+        season: i64,
+        ep_number: i64,
+        time_pos_sec: f64,
+        duration_sec: f64,
+    ) -> Option<String> {
+        player_scrobble::simkl_scrobble_body_json(ids_json, is_episode, season, ep_number, time_pos_sec, duration_sec)
+    }
+
+    // library_state extras
 
     pub fn normalize_library_document_json(json: &str) -> String {
         library_state::normalize_library_document_json(json)
@@ -1021,7 +1040,7 @@ impl FluxaCore {
         )
     }
 
-    // ── tmdb_plan ────────────────────────────────────────────────────────────
+    // tmdb_plan
 
     pub fn tmdb_content_type(content_type: &str) -> &str {
         tmdb_plan::tmdb_content_type(content_type)
@@ -1059,7 +1078,7 @@ impl FluxaCore {
         tmdb_plan::tmdb_resolve_id_hint(content_id)
     }
 
-    // ── intro_segments ────────────────────────────────────────────────────────
+    // intro_segments
 
     pub fn parse_intro_db_segments_json(data_json: &str) -> Option<String> {
         intro_segments::parse_intro_db_segments_json(data_json)
@@ -1075,6 +1094,100 @@ impl FluxaCore {
 
     pub fn merge_intro_segments_json(sources_json: &str) -> Option<String> {
         intro_segments::merge_intro_segments_json(sources_json)
+    }
+
+    // library_state: episode navigation
+
+    pub fn resolve_next_episode_json(
+        videos_json: &str,
+        current_season: i64,
+        current_episode: i64,
+        now_ms: i64,
+        released_only: bool,
+    ) -> Option<String> {
+        library_state::resolve_next_episode_json(
+            videos_json,
+            current_season,
+            current_episode,
+            now_ms,
+            released_only,
+        )
+    }
+
+    pub fn format_episode_line_json(
+        last_episode_name: Option<&str>,
+        last_episode_season: Option<i64>,
+        last_episode_number: Option<i64>,
+        last_video_id: Option<&str>,
+    ) -> String {
+        library_state::format_episode_line_json(
+            last_episode_name,
+            last_episode_season,
+            last_episode_number,
+            last_video_id,
+        )
+    }
+
+    pub fn select_continue_watching_artwork_json(
+        item_json: &str,
+        artwork_preference: &str,
+        is_horizontal: bool,
+    ) -> Option<String> {
+        library_state::select_continue_watching_artwork_json(item_json, artwork_preference, is_horizontal)
+    }
+
+    // external_sync: continue watching
+
+    pub fn replace_external_continue_watching_json(
+        existing_json: &str,
+        provider: Option<&str>,
+        items_json: &str,
+    ) -> String {
+        external_sync::replace_external_continue_watching_json(existing_json, provider, items_json)
+    }
+
+    // platform_plan: resource protocol helpers
+
+    pub fn resource_kind_to_resource_json(kind: &str, request_resource: Option<&str>, item_resource: Option<&str>) -> String {
+        platform_plan::resource_kind_to_resource(kind, request_resource, item_resource)
+    }
+
+    pub fn wrap_addon_resource_response_json(resource: &str, payload_json: &str) -> String {
+        platform_plan::wrap_addon_resource_response(resource, payload_json)
+    }
+
+    // player_policy: next episode prefetch
+
+    pub fn can_prefetch_next_episode_json(prefs_json: &str, stream_json: &str) -> bool {
+        player_policy::can_prefetch_next_episode_json(prefs_json, stream_json)
+    }
+
+    pub fn select_next_episode_stream_json(
+        streams_json: &str,
+        current_stream_json: &str,
+        prefs_json: &str,
+    ) -> Option<String> {
+        player_policy::select_next_episode_stream_json(streams_json, current_stream_json, prefs_json)
+    }
+
+    // watchlist_plan: collections import/export
+
+    pub fn import_collections_json(raw_json: &str) -> Option<String> {
+        watchlist_plan::import_collections_json(raw_json)
+    }
+
+    pub fn export_collections_json(collections_json: &str) -> Option<String> {
+        watchlist_plan::export_collections_json(collections_json)
+    }
+
+    // search_plan: catalog/transport resolution
+
+    pub fn resolve_transport_url_json(source_json: &str, addons_json: &str) -> Option<String> {
+        search_plan::resolve_transport_url_json(source_json, addons_json)
+    }
+
+    pub fn resolve_feed_option_genre_json(feed_option_json: &str, addons_json: &str) -> Option<String> {
+        search_plan::resolve_feed_option_genre_json(feed_option_json, addons_json)
     }
 }
 

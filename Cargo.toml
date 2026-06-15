@@ -15,19 +15,23 @@ required-features = ["uniffi-cli"]
 default = ["native"]
 native = [
     "dep:jni",
+    "dep:dolby_vision",
+    "uniffi-bindings",
 ]
-uniffi-cli = ["uniffi/cli"]
-wasm = []
+uniffi-bindings = ["dep:uniffi"]
+uniffi-cli = ["uniffi-bindings", "uniffi/cli"]
+wasm = ["dep:wasm-bindgen", "chrono/wasmbind"]
 
 [dependencies]
 base64 = "0.22"
 chrono = { version = "0.4.45", features = ["serde"] }
-dolby_vision = { git = "https://github.com/quietvoid/dovi_tool.git", package = "dolby_vision", default-features = false }
+dolby_vision = { git = "https://github.com/quietvoid/dovi_tool.git", rev = "ccf640939377ee19035bbf871040bf79d437fb6b", package = "dolby_vision", default-features = false, optional = true }
 jni = { version = "0.21", optional = true }
 regex = "1"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-uniffi = "0.31.1"
+uniffi = { version = "0.31.1", optional = true }
+wasm-bindgen = { version = "0.2", optional = true }
 
 [profile.release]
 opt-level = 3

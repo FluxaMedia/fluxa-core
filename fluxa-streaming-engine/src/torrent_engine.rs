@@ -14,7 +14,6 @@ use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
 use std::io::SeekFrom;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::thread;
 use std::time::Duration;
@@ -64,16 +63,24 @@ struct TorrentServerHandle {
 }
 
 static TORRENT_SERVER: OnceLock<Mutex<Option<TorrentServerHandle>>> = OnceLock::new();
-static TORRENT_SERVER_RUNNING: AtomicBool = AtomicBool::new(false);
 
 fn torrent_server_handle() -> &'static Mutex<Option<TorrentServerHandle>> {
     TORRENT_SERVER.get_or_init(|| Mutex::new(None))
 }
 
 pub fn start_torrent_server(cache_dir: &str, preferred_port: i32) -> Option<String> {
-    if TORRENT_SERVER_RUNNING.swap(true, Ordering::SeqCst) {
-        stop_torrent_server();
-        TORRENT_SERVER_RUNNING.store(true, Ordering::SeqCst);
+    // Stop any existing server first. The mutex is the single source of truth
+    // for whether the server is running — no separate AtomicBool needed.
+    {
+        let mut guard = torrent_server_handle().lock().ok()?;
+        if let Some(mut handle) = guard.take() {
+            if let Some(stop) = handle.stop.take() {
+                let _ = stop.send(());
+            }
+            if let Some(thread) = handle.thread.take() {
+                let _ = thread.join();
+            }
+        }
     }
 
     let cache_dir = PathBuf::from(cache_dir);
@@ -98,7 +105,6 @@ pub fn start_torrent_server(cache_dir: &str, preferred_port: i32) -> Option<Stri
             Ok(runtime) => runtime,
             Err(error) => {
                 let _ = ready_tx.send(Err(error.to_string()));
-                TORRENT_SERVER_RUNNING.store(false, Ordering::SeqCst);
                 return;
             }
         };
@@ -108,7 +114,6 @@ pub fn start_torrent_server(cache_dir: &str, preferred_port: i32) -> Option<Stri
                 Ok(listener) => listener,
                 Err(error) => {
                     let _ = ready_tx.send(Err(error.to_string()));
-                    TORRENT_SERVER_RUNNING.store(false, Ordering::SeqCst);
                     return;
                 }
             };
@@ -136,7 +141,6 @@ pub fn start_torrent_server(cache_dir: &str, preferred_port: i32) -> Option<Stri
                 Ok(session) => session,
                 Err(error) => {
                     let _ = ready_tx.send(Err(format!("{error:#}")));
-                    TORRENT_SERVER_RUNNING.store(false, Ordering::SeqCst);
                     return;
                 }
             };
@@ -159,7 +163,6 @@ pub fn start_torrent_server(cache_dir: &str, preferred_port: i32) -> Option<Stri
             });
             let _ = ready_tx.send(Ok(()));
             let _ = server.await;
-            TORRENT_SERVER_RUNNING.store(false, Ordering::SeqCst);
         });
     });
 
@@ -176,10 +179,7 @@ pub fn start_torrent_server(cache_dir: &str, preferred_port: i32) -> Option<Stri
             }))
             .ok()
         }
-        Err(_) => {
-            TORRENT_SERVER_RUNNING.store(false, Ordering::SeqCst);
-            None
-        }
+        Err(_) => None,
     }
 }
 
@@ -187,9 +187,8 @@ pub fn stop_torrent_server() -> bool {
     let Some(mut handle) = torrent_server_handle()
         .lock()
         .ok()
-        .and_then(|mut handle| handle.take())
+        .and_then(|mut guard| guard.take())
     else {
-        TORRENT_SERVER_RUNNING.store(false, Ordering::SeqCst);
         return false;
     };
     if let Some(stop) = handle.stop.take() {
@@ -198,7 +197,6 @@ pub fn stop_torrent_server() -> bool {
     if let Some(thread) = handle.thread.take() {
         let _ = thread.join();
     }
-    TORRENT_SERVER_RUNNING.store(false, Ordering::SeqCst);
     true
 }
 
@@ -223,7 +221,7 @@ async fn torrents(State(state): State<EngineState>, Json(request): Json<TorrRequ
     let action = request.action.to_ascii_lowercase();
     match action.as_str() {
         "add" => {
-            match ensure_torrent(&state, request.link.as_deref(), request.title.as_deref()).await {
+            match ensure_torrent(&state, request.link.as_deref(), request.title.as_deref(), request.file_id).await {
                 Ok((id, details)) => {
                     let focus = request
                         .file_id
@@ -247,7 +245,7 @@ async fn torrents(State(state): State<EngineState>, Json(request): Json<TorrRequ
             {
                 Some(id) => id,
                 None => {
-                    match ensure_torrent(&state, request.link.as_deref(), request.title.as_deref())
+                    match ensure_torrent(&state, request.link.as_deref(), request.title.as_deref(), None)
                         .await
                     {
                         Ok((id, _)) => id,
@@ -280,7 +278,7 @@ async fn stream_fname(
 
     // Stat requests return immediately — no retry loop (used by Kotlin status polling)
     if query.stat.is_some() {
-        return match ensure_torrent(&state, Some(&query.link), query.title.as_deref()).await {
+        return match ensure_torrent(&state, Some(&query.link), query.title.as_deref(), None).await {
             Ok((id, details)) => status_response(&state, id, Some(details)).await.into_response(),
             Err(_) => (StatusCode::SERVICE_UNAVAILABLE, axum::Json(serde_json::json!({
                 "stat": 0, "preload": 0, "file_stats": [], "download_speed": 0,
@@ -293,7 +291,7 @@ async fn stream_fname(
     // once is enough — if metadata isn't ready yet, return 503 and let the
     // player retry the GET. No outer retry loop (the old 60s loop just hid
     // the latency from the user without saving any time).
-    let (id, details) = match ensure_torrent(&state, Some(&query.link), query.title.as_deref()).await {
+    let (id, details) = match ensure_torrent(&state, Some(&query.link), query.title.as_deref(), query.index).await {
         Ok(value) => value,
         Err(error) => {
             eprintln!("[TorrServer] ensure_torrent failed: {error}");
@@ -305,58 +303,66 @@ async fn stream_fname(
         .unwrap_or_else(|| largest_file_id(&details).unwrap_or(0));
     eprintln!("[TorrServer] streaming torrent={id} file={file_id} files={}", details.files.as_ref().map(|f| f.len()).unwrap_or(0));
     prioritize_stream_file(&state, id, file_id).await;
-    // Retry until rqbit transitions Initializing→Live. Even if preload is full, api_stream
-    // fails while state is Initializing. 400 × 50ms = 20s covers the hash-check case
-    // with finer polling so we start serving bytes the moment rqbit is ready.
-    let mut last_stream_err = String::new();
-    for attempt in 0..400u32 {
-        match state.api.api_stream(TorrentIdOrHash::Id(id), file_id) {
-            Ok(mut stream) => {
-                let mut status = StatusCode::OK;
-                let mut output_headers = HeaderMap::new();
-                output_headers.insert("Accept-Ranges", HeaderValue::from_static("bytes"));
-                if let Ok(mime) = state.api.torrent_file_mime_type(TorrentIdOrHash::Id(id), file_id) {
-                    if let Ok(value) = HeaderValue::from_str(mime) {
-                        output_headers.insert("Content-Type", value);
-                    }
-                }
-                let total_len = stream.len();
-                if let Some((start, end)) = parse_range(headers.get("Range"), total_len) {
-                    match stream.seek(SeekFrom::Start(start)).await {
-                        Ok(_) => {
-                            status = StatusCode::PARTIAL_CONTENT;
-                            let end = end.unwrap_or_else(|| total_len.saturating_sub(1));
-                            let length = end.saturating_sub(start).saturating_add(1);
-                            insert_header(&mut output_headers, "Content-Length", length.to_string());
-                            insert_header(&mut output_headers, "Content-Range", format!("bytes {start}-{end}/{total_len}"));
-                        }
-                        Err(error) => {
-                            eprintln!("[TorrServer] seek failed torrent={id} file={file_id} start={start} len={total_len}: {error}");
-                            insert_header(&mut output_headers, "Content-Length", total_len.to_string());
-                        }
-                    }
-                } else {
-                    insert_header(&mut output_headers, "Content-Length", total_len.to_string());
-                }
-                let body = Body::from_stream(ReaderStream::with_capacity(stream, 65536));
-                return (status, output_headers, body).into_response();
-            }
-            Err(e) => {
-                last_stream_err = format!("{e:#}");
-                if attempt == 399 {
-                    eprintln!("[TorrServer] api_stream failed after retries torrent={id} file={file_id}: {last_stream_err}");
-                }
-                tokio::time::sleep(Duration::from_millis(50)).await;
-            }
+
+    // Wait for rqbit to leave Initializing state before attempting to stream.
+    // api_stream fails immediately with "invalid state: initializing" until this
+    // transition happens, so polling was wasting 50ms slots per attempt.
+    // wait_until_initialized uses a notify channel and fires as soon as it's ready.
+    if let Ok(handle) = state.api.mgr_handle(TorrentIdOrHash::Id(id)) {
+        if let Err(e) = tokio::time::timeout(
+            Duration::from_secs(60),
+            handle.wait_until_initialized(),
+        )
+        .await
+        {
+            eprintln!("[TorrServer] wait_until_initialized timed out torrent={id}: {e}");
+            return error_response(StatusCode::SERVICE_UNAVAILABLE, "torrent init timed out");
         }
     }
-    error_response(StatusCode::NOT_FOUND, last_stream_err)
+
+    match state.api.api_stream(TorrentIdOrHash::Id(id), file_id) {
+        Ok(mut stream) => {
+            let mut status = StatusCode::OK;
+            let mut output_headers = HeaderMap::new();
+            output_headers.insert("Accept-Ranges", HeaderValue::from_static("bytes"));
+            if let Ok(mime) = state.api.torrent_file_mime_type(TorrentIdOrHash::Id(id), file_id) {
+                if let Ok(value) = HeaderValue::from_str(mime) {
+                    output_headers.insert("Content-Type", value);
+                }
+            }
+            let total_len = stream.len();
+            if let Some((start, end)) = parse_range(headers.get("Range"), total_len) {
+                match stream.seek(SeekFrom::Start(start)).await {
+                    Ok(_) => {
+                        status = StatusCode::PARTIAL_CONTENT;
+                        let end = end.unwrap_or_else(|| total_len.saturating_sub(1));
+                        let length = end.saturating_sub(start).saturating_add(1);
+                        insert_header(&mut output_headers, "Content-Length", length.to_string());
+                        insert_header(&mut output_headers, "Content-Range", format!("bytes {start}-{end}/{total_len}"));
+                    }
+                    Err(error) => {
+                        eprintln!("[TorrServer] seek failed torrent={id} file={file_id} start={start} len={total_len}: {error}");
+                        insert_header(&mut output_headers, "Content-Length", total_len.to_string());
+                    }
+                }
+            } else {
+                insert_header(&mut output_headers, "Content-Length", total_len.to_string());
+            }
+            let body = Body::from_stream(ReaderStream::with_capacity(stream, 65536));
+            (status, output_headers, body).into_response()
+        }
+        Err(e) => {
+            eprintln!("[TorrServer] api_stream failed torrent={id} file={file_id}: {e:#}");
+            error_response(StatusCode::NOT_FOUND, format!("{e:#}"))
+        }
+    }
 }
 
 async fn ensure_torrent(
     state: &EngineState,
     link: Option<&str>,
     title: Option<&str>,
+    only_file: Option<usize>,
 ) -> Result<(usize, TorrentDetailsResponse), String> {
     let link = link
         .map(str::trim)
@@ -377,6 +383,11 @@ async fn ensure_torrent(
         read_write_timeout: Some(Duration::from_secs(20)),
         ..Default::default()
     });
+    // Limit rqbit initialization to just the target file so the Initializing
+    // hash-check covers one file instead of every file in the torrent.
+    if let Some(file_id) = only_file {
+        options.only_files = Some(vec![file_id]);
+    }
     let response = state
         .api
         .api_add_torrent(AddTorrent::Url(link.to_string().into()), Some(options))

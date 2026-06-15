@@ -284,7 +284,7 @@ checksum = "217698eaf96b4a3f0bc4f3662aaa55bdf913cd54d7204591faa790070c6d0853"
 [[package]]
 name = "dolby_vision"
 version = "3.3.2"
-source = "git+https://github.com/quietvoid/dovi_tool.git#ccf640939377ee19035bbf871040bf79d437fb6b"
+source = "git+https://github.com/quietvoid/dovi_tool.git?rev=ccf640939377ee19035bbf871040bf79d437fb6b#ccf640939377ee19035bbf871040bf79d437fb6b"
 dependencies = [
  "anyhow",
  "bitvec",
@@ -333,6 +333,7 @@ dependencies = [
  "serde",
  "serde_json",
  "uniffi",
+ "wasm-bindgen",
 ]
 
 [[package]]

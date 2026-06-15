@@ -5,6 +5,12 @@ pub fn fluxa_core_version() -> String {
     env!("CARGO_PKG_VERSION").to_string()
 }
 
+/// Funnel entry point — Swift calls this instead of binding each helper.
+#[uniffi::export]
+pub fn core_invoke(method: String, args_json: String) -> String {
+    crate::ffi::core_invoke(&method, &args_json)
+}
+
 #[uniffi::export]
 pub fn create_headless_engine_json(initial_json: String) -> i64 {
     headless_engine::create_headless_engine(&initial_json) as i64

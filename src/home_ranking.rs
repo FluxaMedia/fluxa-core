@@ -1,4 +1,5 @@
 use crate::content_identity::{imdb_id, normalized_billboard_title};
+use crate::search_plan::resolve_transport_url_json;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
@@ -789,10 +790,7 @@ pub(crate) fn build_billboard_pool_json(
 
 fn iso_date_part(date_str: &str) -> Option<&str> {
     let s = date_str.trim();
-    if s.len() < 10 {
-        return None;
-    }
-    let date_part = &s[..10];
+    let date_part = s.get(..10)?;
     let b = date_part.as_bytes();
     if b[4] == b'-' && b[7] == b'-' {
         Some(date_part)
@@ -844,4 +842,147 @@ pub(crate) fn normalize_home_catalog_items_json(
         .collect();
 
     serde_json::to_string(&result).ok()
+}
+
+pub(crate) fn build_home_collection_shelves_json(profile_json: &str, addons_json: &str) -> Option<String> {
+    let profile: Value = serde_json::from_str(profile_json).ok()?;
+    let collections = match profile.get("libraryCollections").and_then(Value::as_array) {
+        Some(c) => c,
+        None => return serde_json::to_string(&json!({ "pinnedShelves": [], "regularShelves": [], "hiddenFolderCategories": [] })).ok(),
+    };
+
+    let mut pinned: Vec<Value> = Vec::new();
+    let mut regular: Vec<Value> = Vec::new();
+    let mut hidden: Vec<Value> = Vec::new();
+
+    for (ci, col) in collections.iter().enumerate() {
+        let c = match col.as_object() {
+            Some(o) => o,
+            None => continue,
+        };
+        if !c.get("showOnHome").and_then(Value::as_bool).unwrap_or(false) {
+            continue;
+        }
+        let folders = c.get("folders").and_then(Value::as_array).map(Vec::as_slice).unwrap_or(&[]);
+        if folders.is_empty() {
+            continue;
+        }
+
+        let mut tiles: Vec<Value> = Vec::new();
+
+        for (fi, f) in folders.iter().enumerate() {
+            let folder = match f.as_object() {
+                Some(o) => o,
+                None => continue,
+            };
+            let folder_title = folder.get("title").and_then(Value::as_str).unwrap_or("").to_string();
+            if folder_title.is_empty() {
+                continue;
+            }
+            let folder_id = folder.get("id").and_then(Value::as_str)
+                .map(str::to_string)
+                .unwrap_or_else(|| format!("col{ci}_f{fi}"));
+
+            let mut resolved: Vec<Value> = Vec::new();
+
+            if let Some(sources) = folder.get("catalogSources").and_then(Value::as_array) {
+                for s in sources {
+                    if s.get("catalogId").and_then(Value::as_str).is_none() {
+                        continue;
+                    }
+                    if let Some(t_url) = resolve_transport_url_json(&s.to_string(), addons_json) {
+                        let catalog_id = s.get("catalogId").and_then(Value::as_str).unwrap_or("");
+                        let content_type = s.get("type").and_then(Value::as_str).unwrap_or("movie");
+                        let mut entry = json!({ "transportUrl": t_url, "catalogId": catalog_id, "type": content_type });
+                        if let Some(g) = folder.get("genre").and_then(Value::as_str) {
+                            entry["genre"] = Value::String(g.to_string());
+                        }
+                        resolved.push(entry);
+                    }
+                }
+            }
+
+            if resolved.is_empty() {
+                if let Some(catalog_id) = folder.get("catalogId").and_then(Value::as_str) {
+                    let src = json!({ "catalogId": catalog_id, "type": "movie" });
+                    if let Some(t_url) = resolve_transport_url_json(&src.to_string(), addons_json) {
+                        let mut entry = json!({ "transportUrl": t_url, "catalogId": catalog_id, "type": "movie" });
+                        if let Some(g) = folder.get("genre").and_then(Value::as_str) {
+                            entry["genre"] = Value::String(g.to_string());
+                        }
+                        resolved.push(entry);
+                    }
+                }
+            }
+
+            if !resolved.is_empty() {
+                let mut hcat = json!({
+                    "id": folder_id,
+                    "name": folder_title,
+                    "type": "collection_folder",
+                    "items": [],
+                    "catalogSources": resolved,
+                    "canLoadMore": false,
+                });
+                if let Some(g) = folder.get("genre").and_then(Value::as_str) {
+                    hcat["addonGenre"] = Value::String(g.to_string());
+                }
+                hidden.push(hcat);
+            }
+
+            let img_url = folder.get("coverImageUrl").and_then(Value::as_str)
+                .or_else(|| folder.get("imageUrl").and_then(Value::as_str))
+                .unwrap_or("");
+            let bg_url = folder.get("heroBackdropUrl").and_then(Value::as_str).unwrap_or(img_url);
+            let focus_gif_enabled = folder.get("focusGifEnabled").and_then(Value::as_bool).unwrap_or(true);
+
+            let mut tile = json!({
+                "id": folder_id,
+                "type": "catalog_folder",
+                "name": folder_title,
+                "poster": if img_url.is_empty() { Value::Null } else { Value::String(img_url.to_string()) },
+                "background": if bg_url.is_empty() { Value::Null } else { Value::String(bg_url.to_string()) },
+                "reason": folder.get("shape").and_then(Value::as_str).unwrap_or("poster"),
+            });
+            if let Some(logo) = folder.get("titleLogoUrl").and_then(Value::as_str) {
+                tile["logo"] = Value::String(logo.to_string());
+            }
+            if let Some(info) = folder.get("catalogTitle").and_then(Value::as_str) {
+                tile["releaseInfo"] = Value::String(info.to_string());
+            }
+            if focus_gif_enabled {
+                if let Some(gif) = folder.get("focusGifUrl").and_then(Value::as_str) {
+                    tile["focusGifUrl"] = Value::String(gif.to_string());
+                }
+            }
+            tiles.push(tile);
+        }
+
+        if tiles.is_empty() {
+            continue;
+        }
+
+        let shelf_id = c.get("id").and_then(Value::as_str)
+            .map(str::to_string)
+            .unwrap_or_else(|| format!("col{ci}"));
+        let shelf = json!({
+            "id": shelf_id,
+            "name": c.get("title").and_then(Value::as_str).unwrap_or(""),
+            "type": "collection",
+            "items": tiles,
+            "canLoadMore": false,
+        });
+
+        if c.get("pinToTop").and_then(Value::as_bool).unwrap_or(false) {
+            pinned.push(shelf);
+        } else {
+            regular.push(shelf);
+        }
+    }
+
+    serde_json::to_string(&json!({
+        "pinnedShelves": pinned,
+        "regularShelves": regular,
+        "hiddenFolderCategories": hidden,
+    })).ok()
 }

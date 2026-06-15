@@ -158,6 +158,10 @@ impl HeadlessEngine {
                 language,
                 profile,
             ),
+            AppAction::DetailStreamsAppended {
+                streams,
+                available_addons,
+            } => detail::dispatch_streams_appended(self, streams, available_addons),
             AppAction::DetailSelectedAddonChanged { addon } => {
                 detail::dispatch_selected_addon_changed(self, addon)
             }
@@ -567,6 +571,8 @@ impl HeadlessEngine {
     }
 
     fn result_json(&self, effects: Vec<EffectEnvelope>) -> Option<String> {
+        // When a complete_effect handler produces no new effects, we return all
+        // remaining pendingEffects so the platform can drain the queue in one pass.
         let visible_effects = if effects.is_empty() {
             self.state["pendingEffects"]
                 .as_array()

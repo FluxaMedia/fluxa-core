@@ -159,6 +159,47 @@ pub(super) fn dispatch_streams(
     )]
 }
 
+pub(super) fn dispatch_streams_appended(
+    engine: &mut HeadlessEngine,
+    streams: Vec<Value>,
+    available_addons: Vec<String>,
+) -> Vec<EffectEnvelope> {
+    if !engine.state["detail"]["isLoadingStreams"]
+        .as_bool()
+        .unwrap_or(false)
+    {
+        return vec![];
+    }
+    let mut merged: Vec<Value> = engine.state["detail"]["streams"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
+    merged.extend(streams);
+    engine.state["detail"]["streams"] = json!(merged);
+    engine.state["detail"]["visibleStreams"] = visible_streams(
+        &engine.state["detail"]["streams"],
+        engine.state["detail"]["selectedAddon"].as_str(),
+    );
+    let mut all_addons: Vec<String> = engine.state["detail"]["availableAddons"]
+        .as_array()
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str().map(str::to_string))
+                .collect()
+        })
+        .unwrap_or_default();
+    for addon in available_addons {
+        if !all_addons.contains(&addon) {
+            all_addons.push(addon);
+        }
+    }
+    engine.state["detail"]["availableAddons"] = json!(all_addons);
+    engine.state["detail"]["hasStreamProviders"] = json!(!value_array_is_empty(
+        &engine.state["detail"]["streams"]
+    ));
+    vec![]
+}
+
 pub(super) fn dispatch_selected_addon_changed(
     engine: &mut HeadlessEngine,
     addon: Option<String>,

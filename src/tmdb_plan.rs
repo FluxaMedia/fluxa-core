@@ -40,7 +40,7 @@ pub(crate) fn tmdb_meta_to_meta_json(item_json: &str, requested_type: &str, lang
         "name": name,
         "poster": poster,
         "background": background,
-        "releaseInfo": released.map(|r| &r[..4.min(r.len())]),
+        "releaseInfo": released.map(|r| r.get(..4).unwrap_or(r)),
     })).ok()?)
 }
 

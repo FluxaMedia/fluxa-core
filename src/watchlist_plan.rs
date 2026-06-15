@@ -186,6 +186,196 @@ pub(crate) fn playback_progress_merge_plan_json(request_json: &str) -> Option<St
     .ok()
 }
 
+// ── Collections import/export ─────────────────────────────────────────────────
+
+fn cleaned_url(raw: Option<&str>) -> Option<String> {
+    raw.map(str::trim).filter(|s| !s.is_empty()).map(str::to_string)
+}
+
+fn cleaned_artwork_url(raw: Option<&str>) -> Option<String> {
+    let s = raw?.trim().trim_matches('\'').trim_matches('"').trim();
+    if s.is_empty() { return None; }
+    let with_scheme = if s.starts_with("//") { format!("https:{s}") } else { s.to_string() };
+    let normalized = if let Some(caps) = regex::Regex::new(
+        r"^https://github\.com/([^/]+)/([^/]+)/blob/([^/]+)/(.+)$"
+    ).ok().and_then(|re| re.captures(&with_scheme)) {
+        format!("https://raw.githubusercontent.com/{}/{}/{}/{}",
+            &caps[1], &caps[2], &caps[3], &caps[4])
+    } else {
+        with_scheme
+    };
+    Some(normalized.replace(' ', "%20"))
+}
+
+fn pick_str<'a>(obj: &'a serde_json::Map<String, Value>, keys: &[&str]) -> Option<&'a str> {
+    for k in keys { if let Some(Value::String(s)) = obj.get(*k) { return Some(s.as_str()); } }
+    None
+}
+
+fn normalize_shape(value: Option<&str>) -> &'static str {
+    match value.map(|s| s.trim().to_uppercase()).as_deref() {
+        Some("LANDSCAPE") | Some("WIDE") => "wide",
+        Some("SQUARE") => "square",
+        _ => "poster",
+    }
+}
+
+fn export_shape(value: Option<&str>) -> &'static str {
+    match value.map(str::to_lowercase).as_deref() {
+        Some("wide") | Some("landscape") => "LANDSCAPE",
+        Some("square") => "SQUARE",
+        _ => "POSTER",
+    }
+}
+
+/// Parses a raw JSON string (array or single object) of user collections in the
+/// portable cross-platform exchange format and normalises it into the internal
+/// `UserCollection[]` representation used by the desktop/Android apps.
+// FNV-1a over the title: a wasm-safe, deterministic id suffix for imported
+// entries that arrive without one (re-importing the same file is idempotent).
+fn stable_suffix(seed: &str) -> u64 {
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for b in seed.as_bytes() {
+        h ^= *b as u64;
+        h = h.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    h
+}
+
+pub(crate) fn import_collections_json(raw_json: &str) -> Option<String> {
+    let parsed: Value = serde_json::from_str(raw_json).ok()?;
+    let arr: Vec<&Value> = if parsed.is_array() {
+        parsed.as_array().unwrap().iter().collect()
+    } else {
+        vec![&parsed]
+    };
+
+    let collections: Vec<Value> = arr.iter().enumerate().filter_map(|(i, col)| {
+        let col = col.as_object()?;
+        let title = col.get("title")?.as_str()?.trim().to_string();
+        if title.is_empty() { return None; }
+        let id = col.get("id").and_then(Value::as_str).filter(|s| !s.trim().is_empty())
+            .map(str::to_string)
+            .unwrap_or_else(|| format!("imported_{}_{i}", stable_suffix(&title)));
+
+        let raw_folders = col.get("folders").and_then(Value::as_array).map(Vec::as_slice).unwrap_or(&[]);
+        let folders: Vec<Value> = raw_folders.iter().enumerate().filter_map(|(fi, f)| {
+            let folder = f.as_object()?;
+            let folder_title = folder.get("title")?.as_str()?.trim().to_string();
+            if folder_title.is_empty() { return None; }
+            let fid = folder.get("id").and_then(Value::as_str).filter(|s| !s.trim().is_empty())
+                .map(str::to_string)
+                .unwrap_or_else(|| format!("folder_{}_{fi}", stable_suffix(&folder_title)));
+
+            let raw_sources = folder.get("catalogSources").and_then(Value::as_array).map(Vec::as_slice).unwrap_or(&[]);
+            let mut sources: Vec<Value> = raw_sources.iter().filter_map(|s| {
+                let o = s.as_object()?;
+                let catalog_id = o.get("catalogId")?.as_str().filter(|s| !s.is_empty())?;
+                Some(json!({
+                    "catalogId": catalog_id,
+                    "type": o.get("type").and_then(Value::as_str).unwrap_or("movie"),
+                    "addonId": o.get("addonId").and_then(Value::as_str),
+                }))
+            }).collect();
+
+            if sources.is_empty() {
+                if let Some(fallback_id) = folder.get("catalogId").and_then(Value::as_str).filter(|s| !s.is_empty()) {
+                    sources.push(json!({ "catalogId": fallback_id, "type": "movie" }));
+                }
+            }
+
+            let cover_image_url = cleaned_artwork_url(pick_str(folder, &["coverImageUrl","coverUrl","coverImage","cover","poster","thumbnail","thumb"]));
+            let image_url = cleaned_artwork_url(pick_str(folder, &["imageUrl","image","image_url","posterUrl","poster_url"]));
+            let effective_cover = cover_image_url.or(image_url);
+            let hero_backdrop_url = cleaned_url(pick_str(folder, &["heroBackdropUrl","background","backdrop","backgroundUrl","backdropUrl"]));
+            let shape = normalize_shape(folder.get("tileShape").or(folder.get("shape")).and_then(Value::as_str));
+
+            Some(json!({
+                "id": fid,
+                "title": folder_title,
+                "catalogTitle": folder.get("catalogTitle").and_then(Value::as_str).unwrap_or(&folder_title),
+                "catalogId": sources.first().and_then(|s| s.get("catalogId")).and_then(Value::as_str),
+                "genre": folder.get("genre").and_then(Value::as_str),
+                "shape": shape,
+                "hideTitle": folder.get("hideTitle").and_then(Value::as_bool).unwrap_or(false),
+                "focusGifEnabled": folder.get("focusGifEnabled").and_then(Value::as_bool).unwrap_or(true),
+                "catalogSources": if sources.is_empty() { Value::Null } else { json!(sources) },
+                "coverEmoji": folder.get("coverEmoji").and_then(Value::as_str),
+                "imageUrl": effective_cover,
+                "coverImageUrl": effective_cover,
+                "focusGifUrl": cleaned_url(folder.get("focusGifUrl").and_then(Value::as_str)),
+                "titleLogoUrl": cleaned_url(folder.get("titleLogoUrl").and_then(Value::as_str)),
+                "heroBackdropUrl": hero_backdrop_url,
+            }))
+        }).collect();
+
+        let first_folder_cover = raw_folders.first()
+            .and_then(|f| f.as_object())
+            .and_then(|f| cleaned_artwork_url(pick_str(f, &["coverImageUrl","coverUrl","coverImage","cover","poster","thumbnail","thumb"]))
+                .or_else(|| cleaned_artwork_url(pick_str(f, &["imageUrl","image","image_url","posterUrl","poster_url"]))));
+
+        Some(json!({
+            "id": id,
+            "title": title,
+            "imageUrl": first_folder_cover,
+            "showOnHome": col.get("showOnHome").and_then(Value::as_bool).unwrap_or(true),
+            "itemIds": [],
+            "folders": folders,
+            "showAllTab": col.get("showAllTab").and_then(Value::as_bool).unwrap_or(true),
+            "viewMode": col.get("viewMode").and_then(Value::as_str).unwrap_or("FOLLOW_LAYOUT"),
+            "pinToTop": col.get("pinToTop").and_then(Value::as_bool).unwrap_or(false),
+            "focusGlowEnabled": col.get("focusGlowEnabled").and_then(Value::as_bool).unwrap_or(true),
+        }))
+    }).collect();
+
+    serde_json::to_string(&collections).ok()
+}
+
+/// Serialises the internal `UserCollection[]` into the portable exchange format.
+pub(crate) fn export_collections_json(collections_json: &str) -> Option<String> {
+    let collections: Vec<Value> = serde_json::from_str(collections_json).ok()?;
+    let data: Vec<Value> = collections.iter().map(|col| {
+        let folders_raw = col.get("folders").and_then(Value::as_array).map(Vec::as_slice).unwrap_or(&[]);
+        let folders: Vec<Value> = folders_raw.iter().map(|folder| {
+            let catalog_sources: Vec<Value> = folder.get("catalogSources")
+                .and_then(Value::as_array)
+                .filter(|arr| !arr.is_empty())
+                .map(|arr| arr.clone())
+                .unwrap_or_else(|| {
+                    if let Some(cid) = folder.get("catalogId").and_then(Value::as_str) {
+                        vec![json!({ "catalogId": cid, "type": "movie" })]
+                    } else {
+                        vec![]
+                    }
+                });
+            json!({
+                "id": folder.get("id"),
+                "title": folder.get("title"),
+                "tileShape": export_shape(folder.get("shape").and_then(Value::as_str)),
+                "hideTitle": folder.get("hideTitle").and_then(Value::as_bool).unwrap_or(false),
+                "focusGifEnabled": folder.get("focusGifEnabled").and_then(Value::as_bool).unwrap_or(true),
+                "catalogSources": catalog_sources,
+                "coverEmoji": folder.get("coverEmoji"),
+                "coverImageUrl": folder.get("coverImageUrl").or_else(|| folder.get("imageUrl")),
+                "focusGifUrl": folder.get("focusGifUrl"),
+                "titleLogoUrl": folder.get("titleLogoUrl"),
+                "heroBackdropUrl": folder.get("heroBackdropUrl"),
+            })
+        }).collect();
+        json!({
+            "id": col.get("id"),
+            "title": col.get("title"),
+            "showAllTab": col.get("showAllTab").and_then(Value::as_bool).unwrap_or(true),
+            "viewMode": col.get("viewMode").and_then(Value::as_str).unwrap_or("FOLLOW_LAYOUT"),
+            "showOnHome": col.get("showOnHome").and_then(Value::as_bool).unwrap_or(true),
+            "pinToTop": col.get("pinToTop").and_then(Value::as_bool).unwrap_or(false),
+            "focusGlowEnabled": col.get("focusGlowEnabled").and_then(Value::as_bool).unwrap_or(true),
+            "folders": folders,
+        })
+    }).collect();
+    serde_json::to_string(&data).ok()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -274,4 +464,66 @@ mod tests {
         assert_eq!(result["lastStreamUrl"], "http://old");
         assert_eq!(result["videoChanged"], false);
     }
+}
+
+pub(crate) fn library_apply_mark_watched_json(lib_json: &str, video_ids_json: &str) -> Option<String> {
+    use crate::library_state::{build_continue_watching_from_progress_json, remember_last_watched_episodes_json};
+
+    let updated_lib_str = remember_last_watched_episodes_json(lib_json, video_ids_json);
+    let mut lib: serde_json::Map<String, Value> = serde_json::from_str(&updated_lib_str).ok()?;
+
+    let video_ids: Vec<String> = serde_json::from_str(video_ids_json).unwrap_or_default();
+    let watched: std::collections::HashSet<&str> = video_ids.iter().map(String::as_str).collect();
+
+    if let Some(ext_cw) = lib.get("externalContinueWatching").and_then(Value::as_array).cloned() {
+        let filtered: Vec<Value> = ext_cw
+            .into_iter()
+            .filter(|item| {
+                let last_vid = item.get("lastVideoId").and_then(Value::as_str).unwrap_or("");
+                last_vid.is_empty() || !watched.contains(last_vid)
+            })
+            .collect();
+        lib.insert("externalContinueWatching".into(), filtered.into());
+    }
+
+    let progress_map = lib.get("progress").and_then(Value::as_object).cloned().unwrap_or_default();
+    let cleaned: serde_json::Map<String, Value> = progress_map
+        .into_iter()
+        .filter(|(_, entry)| {
+            let last_vid = entry.get("lastVideoId").and_then(Value::as_str).unwrap_or("");
+            last_vid.is_empty() || !watched.contains(last_vid)
+        })
+        .collect();
+
+    let progress_json = serde_json::to_string(&cleaned).unwrap_or_else(|_| "{}".to_string());
+    let cw = build_continue_watching_from_progress_json(&progress_json)
+        .and_then(|s| serde_json::from_str::<Value>(&s).ok())
+        .unwrap_or_else(|| Value::Array(Vec::new()));
+
+    lib.insert("progress".into(), Value::Object(cleaned));
+    lib.insert("continueWatching".into(), cw);
+
+    serde_json::to_string(&Value::Object(lib)).ok()
+}
+
+pub(crate) fn merge_progress_meta_json(incoming_meta_json: &str, existing_meta_json: &str) -> String {
+    let incoming: Value = serde_json::from_str(incoming_meta_json).unwrap_or(json!({}));
+    let existing: Value = serde_json::from_str(existing_meta_json).unwrap_or(json!({}));
+
+    let pick = |key: &str| -> Value {
+        incoming
+            .get(key)
+            .filter(|v| !v.is_null())
+            .cloned()
+            .or_else(|| existing.get(key).cloned())
+            .unwrap_or(Value::Null)
+    };
+
+    let mut merged = incoming.clone();
+    if let Some(obj) = merged.as_object_mut() {
+        obj.insert("poster".into(), pick("poster"));
+        obj.insert("background".into(), pick("background"));
+        obj.insert("logo".into(), pick("logo"));
+    }
+    serde_json::to_string(&merged).unwrap_or_else(|_| incoming_meta_json.to_string())
 }

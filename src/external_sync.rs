@@ -1,4 +1,4 @@
-use crate::content_identity::{base_content_id, parse_episode_locator};
+use crate::content_identity::{base_content_id, parse_episode_locator, parse_video_id_json};
 use serde_json::{json, Map, Value};
 
 const TRAKT_API_BASE_URL: &str = "https://api.trakt.tv";
@@ -519,6 +519,189 @@ pub(crate) fn simkl_watched_to_ids_json(shows_json: &str, movies_json: &str) -> 
         }
     }
     serde_json::to_string(&Value::Object(ids)).ok()
+}
+
+/// Replaces or merges external continue-watching items from one provider.
+/// Items from other providers are kept; items from `provider` are replaced.
+/// Deduplicates by `id`, keeping the entry with the most recent `savedAt`.
+pub(crate) fn replace_external_continue_watching_json(
+    existing_json: &str,
+    provider: Option<&str>,
+    items_json: &str,
+) -> String {
+    let existing: Vec<Value> = serde_json::from_str(existing_json).unwrap_or_default();
+    let incoming: Vec<Value> = serde_json::from_str(items_json).unwrap_or_default();
+
+    let incoming_filtered: Vec<Value> = incoming
+        .into_iter()
+        .filter(|item| {
+            let id = item.get("id").and_then(Value::as_str).unwrap_or("").trim();
+            let offset = item.get("timeOffset").and_then(Value::as_f64).unwrap_or(0.0);
+            let duration = item.get("duration").and_then(Value::as_f64).unwrap_or(0.0);
+            !id.is_empty() && offset > 0.0 && duration > 0.0
+        })
+        .collect();
+
+    let base: Vec<Value> = if let Some(prov) = provider {
+        existing
+            .into_iter()
+            .filter(|item| item.get("reason").and_then(Value::as_str) != Some(prov))
+            .collect()
+    } else {
+        Vec::new()
+    };
+
+    let combined = base.into_iter().chain(incoming_filtered);
+    let mut by_id: std::collections::HashMap<String, Value> = std::collections::HashMap::new();
+    for item in combined {
+        let id = item.get("id").and_then(Value::as_str).unwrap_or("").to_string();
+        if id.is_empty() { continue; }
+        let item_time = item.get("savedAt").and_then(Value::as_str).unwrap_or("").to_string();
+        match by_id.get(&id) {
+            Some(prev) => {
+                let prev_time = prev.get("savedAt").and_then(Value::as_str).unwrap_or("");
+                if item_time.as_str() > prev_time { by_id.insert(id, item); }
+            }
+            None => { by_id.insert(id, item); }
+        }
+    }
+
+    let result: Vec<Value> = by_id.into_values().collect();
+    serde_json::to_string(&result).unwrap_or_else(|_| "[]".to_string())
+}
+
+pub(crate) fn trakt_playback_items_dedup_json(items_json: &str) -> Option<String> {
+    let items: Vec<Value> = serde_json::from_str(items_json).ok()?;
+
+    fn saved_at_str<'a>(item: &'a Value) -> &'a str {
+        item.get("savedAt").and_then(Value::as_str).unwrap_or("")
+    }
+
+    let mut best: std::collections::HashMap<String, Value> = std::collections::HashMap::new();
+    for item in items {
+        let id = item.get("id").and_then(Value::as_str).unwrap_or("").to_string();
+        if id.is_empty() {
+            continue;
+        }
+        let cur = saved_at_str(&item).to_string();
+        match best.get(&id) {
+            None => { best.insert(id, item); }
+            Some(existing) if cur.as_str() > saved_at_str(existing) => { best.insert(id, item); }
+            _ => {}
+        }
+    }
+
+    let mut deduped: Vec<Value> = best.into_values().collect();
+    deduped.sort_by(|a, b| saved_at_str(b).cmp(saved_at_str(a)));
+    serde_json::to_string(&deduped).ok()
+}
+
+pub(crate) fn trakt_mark_watched_body_json(video_ids_json: &str) -> Option<String> {
+    let video_ids: Vec<String> = serde_json::from_str(video_ids_json).ok()?;
+    let mut movie_ids: Vec<Value> = Vec::new();
+    let mut shows: std::collections::HashMap<String, (Value, std::collections::BTreeMap<i64, Vec<i64>>)> =
+        std::collections::HashMap::new();
+
+    for vid in &video_ids {
+        let parsed_json = parse_video_id_json(vid);
+        let parsed: Value = match serde_json::from_str(&parsed_json) {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+        let ids_json = match trakt_ids_from_content_id_json(vid) {
+            Some(j) => j,
+            None => continue,
+        };
+        let ids: Value = match serde_json::from_str(&ids_json) {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+
+        if parsed.get("isEpisode").and_then(Value::as_bool).unwrap_or(false) {
+            let season = parsed.get("season").and_then(Value::as_i64).unwrap_or(1);
+            let episode = parsed.get("episode").and_then(Value::as_i64).unwrap_or(1);
+            let show_id = parsed
+                .get("imdb")
+                .or_else(|| parsed.get("tmdb"))
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string();
+            if show_id.is_empty() {
+                continue;
+            }
+            let entry = shows.entry(show_id).or_insert_with(|| (ids, std::collections::BTreeMap::new()));
+            entry.1.entry(season).or_default().push(episode);
+        } else {
+            movie_ids.push(json!({ "ids": ids }));
+        }
+    }
+
+    let show_entries: Vec<Value> = shows
+        .into_values()
+        .map(|(ids, seasons)| {
+            let seasons_arr: Vec<Value> = seasons
+                .into_iter()
+                .map(|(season, mut episodes)| {
+                    episodes.sort_unstable();
+                    episodes.dedup();
+                    json!({
+                        "number": season,
+                        "episodes": episodes.into_iter().map(|n| json!({ "number": n })).collect::<Vec<_>>()
+                    })
+                })
+                .collect();
+            json!({ "ids": ids, "seasons": seasons_arr })
+        })
+        .collect();
+
+    let mut body = serde_json::Map::new();
+    if !movie_ids.is_empty() {
+        body.insert("movies".into(), movie_ids.into());
+    }
+    if !show_entries.is_empty() {
+        body.insert("shows".into(), show_entries.into());
+    }
+    if body.is_empty() {
+        return None;
+    }
+    serde_json::to_string(&Value::Object(body)).ok()
+}
+
+pub(crate) fn simkl_match_episode_json(episodes_json: &str, target_json: &str) -> Option<String> {
+    let episodes: Vec<Value> = serde_json::from_str(episodes_json).ok()?;
+    let target: Value = serde_json::from_str(target_json).ok()?;
+    let release_date = target.get("releaseDate").and_then(Value::as_str).unwrap_or("");
+    let title = target
+        .get("title")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_lowercase();
+    let title = title.trim();
+
+    let matched = if !release_date.is_empty() {
+        episodes.iter().find(|ep| {
+            ep.get("date")
+                .and_then(Value::as_str)
+                .is_some_and(|d| d.starts_with(release_date))
+        })
+    } else {
+        None
+    };
+
+    let matched = matched.or_else(|| {
+        if title.is_empty() {
+            return None;
+        }
+        episodes.iter().find(|ep| {
+            ep.get("title")
+                .and_then(Value::as_str)
+                .is_some_and(|t| t.to_lowercase().trim() == title)
+        })
+    })?;
+
+    let season = matched.get("season").and_then(Value::as_i64)?;
+    let episode = matched.get("episode").and_then(Value::as_i64)?;
+    serde_json::to_string(&json!({ "season": season, "episode": episode })).ok()
 }
 
 #[cfg(test)]

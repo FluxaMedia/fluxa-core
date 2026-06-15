@@ -69,8 +69,8 @@ fn segment_from_object(obj: &serde_json::Map<String, Value>) -> Option<Value> {
 
 fn segment_from_object_with_type(value: &Value, fallback_type: &str) -> Option<Value> {
     let obj = value.as_object()?;
-    let start = number_from_keys(obj, &["startTime", "start", "from", "start_time"])?;
-    let end = number_from_keys(obj, &["endTime", "end", "to", "end_time"])?;
+    let start = number_from_keys(obj, &["startTime", "start", "from", "start_time", "start_sec", "startTimeMs", "start_ms"])?;
+    let end = number_from_keys(obj, &["endTime", "end", "to", "end_time", "end_sec", "endTimeMs", "end_ms"])?;
     let raw_type = string_from_keys(obj, &["type", "segment_type"]).unwrap_or_else(|| fallback_type.to_string());
     let seg_type = normalize_skip_type(&raw_type);
     let start_ms = normalize_time(start);
@@ -115,10 +115,6 @@ pub(crate) fn normalize_skip_type(raw: &str) -> &'static str {
         "recap" | "previously" => "recap",
         _ => "intro",
     }
-}
-
-pub(crate) fn normalize_skip_time(seconds: f64) -> i64 {
-    normalize_time(seconds)
 }
 
 pub(crate) fn parse_aniskip_results_json(results_json: &str) -> Option<String> {

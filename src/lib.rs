@@ -1,3 +1,4 @@
+#[cfg(feature = "uniffi-bindings")]
 uniffi::setup_scaffolding!();
 
 mod addon_protocol;
@@ -10,6 +11,7 @@ pub mod core_api;
 pub mod core_contract;
 mod data_policy;
 mod discovery_plan;
+#[cfg(feature = "native")]
 mod dolby_vision_rpu;
 mod external_sync;
 mod headless_adapter_plan;
@@ -32,6 +34,7 @@ mod watchlist_plan;
 
 pub mod addon_transport;
 pub mod env;
+pub mod ffi;
 pub mod runtime;
 pub mod types;
 

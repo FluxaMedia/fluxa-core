@@ -347,7 +347,11 @@ pub(crate) fn discover_sort_plan_json(request_json: &str) -> Option<String> {
     let request = serde_json::from_str::<DiscoverSortRequest>(request_json).ok()?;
     let content_type = request.content_type_filter.as_deref().unwrap_or("");
     let genre = request.genre_filter.as_deref().unwrap_or("").to_lowercase();
-    let sort_by = request.sort_by.as_deref().unwrap_or("default");
+    let sort_by = match request.sort_by.as_deref().unwrap_or("default") {
+        "top" => "rating",
+        "newest" => "year",
+        other => other,
+    };
 
     let mut filtered: Vec<&Value> = request
         .items
@@ -533,6 +537,83 @@ pub(crate) fn detail_season_load_plan_json(request_json: &str) -> Option<String>
         "savedSeason": if saved_season > 0 { json!(saved_season) } else { Value::Null }
     }))
     .ok()
+}
+
+/// Given a catalog source `{catalogId, type, addonId?}` and an array of addon
+/// descriptors, returns the first matching `transportUrl`, or `null`.
+pub(crate) fn resolve_transport_url_json(source_json: &str, addons_json: &str) -> Option<String> {
+    let source: Value = serde_json::from_str(source_json).ok()?;
+    let addons: Vec<Value> = serde_json::from_str(addons_json).ok()?;
+
+    let src_addon_id = source.get("addonId").and_then(Value::as_str).map(str::to_lowercase);
+    let src_catalog_id = source.get("catalogId").and_then(Value::as_str)?;
+    let normalize_type = |v: &str| -> String {
+        match v.trim().to_lowercase().as_str() {
+            "movies" => "movie".to_string(),
+            "series" | "tv" | "show" | "shows" => "series".to_string(),
+            other => other.to_string(),
+        }
+    };
+    let src_type = source.get("type").and_then(Value::as_str).map(normalize_type);
+
+    for addon in &addons {
+        let manifest = addon.get("manifest")?;
+        let addon_id = manifest.get("id").and_then(Value::as_str).unwrap_or("").to_lowercase();
+        let t_url = addon.get("transportUrl").and_then(Value::as_str).unwrap_or("");
+        if let Some(ref wanted_addon_id) = src_addon_id {
+            if !(addon_id == *wanted_addon_id || t_url.to_lowercase().contains(wanted_addon_id.as_str())) {
+                continue;
+            }
+        }
+        let catalogs = manifest.get("catalogs").and_then(Value::as_array).map(Vec::as_slice).unwrap_or(&[]);
+        let matches = catalogs.iter().any(|cat| {
+            cat.get("id").and_then(Value::as_str) == Some(src_catalog_id)
+                && src_type.as_deref().map_or(true, |st| {
+                    cat.get("type").and_then(Value::as_str).map(|ct| normalize_type(ct)) == Some(st.to_string())
+                })
+        });
+        if matches {
+            return Some(t_url.to_string());
+        }
+    }
+    None
+}
+
+/// Resolves the effective genre for a metadata feed option by inspecting the
+/// corresponding catalog's `extra` array for a `genre` field with a default or
+/// first required value.
+pub(crate) fn resolve_feed_option_genre_json(feed_option_json: &str, addons_json: &str) -> Option<String> {
+    let option: Value = serde_json::from_str(feed_option_json).ok()?;
+    let addons: Vec<Value> = serde_json::from_str(addons_json).ok()?;
+
+    // If genre is already set on the option, return it.
+    if let Some(genre) = option.get("genre").and_then(Value::as_str).filter(|s| !s.trim().is_empty()) {
+        return Some(genre.to_string());
+    }
+
+    let transport_url = option.get("transportUrl").and_then(Value::as_str)?;
+    let opt_type = option.get("type").and_then(Value::as_str)?;
+    let opt_id = option.get("id").and_then(Value::as_str)?;
+
+    let addon = addons.iter().find(|a| a.get("transportUrl").and_then(Value::as_str) == Some(transport_url))?;
+    let catalogs = addon.get("manifest").and_then(|m| m.get("catalogs")).and_then(Value::as_array)?;
+    let catalog = catalogs.iter().find(|cat| {
+        cat.get("type").and_then(Value::as_str) == Some(opt_type)
+            && cat.get("id").and_then(Value::as_str) == Some(opt_id)
+    })?;
+
+    let extras = catalog.get("extra").and_then(Value::as_array)?;
+    let genre_extra = extras.iter().find(|e| e.get("name").and_then(Value::as_str) == Some("genre"))?;
+
+    let default_genre = genre_extra.get("default").and_then(Value::as_str).filter(|s| !s.trim().is_empty());
+    let is_required = genre_extra.get("isRequired").and_then(Value::as_bool).unwrap_or(false);
+    let first_option = genre_extra.get("options").and_then(Value::as_array)
+        .and_then(|opts| opts.first())
+        .and_then(Value::as_str);
+
+    let resolved = default_genre
+        .or_else(|| if is_required { first_option } else { None })?;
+    Some(resolved.to_string())
 }
 
 #[cfg(test)]

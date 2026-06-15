@@ -652,3 +652,37 @@ fn addon_key(addon: &Value) -> String {
         .unwrap_or("")
         .to_string()
 }
+
+/// Maps a request `kind` to the addon resource name used in URLs and responses.
+/// `request_resource` and `item_resource` are optional overrides from the request.
+pub(crate) fn resource_kind_to_resource(kind: &str, request_resource: Option<&str>, item_resource: Option<&str>) -> String {
+    let explicit = item_resource
+        .filter(|s| !s.trim().is_empty())
+        .or_else(|| request_resource.filter(|s| !s.trim().is_empty()));
+    if let Some(r) = explicit {
+        return r.to_string();
+    }
+    match kind {
+        "catalogPage" | "discover" | "search" => "catalog",
+        "metaDetail" | "seasonEpisodes" => "meta",
+        "streams" => "stream",
+        "subtitles" => "subtitles",
+        other if !other.trim().is_empty() => other,
+        _ => "catalog",
+    }
+    .to_string()
+}
+
+/// Wraps an addon resource payload in the conventional response envelope
+/// used by `coreResourceParsePlan`.
+pub(crate) fn wrap_addon_resource_response(resource: &str, payload_json: &str) -> String {
+    let payload: Value = serde_json::from_str(payload_json).unwrap_or(Value::Null);
+    let wrapped = match resource {
+        "catalog" | "metas" => json!({ "metas": payload }),
+        "stream" | "streams" => json!({ "streams": payload }),
+        "meta" => json!({ "meta": payload }),
+        "subtitle" | "subtitles" => json!({ "subtitles": payload }),
+        _ => payload,
+    };
+    serde_json::to_string(&wrapped).unwrap_or_else(|_| "{}".to_string())
+}

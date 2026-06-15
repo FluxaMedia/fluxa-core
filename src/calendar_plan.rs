@@ -266,7 +266,7 @@ pub(crate) fn calendar_items_from_meta_json(meta_json: &str, month_prefix: &str)
     let mut items: Vec<Value> = Vec::new();
     for video in videos {
         let released = video.get("released").and_then(Value::as_str).unwrap_or("");
-        let date_iso = if released.len() >= 10 { &released[..10] } else { continue };
+        let date_iso = match released.get(..10) { Some(d) => d, None => continue };
         if !month_prefix.is_empty() && !date_iso.starts_with(month_prefix) { continue; }
         let season = video.get("season").and_then(Value::as_i64);
         let episode = video.get("episode").or_else(|| video.get("number")).and_then(Value::as_i64);
