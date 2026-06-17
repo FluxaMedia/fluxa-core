@@ -5,9 +5,11 @@
 The platform-agnostic Rust core behind [Fluxa](https://github.com/KhooLy/Fluxa), a media-streaming app.<br/>
 State management · Stream policy · Addon protocol · Effect-driven I/O
 
-[![Stars](https://img.shields.io/github/stars/KhooLy/fluxa-core?style=flat-square&color=fff&labelColor=111)](https://github.com/KhooLy/fluxa-core/stargazers)
-[![Issues](https://img.shields.io/github/issues/KhooLy/fluxa-core?style=flat-square&color=fff&labelColor=111)](https://github.com/KhooLy/fluxa-core/issues)
-[![License](https://img.shields.io/github/license/KhooLy/fluxa-core?style=flat-square&color=fff&labelColor=111)](LICENSE)
+[![Contributors][contributors-shield]][contributors-url]
+[![Forks][forks-shield]][forks-url]
+[![Stars][stars-shield]][stars-url]
+[![Issues][issues-shield]][issues-url]
+[![License: GPL v3][license-shield]][license-url]
 
 [What it does](#what-it-does) · [Architecture](#architecture) · [Building from source](#building-from-source) · [Stack](#stack)
 
@@ -111,3 +113,15 @@ docs/                   architecture, effects reference, integration guide
 
 - [Fluxa for Android](https://github.com/KhooLy/Fluxa) — the Android counterpart consuming this crate
 - [FluxaDesktop](https://github.com/KhooLy/FluxaDesktop) — the desktop counterpart consuming this crate
+
+<!-- MARKDOWN LINKS -->
+[contributors-shield]: https://img.shields.io/github/contributors/KhooLy/fluxa-core.svg?style=for-the-badge
+[contributors-url]: https://github.com/KhooLy/fluxa-core/graphs/contributors
+[forks-shield]: https://img.shields.io/github/forks/KhooLy/fluxa-core.svg?style=for-the-badge
+[forks-url]: https://github.com/KhooLy/fluxa-core/network/members
+[stars-shield]: https://img.shields.io/github/stars/KhooLy/fluxa-core.svg?style=for-the-badge
+[stars-url]: https://github.com/KhooLy/fluxa-core/stargazers
+[issues-shield]: https://img.shields.io/github/issues/KhooLy/fluxa-core.svg?style=for-the-badge
+[issues-url]: https://github.com/KhooLy/fluxa-core/issues
+[license-shield]: https://img.shields.io/github/license/KhooLy/fluxa-core.svg?style=for-the-badge
+[license-url]: https://github.com/KhooLy/fluxa-core/blob/master/LICENSE
