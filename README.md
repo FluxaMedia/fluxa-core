@@ -2,32 +2,27 @@
 
 # fluxa-core
 
-  [![Contributors][contributors-shield]][contributors-url]
-  [![Forks][forks-shield]][forks-url]
-  [![Stars][stars-shield]][stars-url]
-  [![Issues][issues-shield]][issues-url]
-  [![License: GPL v3][license-shield]][license-url]
+The platform-agnostic Rust core behind [Fluxa](https://github.com/KhooLy/Fluxa), a media-streaming app.<br/>
+State management · Stream policy · Addon protocol · Effect-driven I/O
 
-  <p>
-    The platform-agnostic Rust core behind <a href="https://github.com/KhooLy/Fluxa">Fluxa</a>, a media-streaming app.<br/>
-    State management · Stream policy · Addon protocol · Effect-driven I/O
-  </p>
+[![Stars](https://img.shields.io/github/stars/KhooLy/fluxa-core?style=flat-square&color=fff&labelColor=111)](https://github.com/KhooLy/fluxa-core/stargazers)
+[![Issues](https://img.shields.io/github/issues/KhooLy/fluxa-core?style=flat-square&color=fff&labelColor=111)](https://github.com/KhooLy/fluxa-core/issues)
+[![License](https://img.shields.io/github/license/KhooLy/fluxa-core?style=flat-square&color=fff&labelColor=111)](LICENSE)
+
+[What it does](#what-it-does) · [Architecture](#architecture) · [Building from source](#building-from-source) · [Stack](#stack)
 
 </div>
 
 ---
 
-## What is fluxa-core?
+## What it does
 
-`fluxa-core` is a headless Rust library holding all of Fluxa's domain logic: content
-discovery, stream selection, playback state, profiles, library, calendar, and external
-sync (Trakt, Simkl). It contains no platform-specific code and never performs I/O itself.
-
-**Rust never calls the network, touches disk, or talks to a player.** Instead, the engine
-takes an action and returns state plus a list of typed *effects* describing what needs to
-happen. The host platform executes those effects and reports results back through
-`completeEffect`. The same Rust codebase runs unmodified on Android, desktop, and
-(via WASM) the web — each platform supplies a thin shell that drives the loop.
+`fluxa-core` holds all of Fluxa's domain logic — content discovery, stream selection,
+playback state, profiles, library, calendar, and external sync with Trakt/Simkl — so the
+same Rust codebase can run unmodified on Android, desktop, and (via WASM) the web. It
+contains no platform-specific code and never performs I/O itself: it takes an action and
+returns state plus a list of typed *effects*, and the host platform executes those
+effects and reports results back.
 
 ```
 Host  →  dispatch(action_json)
@@ -44,7 +39,7 @@ Dolby Vision / HDR10+ stream rewriting.
 ## Who uses this
 
 | Platform | Repo | How it links |
-|---|---|---|
+| --- | --- | --- |
 | Android (mobile + TV) | [Fluxa](https://github.com/KhooLy/Fluxa) | JNI (primary, ~157 functions) + a small UniFFI surface |
 | Desktop (Linux/macOS/Windows) | [FluxaDesktop](https://github.com/KhooLy/FluxaDesktop) | Plain Rust dependency — calls `FluxaCore`/`core_invoke` directly, no FFI marshaling |
 | iOS / tvOS | not in this workspace | UniFFI (`bindings/uniffi.rs`) |
@@ -73,24 +68,23 @@ Full architecture notes, the effect catalog, and the wire-format reference live 
 - [`docs/integrating.md`](docs/integrating.md) — per-platform integration guide
 - [`docs/building.md`](docs/building.md) — features, commands, cross-compilation
 
-## Building
+## Building from source
 
 ```bash
+git clone https://github.com/KhooLy/fluxa-core.git
+cd fluxa-core
 cargo build                  # default (native) features — what Android uses
 cargo test --lib             # ~190 tests, fast
+```
+
+**Prerequisites**
+
+- Rust stable
+- For Android cross-compilation: `rustup target add aarch64-linux-android armv7-linux-androideabi x86_64-linux-android`
+
+```bash
 cargo check --no-default-features --features wasm   # sanity-check the webOS/WASM path
-```
-
-Android cross-compilation needs the NDK targets:
-
-```bash
-rustup target add aarch64-linux-android armv7-linux-androideabi x86_64-linux-android
-```
-
-The companion streaming crate builds independently:
-
-```bash
-cd fluxa-streaming-engine && cargo build
+cd fluxa-streaming-engine && cargo build             # the companion crate builds independently
 ```
 
 See [`docs/building.md`](docs/building.md) for the full feature matrix, UniFFI binding
@@ -105,18 +99,15 @@ fuzz/                   cargo-fuzz targets for parsers (episode matching, manife
 docs/                   architecture, effects reference, integration guide
 ```
 
-## License
+## Stack
 
-GPL-3.0 — see [LICENSE](LICENSE).
+[Rust](https://www.rust-lang.org/) · [JNI](https://docs.rs/jni) · [UniFFI](https://mozilla.github.io/uniffi-rs/) · [wasm-bindgen](https://rustwasm.github.io/wasm-bindgen/) · [axum](https://github.com/tokio-rs/axum) · [tokio](https://tokio.rs/) · [librqbit](https://github.com/ikatson/rqbit) · [dolby_vision](https://github.com/quietvoid/dovi_tool) · [serde](https://serde.rs/)
 
-<!-- MARKDOWN LINKS -->
-[contributors-shield]: https://img.shields.io/github/contributors/KhooLy/fluxa-core.svg?style=for-the-badge
-[contributors-url]: https://github.com/KhooLy/fluxa-core/graphs/contributors
-[forks-shield]: https://img.shields.io/github/forks/KhooLy/fluxa-core.svg?style=for-the-badge
-[forks-url]: https://github.com/KhooLy/fluxa-core/network/members
-[stars-shield]: https://img.shields.io/github/stars/KhooLy/fluxa-core.svg?style=for-the-badge
-[stars-url]: https://github.com/KhooLy/fluxa-core/stargazers
-[issues-shield]: https://img.shields.io/github/issues/KhooLy/fluxa-core.svg?style=for-the-badge
-[issues-url]: https://github.com/KhooLy/fluxa-core/issues
-[license-shield]: https://img.shields.io/github/license/KhooLy/fluxa-core.svg?style=for-the-badge
-[license-url]: https://github.com/KhooLy/fluxa-core/blob/master/LICENSE
+---
+
+**Legal** — fluxa-core is a domain-logic library for a client-side interface to user-installed Stremio addons. It does not host, serve, or distribute any media content, and never makes a network call itself — all I/O is performed by the host platform. Fluxa is not affiliated with any addon developer, repository, or content provider. Users are responsible for ensuring they have the right to access what they stream.
+
+## Related projects
+
+- [Fluxa for Android](https://github.com/KhooLy/Fluxa) — the Android counterpart consuming this crate
+- [FluxaDesktop](https://github.com/KhooLy/FluxaDesktop) — the desktop counterpart consuming this crate
