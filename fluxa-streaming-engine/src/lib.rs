@@ -1,3 +1,4 @@
+mod chapters;
 mod dv_rewrite;
 mod local_stream;
 mod torrent_engine;

@@ -6,18 +6,6 @@ edition = "2021"
 [lib]
 crate-type = ["cdylib", "rlib"]
 
-[[bin]]
-name = "torrent_bench"
-path = "src/bin/torrent_bench.rs"
-
-[[bin]]
-name = "torrent_serve"
-path = "src/bin/torrent_serve.rs"
-
-[[bin]]
-name = "companion_server"
-path = "src/bin/companion_server.rs"
-
 [features]
 default = ["native"]
 native = [

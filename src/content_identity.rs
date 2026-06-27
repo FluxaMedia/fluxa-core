@@ -717,26 +717,16 @@ pub(crate) fn content_trakt_key(meta_json: &str) -> Option<String> {
     Some(content_trakt_key_value(&meta))
 }
 
-pub(crate) fn content_billboard_key(meta_json: &str) -> Option<String> {
-    let meta = serde_json::from_str::<Value>(meta_json).ok()?;
-    let id = meta_text(&meta, "id");
-    if let Some(imdb) = imdb_id(id) {
-        return Some(format!("{}:{imdb}", meta_text(&meta, "type")));
-    }
-    let name = meta
-        .get("originalName")
-        .and_then(Value::as_str)
-        .filter(|value| !value.is_empty())
-        .unwrap_or_else(|| meta_text(&meta, "name"));
-    let year = meta_text(&meta, "releaseInfo")
-        .get(0..4)
-        .or_else(|| meta_text(&meta, "released").get(0..4))
-        .unwrap_or("");
-    Some(format!(
-        "{}:{}:{year}",
-        meta_text(&meta, "type"),
-        normalized_billboard_title(name)
-    ))
+pub(crate) fn content_trakt_keys_batch(metas_json: &str) -> Option<String> {
+    let metas: Vec<Value> = serde_json::from_str(metas_json).ok()?;
+    let keys: Vec<String> = metas.iter().map(content_trakt_key_value).collect();
+    serde_json::to_string(&keys).ok()
+}
+
+pub(crate) fn content_watched_keys_batch(metas_json: &str) -> Option<String> {
+    let metas: Vec<Value> = serde_json::from_str(metas_json).ok()?;
+    let keys: Vec<Vec<String>> = metas.iter().map(content_watched_keys_value).collect();
+    serde_json::to_string(&keys).ok()
 }
 
 pub(crate) fn content_keys_json(meta_json: &str, watched: bool) -> Option<String> {

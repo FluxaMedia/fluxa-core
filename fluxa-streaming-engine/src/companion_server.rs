@@ -23,6 +23,7 @@ struct AppState {
 }
 
 #[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct StartTorrentBody {
     stream_json: String,
     title: Option<String>,
@@ -135,7 +136,9 @@ fn apply_torrent_preferences(base_url: &str, preferences: Option<&Value>) {
     };
     let url = format!("{}/settings", base_url.trim_end_matches('/'));
     tokio::spawn(async move {
-        let client = reqwest::Client::new();
+        let Ok(client) = reqwest::Client::builder().timeout(std::time::Duration::from_secs(5)).build() else {
+            return;
+        };
         let _ = client.post(&url).json(&json!({ "PreloadSize": preload_size })).send().await;
     });
 }

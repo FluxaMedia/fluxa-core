@@ -1,4 +1,4 @@
-use crate::{headless_engine, offline_download, player_policy, stream_policy};
+use crate::{cast_protocol, headless_engine, offline_download, player_policy, stream_policy};
 
 pub struct FluxaCore;
 
@@ -39,6 +39,62 @@ impl FluxaCore {
 
     pub fn offline_download_plan_json(request_json: &str) -> Option<String> {
         guard(None, || offline_download::offline_download_plan_json(request_json))
+    }
+
+    pub fn validate_stream_url(url: &str) -> bool {
+        guard(false, || cast_protocol::validate_stream_url(url))
+    }
+
+    pub fn dlna_parse_device_description(xml: &str, base_url: &str) -> Option<String> {
+        guard(None, || cast_protocol::dlna_parse_device_description_json(xml, base_url))
+    }
+
+    pub fn dlna_soap_action_body(urn: &str, action: &str, args: &str) -> String {
+        guard(String::new(), || cast_protocol::soap_action_body(urn, action, args))
+    }
+
+    pub fn dlna_set_av_transport_args(media_url: &str, title: &str, subtitle_url: Option<&str>) -> Option<String> {
+        guard(None, || cast_protocol::dlna_set_av_transport_args(media_url, title, subtitle_url))
+    }
+
+    pub fn dlna_seek_args(position_secs: f64) -> String {
+        guard(String::new(), || cast_protocol::dlna_seek_args(position_secs))
+    }
+
+    pub fn dlna_set_volume_args(level: f64) -> String {
+        guard(String::new(), || cast_protocol::dlna_set_volume_args(level))
+    }
+
+    pub fn dlna_resolve_loopback_url(stream_url: &str, lan_ip: &str) -> String {
+        guard(stream_url.to_string(), || cast_protocol::resolve_loopback_url(stream_url, lan_ip))
+    }
+
+    pub fn chromecast_guess_content_type(media_url: &str) -> String {
+        guard("video/mp4".to_string(), || cast_protocol::guess_cast_content_type(media_url).to_string())
+    }
+
+    pub fn chromecast_encode_message(source_id: &str, destination_id: &str, namespace: &str, payload_utf8: &str) -> Vec<u8> {
+        guard(Vec::new(), || cast_protocol::encode_cast_message(source_id, destination_id, namespace, payload_utf8))
+    }
+
+    pub fn chromecast_decode_message(buf: &[u8]) -> Option<(String, String)> {
+        guard(None, || cast_protocol::decode_cast_message(buf).map(|m| (m.namespace, m.payload_utf8)))
+    }
+
+    pub fn roku_device_name(xml: &str) -> Option<String> {
+        guard(None, || cast_protocol::roku_device_name(xml))
+    }
+
+    pub fn roku_launch_url(host: &str, media_url: &str, subtitle_url: Option<&str>) -> Option<String> {
+        guard(None, || cast_protocol::roku_launch_url(host, media_url, subtitle_url))
+    }
+
+    pub fn airplay_volume_db(level: f64) -> f64 {
+        guard(-30.0, || cast_protocol::airplay_volume_db(level))
+    }
+
+    pub fn airplay_play_body(media_url: &str) -> Option<String> {
+        guard(None, || cast_protocol::airplay_play_body(media_url))
     }
 }
 

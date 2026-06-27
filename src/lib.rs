@@ -6,6 +6,7 @@ mod addon_resource;
 mod addon_store;
 mod app_state;
 mod calendar_plan;
+mod cast_protocol;
 mod constants;
 mod content_identity;
 pub mod core_api;

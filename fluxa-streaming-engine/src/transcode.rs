@@ -5,11 +5,44 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use axum::Router;
 use serde::Deserialize;
+use std::io;
+use std::pin::Pin;
 use std::process::Stdio;
-use tokio::process::Command;
+use std::task::{Context, Poll};
+use tokio::io::{AsyncRead, ReadBuf};
+use tokio::process::{Child, ChildStdout, Command};
 use tokio_util::io::ReaderStream;
 
 use crate::ffmpeg_locator;
+
+/// Kills and reaps the ffmpeg child when dropped — whether that's because
+/// the response stream finished normally (process already exited, so the
+/// kill is a harmless no-op) or because the client disconnected mid-stream,
+/// in which case ffmpeg would otherwise just stall on a full stdout pipe
+/// instead of actually exiting.
+struct KillOnDrop(Option<Child>);
+
+impl Drop for KillOnDrop {
+    fn drop(&mut self) {
+        if let Some(mut child) = self.0.take() {
+            let _ = child.start_kill();
+            tokio::spawn(async move {
+                let _ = child.wait().await;
+            });
+        }
+    }
+}
+
+struct ChildStdoutGuarded {
+    stdout: ChildStdout,
+    _guard: KillOnDrop,
+}
+
+impl AsyncRead for ChildStdoutGuarded {
+    fn poll_read(self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &mut ReadBuf<'_>) -> Poll<io::Result<()>> {
+        Pin::new(&mut self.get_mut().stdout).poll_read(cx, buf)
+    }
+}
 
 #[derive(Deserialize)]
 pub struct TranscodeQuery {
@@ -131,13 +164,11 @@ pub async fn handle_transcode(Query(q): Query<TranscodeQuery>) -> Response {
         return (StatusCode::INTERNAL_SERVER_ERROR, "ffmpeg produced no stdout pipe").into_response();
     };
 
-    // Detached: the child is reaped once stdout closes (process exits) or the
-    // response stream is dropped (client disconnects), whichever comes first.
-    tokio::spawn(async move {
-        let _ = child.wait().await;
-    });
-
-    let body = Body::from_stream(ReaderStream::with_capacity(stdout, 65536));
+    // Tied to the response body's lifetime via KillOnDrop, so a client
+    // disconnect kills ffmpeg immediately instead of leaving it stalled on
+    // a stdout pipe nobody's reading from.
+    let guarded = ChildStdoutGuarded { stdout, _guard: KillOnDrop(Some(child)) };
+    let body = Body::from_stream(ReaderStream::with_capacity(guarded, 65536));
     let mut response = (StatusCode::OK, body).into_response();
     response.headers_mut().insert(
         axum::http::header::CONTENT_TYPE,

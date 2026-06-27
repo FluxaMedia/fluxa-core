@@ -25,12 +25,13 @@ use crate::stream_policy::*;
 use crate::watchlist_plan::*;
 use jni::objects::JClass;
 pub(crate) use jni::objects::JString;
-use jni::sys::{jboolean, jfloat, jint, jlong, jstring};
+use jni::sys::{jboolean, jdouble, jfloat, jint, jlong, jstring};
 pub(crate) use jni::JNIEnv;
 use serde_json::json;
 use std::ptr;
 
 pub(crate) type JBoolean = jboolean;
+pub(crate) type JDouble = jdouble;
 pub(crate) type JFloat = jfloat;
 pub(crate) type JInt = jint;
 pub(crate) type JLong = jlong;
@@ -1295,6 +1296,97 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_trakt
         }
 
 #[no_mangle]
+pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_simklScrobbleBodyJsonNative(
+    mut env: JNIEnv<'_>,
+    _class: JObject<'_>,
+    ids_json: JString<'_>,
+    is_episode: JBoolean,
+    season: JLong,
+    ep_number: JLong,
+    time_pos_sec: JDouble,
+    duration_sec: JDouble,
+) -> JStringReturn {
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+    let output = read_jstring(&mut env, &ids_json).and_then(|ids_json| {
+        simkl_scrobble_body_json(
+            &ids_json,
+            is_episode != 0,
+            season,
+            ep_number,
+            time_pos_sec,
+            duration_sec,
+        )
+    });
+    write_jstring(&mut env, output)
+            }))
+            .unwrap_or(ptr::null_mut())
+        }
+
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_simklMatchEpisodeJsonNative(
+    mut env: JNIEnv<'_>,
+    _class: JObject<'_>,
+    episodes_json: JString<'_>,
+    target_json: JString<'_>,
+) -> JStringReturn {
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+    let output = read_jstring(&mut env, &episodes_json).and_then(|episodes_json| {
+        simkl_match_episode_json(&episodes_json, &read_jstring(&mut env, &target_json)?)
+    });
+    write_jstring(&mut env, output)
+            }))
+            .unwrap_or(ptr::null_mut())
+        }
+
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_simklWatchingToItemsJsonNative(
+    mut env: JNIEnv<'_>,
+    _class: JObject<'_>,
+    shows_json: JString<'_>,
+    movies_json: JString<'_>,
+) -> JStringReturn {
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+    let output = read_jstring(&mut env, &shows_json).and_then(|shows_json| {
+        simkl_watching_to_items_json(&shows_json, &read_jstring(&mut env, &movies_json)?)
+    });
+    write_jstring(&mut env, output)
+            }))
+            .unwrap_or(ptr::null_mut())
+        }
+
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_simklWatchlistToItemsJsonNative(
+    mut env: JNIEnv<'_>,
+    _class: JObject<'_>,
+    shows_json: JString<'_>,
+    movies_json: JString<'_>,
+) -> JStringReturn {
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+    let output = read_jstring(&mut env, &shows_json).and_then(|shows_json| {
+        simkl_watchlist_to_items_json(&shows_json, &read_jstring(&mut env, &movies_json)?)
+    });
+    write_jstring(&mut env, output)
+            }))
+            .unwrap_or(ptr::null_mut())
+        }
+
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_simklWatchedToIdsJsonNative(
+    mut env: JNIEnv<'_>,
+    _class: JObject<'_>,
+    shows_json: JString<'_>,
+    movies_json: JString<'_>,
+) -> JStringReturn {
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+    let output = read_jstring(&mut env, &shows_json).and_then(|shows_json| {
+        simkl_watched_to_ids_json(&shows_json, &read_jstring(&mut env, &movies_json)?)
+    });
+    write_jstring(&mut env, output)
+            }))
+            .unwrap_or(ptr::null_mut())
+        }
+
+#[no_mangle]
 pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_playbackProgressItemJsonNative(
     mut env: JNIEnv<'_>,
     _class: JObject<'_>,
@@ -1572,14 +1664,28 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_conte
         }
 
 #[no_mangle]
-pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_contentBillboardKeyNative(
+pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_contentTraktKeysBatchJsonNative(
     mut env: JNIEnv<'_>,
     _class: JObject<'_>,
-    meta_json: JString<'_>,
+    metas_json: JString<'_>,
 ) -> JStringReturn {
             std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-    let output =
-        read_jstring(&mut env, &meta_json).and_then(|meta_json| content_billboard_key(&meta_json));
+    let output = read_jstring(&mut env, &metas_json)
+        .and_then(|metas_json| content_trakt_keys_batch(&metas_json));
+    write_jstring(&mut env, output)
+            }))
+            .unwrap_or(ptr::null_mut())
+        }
+
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_contentWatchedKeysBatchJsonNative(
+    mut env: JNIEnv<'_>,
+    _class: JObject<'_>,
+    metas_json: JString<'_>,
+) -> JStringReturn {
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+    let output = read_jstring(&mut env, &metas_json)
+        .and_then(|metas_json| content_watched_keys_batch(&metas_json));
     write_jstring(&mut env, output)
             }))
             .unwrap_or(ptr::null_mut())
@@ -1798,81 +1904,6 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_optim
     write_jstring(&mut env, output)
             }))
             .unwrap_or(ptr::null_mut())
-        }
-
-#[no_mangle]
-pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_billboardScoreCandidateNative(
-    mut env: JNIEnv<'_>,
-    _class: JObject<'_>,
-    meta_json: JString<'_>,
-    days_since_release: JLong,
-    has_days_since_release: JBoolean,
-) -> JInt {
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-    read_jstring(&mut env, &meta_json)
-        .and_then(|meta_json| {
-            billboard_score_candidate_json(
-                &meta_json,
-                if has_days_since_release != 0 {
-                    Some(days_since_release)
-                } else {
-                    None
-                },
-            )
-        })
-        .unwrap_or(0)
-            }))
-            .unwrap_or(0)
-        }
-
-#[no_mangle]
-pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_billboardHasBackdropCandidateNative(
-    mut env: JNIEnv<'_>,
-    _class: JObject<'_>,
-    meta_json: JString<'_>,
-) -> JBoolean {
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-    let result = read_jstring(&mut env, &meta_json)
-        .map(|meta_json| has_billboard_backdrop_candidate_json(&meta_json))
-        .unwrap_or(false);
-    if result {
-        1
-    } else {
-        0
-    }
-            }))
-            .unwrap_or(0)
-        }
-
-#[no_mangle]
-pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_billboardVisualScoreNative(
-    mut env: JNIEnv<'_>,
-    _class: JObject<'_>,
-    meta_json: JString<'_>,
-) -> JInt {
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-    read_jstring(&mut env, &meta_json)
-        .and_then(|meta_json| billboard_visual_score_json(&meta_json))
-        .unwrap_or(0)
-            }))
-            .unwrap_or(0)
-        }
-
-#[no_mangle]
-pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_billboardEditorialMatchScoreNative(
-    mut env: JNIEnv<'_>,
-    _class: JObject<'_>,
-    meta_json: JString<'_>,
-    spec_json: JString<'_>,
-) -> JInt {
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-    read_jstring(&mut env, &meta_json)
-        .and_then(|meta_json| {
-            billboard_editorial_match_score_json(&meta_json, &read_jstring(&mut env, &spec_json)?)
-        })
-        .unwrap_or(0)
-            }))
-            .unwrap_or(0)
         }
 
 #[no_mangle]

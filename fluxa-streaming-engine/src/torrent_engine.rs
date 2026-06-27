@@ -20,6 +20,7 @@ use std::time::Duration;
 use tokio::io::AsyncSeekExt;
 use tokio::net::TcpListener;
 use tokio::sync::oneshot;
+use tokio::sync::Mutex as AsyncMutex;
 use tokio_util::io::ReaderStream;
 
 #[derive(Deserialize)]
@@ -55,6 +56,10 @@ struct EngineState {
     output_dir: PathBuf,
     preload_size: Arc<Mutex<u64>>,
     known_links: Arc<Mutex<HashMap<String, usize>>>,
+    // Serializes the check-then-add sequence in ensure_torrent so two
+    // near-simultaneous requests for the same new link (e.g. a stat poll
+    // racing the stream GET) can't both call api_add_torrent for it.
+    add_lock: Arc<AsyncMutex<()>>,
 }
 
 struct TorrentServerHandle {
@@ -86,7 +91,7 @@ pub fn start_torrent_server(cache_dir: &str, preferred_port: i32) -> Option<Stri
     let cache_dir = PathBuf::from(cache_dir);
     std::fs::create_dir_all(&cache_dir).ok()?;
     let bind_port = preferred_port.clamp(0, u16::MAX as i32) as u16;
-    let std_listener = std::net::TcpListener::bind(("127.0.0.1", bind_port)).ok()?;
+    let std_listener = std::net::TcpListener::bind(("0.0.0.0", bind_port)).ok()?;
     std_listener.set_nonblocking(true).ok()?;
     let port = std_listener.local_addr().ok()?.port();
     let (stop_tx, stop_rx) = oneshot::channel::<()>();
@@ -150,6 +155,7 @@ pub fn start_torrent_server(cache_dir: &str, preferred_port: i32) -> Option<Stri
                 output_dir: thread_cache_dir,
                 preload_size: Arc::new(Mutex::new(10 * 1024 * 1024)),
                 known_links: Arc::new(Mutex::new(HashMap::new())),
+                add_lock: Arc::new(AsyncMutex::new(())),
             };
             let app = Router::new()
                 .route("/", get(root))
@@ -375,6 +381,20 @@ async fn ensure_torrent(
             .map_err(|error| format!("{error:#}"))?;
         return Ok((id, details));
     }
+
+    // Hold the add lock for the rest of this function so a second caller
+    // that loses the race blocks here instead of also calling
+    // api_add_torrent, then re-check known_links in case the first caller
+    // already finished adding it while we were waiting.
+    let _add_guard = state.add_lock.lock().await;
+    if let Some(id) = lookup_known_link(state, Some(link)) {
+        let details = state
+            .api
+            .api_torrent_details(TorrentIdOrHash::Id(id))
+            .map_err(|error| format!("{error:#}"))?;
+        return Ok((id, details));
+    }
+
     let mut options = AddTorrentOptions::default();
     options.overwrite = true;
     options.output_folder = Some(state.output_dir.to_string_lossy().into_owned());

@@ -68,13 +68,6 @@ struct HomePriorityLabels {
     most_watched: String,
 }
 
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct EditorialPickSpec {
-    title: String,
-    min_year: i32,
-}
-
 fn meta_text<'a>(meta: &'a Value, key: &str) -> &'a str {
     meta.get(key).and_then(Value::as_str).unwrap_or("")
 }
@@ -553,23 +546,9 @@ where
         .collect()
 }
 
-pub(crate) fn has_billboard_backdrop_candidate_json(meta_json: &str) -> bool {
-    serde_json::from_str::<Value>(meta_json)
-        .ok()
-        .is_some_and(|meta| has_backdrop_candidate(&meta))
-}
-
 fn has_backdrop_candidate(meta: &Value) -> bool {
     let background = meta_text(meta, "background");
     !background.is_empty() && !background.eq_ignore_ascii_case(meta_text(meta, "poster"))
-}
-
-pub(crate) fn billboard_score_candidate_json(
-    meta_json: &str,
-    days_since_release: Option<i64>,
-) -> Option<i32> {
-    let meta = serde_json::from_str::<Value>(meta_json).ok()?;
-    Some(score_candidate(&meta, days_since_release))
 }
 
 fn score_candidate(meta: &Value, days_since_release: Option<i64>) -> i32 {
@@ -614,43 +593,6 @@ fn score_candidate(meta: &Value, days_since_release: Option<i64>) -> i32 {
         + recommendation_boost
         + editorial_boost
         + backdrop_boost
-}
-
-pub(crate) fn billboard_visual_score_json(meta_json: &str) -> Option<i32> {
-    let meta = serde_json::from_str::<Value>(meta_json).ok()?;
-    let mut score = 0;
-    if has_backdrop_candidate(&meta) {
-        score += 320;
-    } else {
-        score -= 160;
-    }
-    if !meta_text(&meta, "logo").is_empty() {
-        score += 120;
-    }
-    if !meta_text(&meta, "description").is_empty() {
-        score += 30;
-    }
-    Some(score)
-}
-
-pub(crate) fn billboard_editorial_match_score_json(
-    meta_json: &str,
-    spec_json: &str,
-) -> Option<i32> {
-    let meta = serde_json::from_str::<Value>(meta_json).ok()?;
-    let spec = serde_json::from_str::<EditorialPickSpec>(spec_json).ok()?;
-    let _ = spec.title;
-    let release_year = meta_text(&meta, "releaseInfo").parse::<i32>().unwrap_or(0);
-    let year_boost = if release_year >= spec.min_year {
-        400
-    } else {
-        0
-    };
-    let rating_boost = (meta_text(&meta, "imdbRating").parse::<f32>().unwrap_or(0.0) * 20.0) as i32;
-    let rank_boost = meta_i64(&meta, "rank")
-        .map(|rank| (180 - (rank as i32 * 12)).max(0))
-        .unwrap_or(0);
-    Some(year_boost + rating_boost + rank_boost)
 }
 
 fn billboard_key_value(meta: &Value) -> String {

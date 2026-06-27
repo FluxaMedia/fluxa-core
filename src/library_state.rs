@@ -243,6 +243,12 @@ pub(crate) fn normalize_library_document_json(json: &str) -> String {
     if !lib.get("watched").map(|v| v.is_object() && !v.is_array()).unwrap_or(false) {
         lib.insert("watched".to_string(), json!({}));
     }
+    if !lib.get("dropped").map(Value::is_array).unwrap_or(false) {
+        lib.insert("dropped".to_string(), json!([]));
+    }
+    if !lib.get("completed").map(Value::is_array).unwrap_or(false) {
+        lib.insert("completed".to_string(), json!([]));
+    }
     serde_json::to_string(&Value::Object(lib)).unwrap_or_else(|_| "{}".to_string())
 }
 

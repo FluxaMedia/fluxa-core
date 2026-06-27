@@ -17,6 +17,8 @@ pub(super) struct LibraryState {
     continue_watching: Value,
     liked: Value,
     watched: Value,
+    dropped: Value,
+    completed: Value,
     last_command: Value,
     last_write: Value,
     last_write_error: Value,
@@ -39,6 +41,15 @@ struct ReadLibraryStatePayload {
 struct ToggleWatchlistCommand {
     #[serde(rename = "type")]
     kind: &'static str,
+    item: Value,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ToggleLibraryStatusCommand {
+    #[serde(rename = "type")]
+    kind: &'static str,
+    list: String,
     item: Value,
 }
 
@@ -137,6 +148,19 @@ pub(super) fn dispatch_toggle_watchlist(engine: &mut HeadlessEngine, item: Value
     let generation = engine.bump_generation(GenerationKey::Library);
     let profile_id = active_profile_id(&engine.state, &Value::Null);
     let command = ToggleWatchlistCommand { kind: "toggleWatchlist", item };
+    let command_value = serde_json::to_value(&command).unwrap_or(Value::Null);
+    engine.state.library.last_command = command_value.clone();
+    vec![engine.effect(
+        EffectKind::WriteLibraryCommand,
+        generation,
+        WriteLibraryCommandPayload { profile_id, command: command_value },
+    )]
+}
+
+pub(super) fn dispatch_toggle_status(engine: &mut HeadlessEngine, list: String, item: Value) -> Vec<EffectEnvelope> {
+    let generation = engine.bump_generation(GenerationKey::Library);
+    let profile_id = active_profile_id(&engine.state, &Value::Null);
+    let command = ToggleLibraryStatusCommand { kind: "toggleLibraryStatus", list, item };
     let command_value = serde_json::to_value(&command).unwrap_or(Value::Null);
     engine.state.library.last_command = command_value.clone();
     vec![engine.effect(
@@ -277,6 +301,10 @@ pub(super) fn complete(
                         result.value.get("liked").cloned().unwrap_or_else(|| serde_json::json!([]));
                     engine.state.library.watched =
                         result.value.get("watched").cloned().unwrap_or_else(|| serde_json::json!({}));
+                    engine.state.library.dropped =
+                        result.value.get("dropped").cloned().unwrap_or_else(|| serde_json::json!([]));
+                    engine.state.library.completed =
+                        result.value.get("completed").cloned().unwrap_or_else(|| serde_json::json!([]));
                     engine.state.library.error = Value::Null;
                 } else {
                     engine.state.library.error = normalize_error(result.error.clone());

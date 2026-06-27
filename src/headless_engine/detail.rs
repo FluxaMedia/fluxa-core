@@ -32,6 +32,8 @@ pub(super) struct DetailState {
     user_addons: Value,
     similar_items: Value,
     trailers: Value,
+    omdb_ratings: Value,
+    fanart_artwork: Value,
     has_stream_providers: Value,
     last_prefetch: Value,
     last_prefetch_error: Value,
@@ -66,6 +68,8 @@ impl Default for DetailState {
             user_addons: serde_json::json!([]),
             similar_items: serde_json::json!([]),
             trailers: serde_json::json!([]),
+            omdb_ratings: Value::Null,
+            fanart_artwork: Value::Null,
             has_stream_providers: Value::Null,
             last_prefetch: Value::Null,
             last_prefetch_error: Value::Null,
@@ -470,6 +474,8 @@ pub(super) fn complete(
                         engine.state.detail.trailers =
                             result.value.get("trailers").cloned().unwrap_or_else(|| serde_json::json!([]));
                     }
+                    engine.state.detail.omdb_ratings = result.value.get("omdbRatings").cloned().unwrap_or(Value::Null);
+                    engine.state.detail.fanart_artwork = result.value.get("fanartArtwork").cloned().unwrap_or(Value::Null);
                 } else {
                     engine.state.detail.error = normalize_error(result.error.clone());
                 }

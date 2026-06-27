@@ -1,3 +1,4 @@
+use crate::chapters::parse_mkv_chapters_json;
 use crate::dv_rewrite::{dv_auto_detect_was_iptpqc2, dv_get_stream_stats_json, dv_rewrite_segment_bytes, dv_rpu_self_test, start_dv_rewrite_local_stream_server};
 use crate::local_stream::{start_local_stream_server, stop_local_stream_server};
 use crate::torrent_engine;
@@ -183,6 +184,27 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaStreamingNative_
 ) -> JStringReturn {
     std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         write_jstring(&mut env, Some(dv_get_stream_stats_json()))
+    }))
+    .unwrap_or(ptr::null_mut())
+}
+
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaStreamingNative_parseMkvChaptersNative(
+    mut env: JNIEnv<'_>,
+    _class: JObject<'_>,
+    data: JByteArray<'_>,
+) -> JStringReturn {
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let len = match env.get_array_length(&data) {
+            Ok(l) => l as usize,
+            Err(_) => return write_jstring(&mut env, Some("[]".to_string())),
+        };
+        let mut buf_i8: Vec<i8> = vec![0i8; len];
+        if len > 0 && env.get_byte_array_region(&data, 0, &mut buf_i8).is_err() {
+            return write_jstring(&mut env, Some("[]".to_string()));
+        }
+        let input: Vec<u8> = buf_i8.into_iter().map(|b| b as u8).collect();
+        write_jstring(&mut env, Some(parse_mkv_chapters_json(&input)))
     }))
     .unwrap_or(ptr::null_mut())
 }

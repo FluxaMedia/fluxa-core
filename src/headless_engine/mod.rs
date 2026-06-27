@@ -309,6 +309,9 @@ impl HeadlessEngine {
             AppAction::ToggleWatchlistRequested { item } => {
                 library::dispatch_toggle_watchlist(self, item)
             }
+            AppAction::ToggleLibraryStatusRequested { list, item } => {
+                library::dispatch_toggle_status(self, list, item)
+            }
             AppAction::SetFeedbackRequested { id, value, meta } => {
                 library::dispatch_set_feedback(self, id, value, meta)
             }
