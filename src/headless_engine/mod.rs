@@ -63,7 +63,10 @@ static ENGINE_COUNTER: AtomicU64 = AtomicU64::new(1);
 static ENGINES: OnceLock<Mutex<HashMap<u64, HeadlessEngine>>> = OnceLock::new();
 
 pub(crate) fn create_headless_engine(initial_json: &str) -> u64 {
-    let mut engine = HeadlessEngine { next_effect_id: 1, ..HeadlessEngine::default() };
+    let mut engine = HeadlessEngine {
+        next_effect_id: 1,
+        ..HeadlessEngine::default()
+    };
     if let Ok(initial_state) = serde_json::from_str::<EngineState>(initial_json) {
         engine.state = initial_state;
     }
@@ -126,7 +129,15 @@ impl HeadlessEngine {
                 source_addon_transport_url,
                 source_addon_catalog_type,
                 profile,
-            } => detail::dispatch_load(self, content_type, id, language, source_addon_transport_url, source_addon_catalog_type, profile),
+            } => detail::dispatch_load(
+                self,
+                content_type,
+                id,
+                language,
+                source_addon_transport_url,
+                source_addon_catalog_type,
+                profile,
+            ),
             AppAction::DetailLocalStateRequested {
                 primary_id,
                 fallback_id,
@@ -303,6 +314,9 @@ impl HeadlessEngine {
                 language,
                 force,
             } => home::dispatch_load(self, profile, language, force),
+            AppAction::RefreshContinueWatchingRequested { profile, language } => {
+                home::dispatch_refresh_continue_watching(self, profile, language)
+            }
             AppAction::LibraryHydrateRequested { profile_id } => {
                 library::dispatch_hydrate(self, profile_id)
             }
@@ -508,7 +522,9 @@ impl HeadlessEngine {
         let Some(kind) = EffectKind::from_str(&effect.kind) else {
             return vec![];
         };
-        self.state.pending_effects.retain(|pending| pending.id != result.effect_id);
+        self.state
+            .pending_effects
+            .retain(|pending| pending.id != result.effect_id);
         self.delivered_effect_ids.remove(&result.effect_id);
         self.effect_created_at.remove(&result.effect_id);
         let effect_type = kind.as_str();
@@ -522,7 +538,9 @@ impl HeadlessEngine {
             | EffectKind::PrefetchDetailStreams
             | EffectKind::FetchDetailStreams
             | EffectKind::FetchMetaDetailLookup
-            | EffectKind::FetchSeasonEpisodes => detail::complete(self, effect_type, generation, &result),
+            | EffectKind::FetchSeasonEpisodes => {
+                detail::complete(self, effect_type, generation, &result)
+            }
 
             EffectKind::LoadStreams
             | EffectKind::StartTorrentStream
@@ -531,22 +549,31 @@ impl HeadlessEngine {
             | EffectKind::FetchIntroSegments
             | EffectKind::ResolveIntroImdbId
             | EffectKind::FetchSubtitles
-            | EffectKind::PrefetchNextEpisodeStreams => player::complete(self, effect_type, generation, &result),
+            | EffectKind::PrefetchNextEpisodeStreams => {
+                player::complete(self, effect_type, generation, &result)
+            }
 
             EffectKind::ReadHomeBootstrap
+            | EffectKind::RefreshContinueWatching
             | EffectKind::PrepareDirectPlayback
-            | EffectKind::FetchCatalogPage => home::complete(self, effect_type, generation, &result),
+            | EffectKind::FetchCatalogPage => {
+                home::complete(self, effect_type, generation, &result)
+            }
 
             EffectKind::ReadLibraryState
             | EffectKind::WriteLibraryCommand
             | EffectKind::WriteFeedback
             | EffectKind::ClearPlaybackProgress
             | EffectKind::WritePlaybackProgress
-            | EffectKind::SyncWatchedState => library::complete(self, effect_type, generation, &result),
+            | EffectKind::SyncWatchedState => {
+                library::complete(self, effect_type, generation, &result)
+            }
 
             EffectKind::FetchAddonManifest
             | EffectKind::RefreshInstalledAddons
-            | EffectKind::FetchAddonResource => addons::complete(self, effect_type, generation, &result),
+            | EffectKind::FetchAddonResource => {
+                addons::complete(self, effect_type, generation, &result)
+            }
 
             EffectKind::RunSearch => search::complete(self, generation, &result),
 
@@ -564,7 +591,9 @@ impl HeadlessEngine {
                 sync::complete(self, effect_type, generation, &result)
             }
 
-            EffectKind::RunAuthFlow | EffectKind::ExchangeAuthCode | EffectKind::RefreshAuthToken => {
+            EffectKind::RunAuthFlow
+            | EffectKind::ExchangeAuthCode
+            | EffectKind::RefreshAuthToken => {
                 auth::complete(self, effect_type, generation, &result)
             }
 
@@ -574,7 +603,12 @@ impl HeadlessEngine {
         }
     }
 
-    fn effect<P: serde::Serialize>(&mut self, kind: EffectKind, generation: u64, payload: P) -> EffectEnvelope {
+    fn effect<P: serde::Serialize>(
+        &mut self,
+        kind: EffectKind,
+        generation: u64,
+        payload: P,
+    ) -> EffectEnvelope {
         let payload = serde_json::to_value(&payload).unwrap_or(Value::Null);
         self.effect_raw(kind.as_str(), generation, payload)
     }
@@ -649,7 +683,11 @@ impl HeadlessEngine {
 // over a second, and every other Tauri command shares one global engine mutex — holding
 // it for that long would stall unrelated IPC calls behind it. Callers clone what they
 // need and drop the lock before calling this.
-fn result_patch_json(before: &EngineState, after: &EngineState, effects: Vec<EffectEnvelope>) -> Option<String> {
+fn result_patch_json(
+    before: &EngineState,
+    after: &EngineState,
+    effects: Vec<EffectEnvelope>,
+) -> Option<String> {
     serde_json::to_string(&DispatchResult {
         state: StatePatch::diff(before, after),
         effects,
@@ -667,7 +705,9 @@ fn engines() -> &'static Mutex<HashMap<u64, HeadlessEngine>> {
 // Recovering the guard accepts that one engine's state might be left
 // mid-update, which is still far better than every other handle going dark.
 fn lock_engines() -> std::sync::MutexGuard<'static, HashMap<u64, HeadlessEngine>> {
-    engines().lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+    engines()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
 #[cfg(test)]
@@ -1118,7 +1158,13 @@ mod tests {
             .unwrap(),
         )
         .unwrap();
-        assert_eq!(home_loaded["state"]["home"]["continueWatching"].as_array().unwrap().len(), 2);
+        assert_eq!(
+            home_loaded["state"]["home"]["continueWatching"]
+                .as_array()
+                .unwrap()
+                .len(),
+            2
+        );
 
         let requested: Value = serde_json::from_str(
             &headless_engine_dispatch_json(
@@ -1144,7 +1190,9 @@ mod tests {
         )
         .unwrap();
 
-        let continue_watching = completed["state"]["home"]["continueWatching"].as_array().unwrap();
+        let continue_watching = completed["state"]["home"]["continueWatching"]
+            .as_array()
+            .unwrap();
         assert_eq!(continue_watching.len(), 1);
         assert_eq!(continue_watching[0]["id"], "tt2");
         assert!(destroy_headless_engine(handle));
@@ -1454,9 +1502,18 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(prefetch_requested["effects"][0]["type"], "prefetchNextEpisodeStreams");
-        assert_eq!(prefetch_requested["effects"][0]["payload"]["nextVideoId"], "tt1:1:2");
-        assert_eq!(prefetch_requested["state"]["player"]["prefetchingNextVideoId"], "tt1:1:2");
+        assert_eq!(
+            prefetch_requested["effects"][0]["type"],
+            "prefetchNextEpisodeStreams"
+        );
+        assert_eq!(
+            prefetch_requested["effects"][0]["payload"]["nextVideoId"],
+            "tt1:1:2"
+        );
+        assert_eq!(
+            prefetch_requested["state"]["player"]["prefetchingNextVideoId"],
+            "tt1:1:2"
+        );
 
         // Duplicate card-shown dispatch must not change prefetching state.
         let duplicate: Value = serde_json::from_str(
@@ -1491,8 +1548,14 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(prefetch_done["state"]["player"]["prefetchedNextEpisode"]["videoId"], "tt1:1:2");
-        assert_eq!(prefetch_done["state"]["player"]["prefetchedNextEpisode"]["streams"][0]["title"], "S");
+        assert_eq!(
+            prefetch_done["state"]["player"]["prefetchedNextEpisode"]["videoId"],
+            "tt1:1:2"
+        );
+        assert_eq!(
+            prefetch_done["state"]["player"]["prefetchedNextEpisode"]["streams"][0]["title"],
+            "S"
+        );
         assert!(prefetch_done["state"]["player"]["prefetchingNextVideoId"].is_null());
 
         // 3. User navigates to ep2 — load streams without passing initial_streams.

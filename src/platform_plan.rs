@@ -122,13 +122,19 @@ pub(crate) fn resource_fetch_plan_json(request_json: &str) -> Option<String> {
         "search" => {
             let query = request.query.as_deref().unwrap_or("");
             for addon in &request.addons {
-                let Some(transport_url) = addon_transport_url(addon) else { continue };
+                let Some(transport_url) = addon_transport_url(addon) else {
+                    continue;
+                };
                 for catalog in addon_catalogs(addon) {
                     if !catalog_supports_search(&catalog) {
                         continue;
                     }
-                    let Some(content_type) = catalog.get("type").and_then(Value::as_str) else { continue };
-                    let Some(id) = catalog.get("id").and_then(Value::as_str) else { continue };
+                    let Some(content_type) = catalog.get("type").and_then(Value::as_str) else {
+                        continue;
+                    };
+                    let Some(id) = catalog.get("id").and_then(Value::as_str) else {
+                        continue;
+                    };
                     requests.push(json!({
                         "url": build_resource_url(transport_url, "catalog", content_type, id, Some(&json!({"search": query}).to_string())),
                         "kind": "search",
@@ -143,9 +149,12 @@ pub(crate) fn resource_fetch_plan_json(request_json: &str) -> Option<String> {
         }
         "discover" => {
             let genre = request.genre.as_deref();
-            for catalog in discover_catalog_options(&request.addons, request.content_type.as_deref().unwrap_or("")) {
+            for catalog in discover_catalog_options(
+                &request.addons,
+                request.content_type.as_deref().unwrap_or(""),
+            ) {
                 let extra = genre.map(|value| json!({"genre": value}).to_string());
-                    requests.push(json!({
+                requests.push(json!({
                         "url": build_resource_url(
                             &catalog.transport_url,
                             "catalog",
@@ -165,7 +174,9 @@ pub(crate) fn resource_fetch_plan_json(request_json: &str) -> Option<String> {
                 if !addon_supports(addon, "meta", content_type, Some(id)) {
                     continue;
                 }
-                let Some(transport_url) = addon_transport_url(addon) else { continue };
+                let Some(transport_url) = addon_transport_url(addon) else {
+                    continue;
+                };
                 requests.push(json!({
                     "url": build_resource_url(transport_url, "meta", content_type, id, None),
                     "kind": "metaDetail",
@@ -180,7 +191,9 @@ pub(crate) fn resource_fetch_plan_json(request_json: &str) -> Option<String> {
                 if !addon_supports(addon, "stream", content_type, None) {
                     continue;
                 }
-                let Some(transport_url) = addon_transport_url(addon) else { continue };
+                let Some(transport_url) = addon_transport_url(addon) else {
+                    continue;
+                };
                 for id in &request.request_ids {
                     requests.push(json!({
                         "url": build_resource_url(transport_url, "stream", content_type, id, None),
@@ -196,7 +209,9 @@ pub(crate) fn resource_fetch_plan_json(request_json: &str) -> Option<String> {
                 if !addon_supports(addon, "meta", "series", Some(series_id)) {
                     continue;
                 }
-                let Some(transport_url) = addon_transport_url(addon) else { continue };
+                let Some(transport_url) = addon_transport_url(addon) else {
+                    continue;
+                };
                 requests.push(json!({
                     "url": build_resource_url(transport_url, "meta", "series", series_id, None),
                     "kind": "seasonEpisodes",
@@ -212,7 +227,9 @@ pub(crate) fn resource_fetch_plan_json(request_json: &str) -> Option<String> {
                 if !addon_supports(addon, "subtitles", content_type, Some(id)) {
                     continue;
                 }
-                let Some(transport_url) = addon_transport_url(addon) else { continue };
+                let Some(transport_url) = addon_transport_url(addon) else {
+                    continue;
+                };
                 requests.push(json!({
                     "url": build_resource_url(transport_url, "subtitles", content_type, id, None),
                     "kind": "subtitles",
@@ -308,14 +325,16 @@ pub(crate) fn playback_prepare_plan_json(request_json: &str) -> Option<String> {
         .and_then(Value::as_bool)
         .unwrap_or(false)
         || playable_url.starts_with("stremio://torrent/")
-        || request.stream.get("infoHash").and_then(Value::as_str).is_some();
+        || request
+            .stream
+            .get("infoHash")
+            .and_then(Value::as_str)
+            .is_some();
     let compatible = info
         .get("isLikelyPlayerCompatible")
         .and_then(Value::as_bool)
         .unwrap_or(true);
-    let mode = if playable_url.is_empty() {
-        "reject"
-    } else if !compatible {
+    let mode = if playable_url.is_empty() || !compatible {
         "reject"
     } else if is_torrent {
         "torrent"
@@ -439,26 +458,29 @@ pub(crate) fn detail_episode_plan_json(request_json: &str) -> Option<String> {
     seasons.dedup();
     // Search for the target episode across ALL episodes before season filtering,
     // so that a lastVideoId from a later season (e.g. S9 when default would be S1) is found.
-    let target_episode = request
-        .selected_episode_id
-        .as_deref()
-        .and_then(|id| {
-            request
-                .episodes
-                .iter()
-                .find(|ep| ep.get("id").and_then(Value::as_str) == Some(id))
-                .cloned()
-        });
+    let target_episode = request.selected_episode_id.as_deref().and_then(|id| {
+        request
+            .episodes
+            .iter()
+            .find(|ep| ep.get("id").and_then(Value::as_str) == Some(id))
+            .cloned()
+    });
     let selected_season = target_episode
         .as_ref()
         .and_then(|ep| ep.get("season").and_then(Value::as_i64))
-        .or_else(|| request.selected_season.filter(|season| seasons.contains(season)))
+        .or_else(|| {
+            request
+                .selected_season
+                .filter(|season| seasons.contains(season))
+        })
         .or_else(|| seasons.first().copied())
         .unwrap_or(1);
     let episodes = request
         .episodes
         .into_iter()
-        .filter(|episode| episode.get("season").and_then(Value::as_i64).unwrap_or(1) == selected_season)
+        .filter(|episode| {
+            episode.get("season").and_then(Value::as_i64).unwrap_or(1) == selected_season
+        })
         .collect::<Vec<_>>();
     let selected_episode = target_episode
         .filter(|ep| ep.get("season").and_then(Value::as_i64).unwrap_or(1) == selected_season)
@@ -495,7 +517,10 @@ fn addon_transport_url(addon: &Value) -> Option<&str> {
 }
 
 fn addon_manifest(addon: &Value) -> Value {
-    addon.get("manifest").cloned().unwrap_or_else(|| addon.clone())
+    addon
+        .get("manifest")
+        .cloned()
+        .unwrap_or_else(|| addon.clone())
 }
 
 fn addon_catalogs(addon: &Value) -> Vec<Value> {
@@ -512,8 +537,13 @@ fn addon_supports(addon: &Value, resource: &str, content_type: &str, id: Option<
 }
 
 fn addon_display_name(addon: &Value) -> String {
-    addon.get("name")
-        .or_else(|| addon.get("manifest").and_then(|manifest| manifest.get("name")))
+    addon
+        .get("name")
+        .or_else(|| {
+            addon
+                .get("manifest")
+                .and_then(|manifest| manifest.get("name"))
+        })
         .and_then(Value::as_str)
         .unwrap_or("Unknown Addon")
         .to_string()
@@ -558,10 +588,16 @@ struct DiscoverCatalog {
 fn discover_catalog_options(addons: &[Value], selected_type: &str) -> Vec<DiscoverCatalog> {
     let mut options = Vec::new();
     for addon in addons {
-        let Some(transport_url) = addon_transport_url(addon) else { continue };
+        let Some(transport_url) = addon_transport_url(addon) else {
+            continue;
+        };
         for catalog in addon_catalogs(addon) {
-            let Some(content_type) = catalog.get("type").and_then(Value::as_str) else { continue };
-            let Some(id) = catalog.get("id").and_then(Value::as_str) else { continue };
+            let Some(content_type) = catalog.get("type").and_then(Value::as_str) else {
+                continue;
+            };
+            let Some(id) = catalog.get("id").and_then(Value::as_str) else {
+                continue;
+            };
             if !selected_type.is_empty() && content_type != selected_type {
                 continue;
             }
@@ -583,7 +619,9 @@ fn playback_title(meta: Option<&Value>, episode: Option<&Value>, stream: &Value)
         .or_else(|| stream.get("name"))
         .and_then(Value::as_str)
         .unwrap_or("Fluxa");
-    let season = episode.and_then(|value| value.get("season")).and_then(Value::as_i64);
+    let season = episode
+        .and_then(|value| value.get("season"))
+        .and_then(Value::as_i64);
     let episode_number = episode
         .and_then(|value| value.get("episode").or_else(|| value.get("number")))
         .and_then(Value::as_i64);
@@ -593,10 +631,12 @@ fn playback_title(meta: Option<&Value>, episode: Option<&Value>, stream: &Value)
     let episode_line = match (season, episode_number) {
         (Some(season), Some(number)) => {
             let prefix = format!("S{season}:E{number}");
-            Some(match episode_name.filter(|value| !value.trim().is_empty()) {
-                Some(name) => format!("{prefix} {}", name.trim()),
-                None => prefix,
-            })
+            Some(
+                match episode_name.filter(|value| !value.trim().is_empty()) {
+                    Some(name) => format!("{prefix} {}", name.trim()),
+                    None => prefix,
+                },
+            )
         }
         _ => None,
     };
@@ -605,16 +645,33 @@ fn playback_title(meta: Option<&Value>, episode: Option<&Value>, stream: &Value)
 
 fn playback_artwork(meta: Option<&Value>, episode: Option<&Value>) -> Value {
     let background = meta
-        .and_then(|value| first_text(value, &["background", "backgroundUrl", "backdrop", "backdropUrl"]))
-        .or_else(|| episode.and_then(|value| value.get("thumbnail")).and_then(Value::as_str))
-        .or_else(|| meta.and_then(|value| value.get("poster")).and_then(Value::as_str));
-    let logo = meta.and_then(|value| first_text(value, &["logo", "logoUrl", "titleLogo", "titleLogoUrl"]));
+        .and_then(|value| {
+            first_text(
+                value,
+                &["background", "backgroundUrl", "backdrop", "backdropUrl"],
+            )
+        })
+        .or_else(|| {
+            episode
+                .and_then(|value| value.get("thumbnail"))
+                .and_then(Value::as_str)
+        })
+        .or_else(|| {
+            meta.and_then(|value| value.get("poster"))
+                .and_then(Value::as_str)
+        });
+    let logo =
+        meta.and_then(|value| first_text(value, &["logo", "logoUrl", "titleLogo", "titleLogoUrl"]));
     json!({ "background": background, "logo": logo })
 }
 
 fn first_text<'a>(value: &'a Value, keys: &[&str]) -> Option<&'a str> {
-    keys.iter()
-        .find_map(|key| value.get(*key).and_then(Value::as_str).filter(|text| !text.trim().is_empty()))
+    keys.iter().find_map(|key| {
+        value
+            .get(*key)
+            .and_then(Value::as_str)
+            .filter(|text| !text.trim().is_empty())
+    })
 }
 
 fn normalize_preference_value(key: &str, value: Value) -> Value {
@@ -629,7 +686,9 @@ fn normalize_preference_value(key: &str, value: Value) -> Value {
             "preferred",
         ),
         "torrentSpeedPreset" => enum_string(value, &["default", "fast", "ultra_fast"], "default"),
-        "torrentCachePreset" => enum_string(value, &["auto", "2gb", "5gb", "10gb", "unlimited"], "auto"),
+        "torrentCachePreset" => {
+            enum_string(value, &["auto", "2gb", "5gb", "10gb", "unlimited"], "auto")
+        }
         "subtitleSize" => enum_string(value, &["50", "75", "100", "125", "150", "200"], "100"),
         _ => value,
     }
@@ -645,9 +704,14 @@ fn enum_string(value: Value, allowed: &[&str], fallback: &str) -> Value {
 }
 
 fn addon_key(addon: &Value) -> String {
-    addon.get("transportUrl")
+    addon
+        .get("transportUrl")
         .or_else(|| addon.get("id"))
-        .or_else(|| addon.get("manifest").and_then(|manifest| manifest.get("id")))
+        .or_else(|| {
+            addon
+                .get("manifest")
+                .and_then(|manifest| manifest.get("id"))
+        })
         .and_then(Value::as_str)
         .unwrap_or("")
         .to_string()
@@ -655,7 +719,11 @@ fn addon_key(addon: &Value) -> String {
 
 /// Maps a request `kind` to the addon resource name used in URLs and responses.
 /// `request_resource` and `item_resource` are optional overrides from the request.
-pub(crate) fn resource_kind_to_resource(kind: &str, request_resource: Option<&str>, item_resource: Option<&str>) -> String {
+pub(crate) fn resource_kind_to_resource(
+    kind: &str,
+    request_resource: Option<&str>,
+    item_resource: Option<&str>,
+) -> String {
     let explicit = item_resource
         .filter(|s| !s.trim().is_empty())
         .or_else(|| request_resource.filter(|s| !s.trim().is_empty()));
@@ -749,7 +817,10 @@ mod tests {
 
         assert_eq!(requests.len(), 1);
         assert_eq!(requests[0]["kind"], "catalogPage");
-        assert!(requests[0]["url"].as_str().unwrap().contains("genre=action"));
+        assert!(requests[0]["url"]
+            .as_str()
+            .unwrap()
+            .contains("genre=action"));
     }
 
     #[test]
@@ -773,9 +844,16 @@ mod tests {
             .expect("plan");
         let requests = plan["requests"].as_array().unwrap();
 
-        assert_eq!(requests.len(), 1, "catalog without search support must be excluded");
+        assert_eq!(
+            requests.len(),
+            1,
+            "catalog without search support must be excluded"
+        );
         assert_eq!(requests[0]["catalogId"], "top");
         assert_eq!(requests[0]["categoryName"], "Addon One - Top Movies");
-        assert!(requests[0]["url"].as_str().unwrap().contains("search=batman"));
+        assert!(requests[0]["url"]
+            .as_str()
+            .unwrap()
+            .contains("search=batman"));
     }
 }

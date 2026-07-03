@@ -127,10 +127,9 @@ pub(crate) fn base_url(raw: &str) -> String {
         format!("{without_manifest}/")
     };
     let lower = base.to_ascii_lowercase();
-    if lower.contains("localhost") || lower.contains("127.0.0.1") {
-        if lower.starts_with("https://") {
-            base = format!("http://{}", &base[8..]);
-        }
+    if (lower.contains("localhost") || lower.contains("127.0.0.1")) && lower.starts_with("https://")
+    {
+        base = format!("http://{}", &base[8..]);
     }
     base
 }
@@ -477,11 +476,7 @@ pub(crate) fn parse_catalogs(json: &Value) -> Vec<Value> {
 
 // pub rather than pub(crate): re-exported under fuzz_targets for the `fuzz/`
 // crate (see lib.rs). Not part of the supported public API otherwise.
-pub fn parse_manifest(
-    body: &str,
-    transport_url: &str,
-    unknown_name: &str,
-) -> Option<String> {
+pub fn parse_manifest(body: &str, transport_url: &str, unknown_name: &str) -> Option<String> {
     let json: Value = serde_json::from_str(body).ok()?;
     let behavior_hints = json.get("behaviorHints");
     let logo = first_text(
@@ -978,7 +973,13 @@ mod tests {
     #[test]
     fn build_resource_url_appends_extra_path_segment_and_omits_blank_values() {
         assert_eq!(
-            build_resource_url("https://addon.example/manifest.json", "stream", "movie", "tt123", None),
+            build_resource_url(
+                "https://addon.example/manifest.json",
+                "stream",
+                "movie",
+                "tt123",
+                None
+            ),
             "https://addon.example/stream/movie/tt123.json"
         );
         assert_eq!(
@@ -1011,9 +1012,19 @@ mod tests {
             "types": ["movie"],
             "idPrefixes": ["tt"],
         });
-        assert!(supports_resource(&manifest.to_string(), "streams", Some("movie"), Some("tt123")));
+        assert!(supports_resource(
+            &manifest.to_string(),
+            "streams",
+            Some("movie"),
+            Some("tt123")
+        ));
         // Wrong content type for this manifest's declared types.
-        assert!(!supports_resource(&manifest.to_string(), "stream", Some("series"), Some("tt123")));
+        assert!(!supports_resource(
+            &manifest.to_string(),
+            "stream",
+            Some("series"),
+            Some("tt123")
+        ));
 
         let catalog_manifest = json!({
             "resources": [{ "name": "catalog", "types": ["movie"], "idPrefixes": ["tt"] }],

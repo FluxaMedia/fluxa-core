@@ -25,6 +25,7 @@ struct EnqueueOfflineDownloadPayload {
     language: Option<String>,
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(super) fn dispatch(
     engine: &mut HeadlessEngine,
     meta: Value,
@@ -49,7 +50,11 @@ pub(super) fn dispatch(
     vec![engine.effect(EffectKind::EnqueueOfflineDownload, generation, payload)]
 }
 
-pub(super) fn complete(engine: &mut HeadlessEngine, generation: u64, result: &EffectResultInput) -> Vec<EffectEnvelope> {
+pub(super) fn complete(
+    engine: &mut HeadlessEngine,
+    generation: u64,
+    result: &EffectResultInput,
+) -> Vec<EffectEnvelope> {
     if generation == engine.state.runtime.get(GenerationKey::Offline) {
         if result.status == "ok" {
             engine.state.offline.last_enqueued = result.value.clone();

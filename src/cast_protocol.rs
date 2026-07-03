@@ -5,7 +5,9 @@ pub(crate) const RENDERING_CONTROL_URN: &str = "urn:schemas-upnp-org:service:Ren
 
 pub(crate) fn validate_stream_url(url: &str) -> bool {
     let trimmed = url.trim();
-    let Some(scheme_end) = trimmed.find("://") else { return false };
+    let Some(scheme_end) = trimmed.find("://") else {
+        return false;
+    };
     let scheme = trimmed[..scheme_end].to_ascii_lowercase();
     if scheme != "http" && scheme != "https" {
         return false;
@@ -14,7 +16,10 @@ pub(crate) fn validate_stream_url(url: &str) -> bool {
 }
 
 pub(crate) fn xml_escape(value: &str) -> String {
-    value.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
+    value
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
 }
 
 fn extract_tag(xml: &str, tag: &str) -> Option<String> {
@@ -70,7 +75,12 @@ pub(crate) fn soap_action_body(urn: &str, action: &str, args: &str) -> String {
 
 fn format_didl_metadata(title: &str, subtitle_url: Option<&str>) -> String {
     let subtitle_res = subtitle_url
-        .map(|url| format!("<res protocolInfo=\"http-get:*:text/srt:*\">{}</res>", xml_escape(url)))
+        .map(|url| {
+            format!(
+                "<res protocolInfo=\"http-get:*:text/srt:*\">{}</res>",
+                xml_escape(url)
+            )
+        })
         .unwrap_or_default();
     let didl = format!(
         "<DIDL-Lite xmlns=\"urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/\" xmlns:dc=\"http://purl.org/dc/elements/1.1/\" xmlns:upnp=\"urn:schemas-upnp-org:metadata-1-0/upnp/\">\
@@ -80,7 +90,11 @@ fn format_didl_metadata(title: &str, subtitle_url: Option<&str>) -> String {
     xml_escape(&didl)
 }
 
-pub(crate) fn dlna_set_av_transport_args(media_url: &str, title: &str, subtitle_url: Option<&str>) -> Option<String> {
+pub(crate) fn dlna_set_av_transport_args(
+    media_url: &str,
+    title: &str,
+    subtitle_url: Option<&str>,
+) -> Option<String> {
     if !validate_stream_url(media_url) {
         return None;
     }
@@ -93,11 +107,19 @@ pub(crate) fn dlna_set_av_transport_args(media_url: &str, title: &str, subtitle_
 
 pub(crate) fn format_hms(total_secs: f64) -> String {
     let total = total_secs.max(0.0) as u64;
-    format!("{:02}:{:02}:{:02}", total / 3600, (total % 3600) / 60, total % 60)
+    format!(
+        "{:02}:{:02}:{:02}",
+        total / 3600,
+        (total % 3600) / 60,
+        total % 60
+    )
 }
 
 pub(crate) fn dlna_seek_args(position_secs: f64) -> String {
-    format!("<InstanceID>0</InstanceID><Unit>ABS_TIME</Unit><Target>{}</Target>", format_hms(position_secs))
+    format!(
+        "<InstanceID>0</InstanceID><Unit>ABS_TIME</Unit><Target>{}</Target>",
+        format_hms(position_secs)
+    )
 }
 
 pub(crate) fn dlna_set_volume_args(level: f64) -> String {
@@ -113,7 +135,11 @@ pub(crate) fn resolve_loopback_url(stream_url: &str, lan_ip: &str) -> String {
 }
 
 pub(crate) fn guess_cast_content_type(media_url: &str) -> &'static str {
-    let path = media_url.split(['?', '#']).next().unwrap_or(media_url).to_ascii_lowercase();
+    let path = media_url
+        .split(['?', '#'])
+        .next()
+        .unwrap_or(media_url)
+        .to_ascii_lowercase();
     if path.ends_with(".m3u8") {
         "application/x-mpegurl"
     } else if path.ends_with(".mkv") {
@@ -147,7 +173,12 @@ fn write_string_field(buf: &mut Vec<u8>, field: u32, value: &str) {
     buf.extend_from_slice(value.as_bytes());
 }
 
-pub(crate) fn encode_cast_message(source_id: &str, destination_id: &str, namespace: &str, payload_utf8: &str) -> Vec<u8> {
+pub(crate) fn encode_cast_message(
+    source_id: &str,
+    destination_id: &str,
+    namespace: &str,
+    payload_utf8: &str,
+) -> Vec<u8> {
     let mut buf = Vec::new();
     write_tag(&mut buf, 1, 0);
     write_varint(&mut buf, 0);
@@ -206,14 +237,19 @@ pub(crate) fn decode_cast_message(buf: &[u8]) -> Option<DecodedCastMessage> {
             _ => return None,
         }
     }
-    Some(DecodedCastMessage { namespace, payload_utf8 })
+    Some(DecodedCastMessage {
+        namespace,
+        payload_utf8,
+    })
 }
 
 fn roku_url_encode(value: &str) -> String {
     let mut out = String::new();
     for byte in value.bytes() {
         match byte {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => out.push(byte as char),
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                out.push(byte as char)
+            }
             _ => out.push_str(&format!("%{byte:02X}")),
         }
     }
@@ -224,7 +260,11 @@ pub(crate) fn roku_device_name(xml: &str) -> Option<String> {
     extract_tag(xml, "friendly-device-name")
 }
 
-pub(crate) fn roku_launch_url(host: &str, media_url: &str, subtitle_url: Option<&str>) -> Option<String> {
+pub(crate) fn roku_launch_url(
+    host: &str,
+    media_url: &str,
+    subtitle_url: Option<&str>,
+) -> Option<String> {
     if !validate_stream_url(media_url) {
         return None;
     }
@@ -234,7 +274,10 @@ pub(crate) fn roku_launch_url(host: &str, media_url: &str, subtitle_url: Option<
         }
     }
     const ROKU_MEDIA_PLAYER_APP_ID: &str = "2213";
-    let mut url = format!("http://{host}:8060/launch/{ROKU_MEDIA_PLAYER_APP_ID}?t=v&u={}", roku_url_encode(media_url));
+    let mut url = format!(
+        "http://{host}:8060/launch/{ROKU_MEDIA_PLAYER_APP_ID}?t=v&u={}",
+        roku_url_encode(media_url)
+    );
     if let Some(sub) = subtitle_url {
         url.push_str(&format!("&k={}", roku_url_encode(sub)));
     }
@@ -253,7 +296,9 @@ pub(crate) fn airplay_play_body(media_url: &str) -> Option<String> {
     if !validate_stream_url(media_url) {
         return None;
     }
-    Some(format!("Content-Location: {media_url}\nStart-Position: 0\n"))
+    Some(format!(
+        "Content-Location: {media_url}\nStart-Position: 0\n"
+    ))
 }
 
 #[cfg(test)]
@@ -275,7 +320,8 @@ mod tests {
 
     #[test]
     fn didl_title_with_markup_does_not_break_out_of_the_item_tag() {
-        let args = dlna_set_av_transport_args("http://192.168.1.5/a.mkv", "</item><script>", None).unwrap();
+        let args = dlna_set_av_transport_args("http://192.168.1.5/a.mkv", "</item><script>", None)
+            .unwrap();
         assert!(!args.contains("<script>"));
     }
 

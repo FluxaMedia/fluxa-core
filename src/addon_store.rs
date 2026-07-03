@@ -352,7 +352,8 @@ pub(crate) fn addon_store_search_policy_json(request_json: &str) -> Option<Strin
 fn manifest_url_regex() -> &'static Regex {
     static REGEX: OnceLock<Regex> = OnceLock::new();
     REGEX.get_or_init(|| {
-        Regex::new(r#"https?://[^"'\\ ]+manifest\.json[^"'\\ ]*"#).expect("valid manifest url regex")
+        Regex::new(r#"https?://[^"'\\ ]+manifest\.json[^"'\\ ]*"#)
+            .expect("valid manifest url regex")
     })
 }
 

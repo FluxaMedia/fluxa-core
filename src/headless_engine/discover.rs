@@ -127,10 +127,16 @@ pub(super) fn complete(
         "readDiscoverCatalogFilters" => {
             if generation == engine.state.runtime.get(GenerationKey::Discover) {
                 if result.status == "ok" {
-                    engine.state.discover.catalogs =
-                        result.value.get("catalogs").cloned().unwrap_or_else(|| serde_json::json!([]));
-                    engine.state.discover.genres =
-                        result.value.get("genres").cloned().unwrap_or_else(|| serde_json::json!([]));
+                    engine.state.discover.catalogs = result
+                        .value
+                        .get("catalogs")
+                        .cloned()
+                        .unwrap_or_else(|| serde_json::json!([]));
+                    engine.state.discover.genres = result
+                        .value
+                        .get("genres")
+                        .cloned()
+                        .unwrap_or_else(|| serde_json::json!([]));
                     engine.state.discover.error = Value::Null;
                 } else {
                     engine.state.discover.error = normalize_error(result.error.clone());

@@ -72,7 +72,11 @@ pub(crate) fn trakt_scrobble_plan_json(
         return None;
     }
     let progress = ((time_pos_sec / duration_sec) * 100.0).clamp(0.0, 100.0);
-    let action = if progress as f32 >= SCROBBLE_STOP_PROGRESS_PERCENT { "stop" } else { "pause" };
+    let action = if progress as f32 >= SCROBBLE_STOP_PROGRESS_PERCENT {
+        "stop"
+    } else {
+        "pause"
+    };
     let body = if is_episode {
         serde_json::json!({
             "show": { "ids": ids },

@@ -103,7 +103,8 @@ pub(super) fn dispatch_resource(
         id,
         extra: extra.unwrap_or(Value::Null),
     };
-    engine.state.addons.last_resource_request = serde_json::to_value(&payload).unwrap_or(Value::Null);
+    engine.state.addons.last_resource_request =
+        serde_json::to_value(&payload).unwrap_or(Value::Null);
     vec![engine.effect(EffectKind::FetchAddonResource, generation, payload)]
 }
 

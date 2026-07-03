@@ -65,7 +65,11 @@ pub(crate) fn library_external_merge_plan_json(request_json: &str) -> Option<Str
     let local_ids: std::collections::HashSet<String> = request
         .local_items
         .iter()
-        .filter_map(|item| item.get("id").and_then(Value::as_str).map(ToString::to_string))
+        .filter_map(|item| {
+            item.get("id")
+                .and_then(Value::as_str)
+                .map(ToString::to_string)
+        })
         .collect();
     let merged_external: Vec<&Value> = request
         .external_items
@@ -92,7 +96,11 @@ pub(crate) fn library_collection_import_validation_json(request_json: &str) -> O
     let mut valid_collections = Vec::<Value>::new();
     for (i, col) in request.collections.iter().enumerate() {
         let id = col.get("id").and_then(Value::as_str).unwrap_or("").trim();
-        let title = col.get("title").and_then(Value::as_str).unwrap_or("").trim();
+        let title = col
+            .get("title")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .trim();
         if id.is_empty() {
             issues.push(format!("collection[{}]: missing id", i));
             continue;
@@ -141,8 +149,7 @@ pub(crate) fn playback_progress_merge_plan_json(request_json: &str) -> Option<St
 
     let existing_video_id = existing.get("lastVideoId").and_then(Value::as_str);
     let incoming_video_id = incoming.get("lastVideoId").and_then(Value::as_str);
-    let video_changed =
-        incoming_video_id.is_some() && incoming_video_id != existing_video_id;
+    let video_changed = incoming_video_id.is_some() && incoming_video_id != existing_video_id;
 
     let resolve_field = |key: &str| -> Value {
         incoming
@@ -154,7 +161,10 @@ pub(crate) fn playback_progress_merge_plan_json(request_json: &str) -> Option<St
     };
 
     let last_episode_name = if video_changed {
-        incoming.get("lastEpisodeName").cloned().unwrap_or(Value::Null)
+        incoming
+            .get("lastEpisodeName")
+            .cloned()
+            .unwrap_or(Value::Null)
     } else {
         resolve_field("lastEpisodeName")
     };
@@ -187,18 +197,30 @@ pub(crate) fn playback_progress_merge_plan_json(request_json: &str) -> Option<St
 }
 
 fn cleaned_url(raw: Option<&str>) -> Option<String> {
-    raw.map(str::trim).filter(|s| !s.is_empty()).map(str::to_string)
+    raw.map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
 }
 
 fn cleaned_artwork_url(raw: Option<&str>) -> Option<String> {
     let s = raw?.trim().trim_matches('\'').trim_matches('"').trim();
-    if s.is_empty() { return None; }
-    let with_scheme = if s.starts_with("//") { format!("https:{s}") } else { s.to_string() };
-    let normalized = if let Some(caps) = regex::Regex::new(
-        r"^https://github\.com/([^/]+)/([^/]+)/blob/([^/]+)/(.+)$"
-    ).ok().and_then(|re| re.captures(&with_scheme)) {
-        format!("https://raw.githubusercontent.com/{}/{}/{}/{}",
-            &caps[1], &caps[2], &caps[3], &caps[4])
+    if s.is_empty() {
+        return None;
+    }
+    let with_scheme = if s.starts_with("//") {
+        format!("https:{s}")
+    } else {
+        s.to_string()
+    };
+    let normalized = if let Some(caps) =
+        regex::Regex::new(r"^https://github\.com/([^/]+)/([^/]+)/blob/([^/]+)/(.+)$")
+            .ok()
+            .and_then(|re| re.captures(&with_scheme))
+    {
+        format!(
+            "https://raw.githubusercontent.com/{}/{}/{}/{}",
+            &caps[1], &caps[2], &caps[3], &caps[4]
+        )
     } else {
         with_scheme
     };
@@ -206,7 +228,11 @@ fn cleaned_artwork_url(raw: Option<&str>) -> Option<String> {
 }
 
 fn pick_str<'a>(obj: &'a serde_json::Map<String, Value>, keys: &[&str]) -> Option<&'a str> {
-    for k in keys { if let Some(Value::String(s)) = obj.get(*k) { return Some(s.as_str()); } }
+    for k in keys {
+        if let Some(Value::String(s)) = obj.get(*k) {
+            return Some(s.as_str());
+        }
+    }
     None
 }
 
@@ -332,8 +358,7 @@ pub(crate) fn export_collections_json(collections_json: &str) -> Option<String> 
         let folders: Vec<Value> = folders_raw.iter().map(|folder| {
             let catalog_sources: Vec<Value> = folder.get("catalogSources")
                 .and_then(Value::as_array)
-                .filter(|arr| !arr.is_empty())
-                .map(|arr| arr.clone())
+                .filter(|arr| !arr.is_empty()).cloned()
                 .unwrap_or_else(|| {
                     if let Some(cid) = folder.get("catalogId").and_then(Value::as_str) {
                         vec![json!({ "catalogId": cid, "type": "movie" })]
@@ -459,8 +484,13 @@ mod tests {
     }
 }
 
-pub(crate) fn library_apply_mark_watched_json(lib_json: &str, video_ids_json: &str) -> Option<String> {
-    use crate::library_state::{build_continue_watching_from_progress_json, remember_last_watched_episodes_json};
+pub(crate) fn library_apply_mark_watched_json(
+    lib_json: &str,
+    video_ids_json: &str,
+) -> Option<String> {
+    use crate::library_state::{
+        build_continue_watching_from_progress_json, remember_last_watched_episodes_json,
+    };
 
     let updated_lib_str = remember_last_watched_episodes_json(lib_json, video_ids_json);
     let mut lib: serde_json::Map<String, Value> = serde_json::from_str(&updated_lib_str).ok()?;
@@ -468,22 +498,36 @@ pub(crate) fn library_apply_mark_watched_json(lib_json: &str, video_ids_json: &s
     let video_ids: Vec<String> = serde_json::from_str(video_ids_json).unwrap_or_default();
     let watched: std::collections::HashSet<&str> = video_ids.iter().map(String::as_str).collect();
 
-    if let Some(ext_cw) = lib.get("externalContinueWatching").and_then(Value::as_array).cloned() {
+    if let Some(ext_cw) = lib
+        .get("externalContinueWatching")
+        .and_then(Value::as_array)
+        .cloned()
+    {
         let filtered: Vec<Value> = ext_cw
             .into_iter()
             .filter(|item| {
-                let last_vid = item.get("lastVideoId").and_then(Value::as_str).unwrap_or("");
+                let last_vid = item
+                    .get("lastVideoId")
+                    .and_then(Value::as_str)
+                    .unwrap_or("");
                 last_vid.is_empty() || !watched.contains(last_vid)
             })
             .collect();
         lib.insert("externalContinueWatching".into(), filtered.into());
     }
 
-    let progress_map = lib.get("progress").and_then(Value::as_object).cloned().unwrap_or_default();
+    let progress_map = lib
+        .get("progress")
+        .and_then(Value::as_object)
+        .cloned()
+        .unwrap_or_default();
     let cleaned: serde_json::Map<String, Value> = progress_map
         .into_iter()
         .filter(|(_, entry)| {
-            let last_vid = entry.get("lastVideoId").and_then(Value::as_str).unwrap_or("");
+            let last_vid = entry
+                .get("lastVideoId")
+                .and_then(Value::as_str)
+                .unwrap_or("");
             last_vid.is_empty() || !watched.contains(last_vid)
         })
         .collect();
@@ -499,7 +543,10 @@ pub(crate) fn library_apply_mark_watched_json(lib_json: &str, video_ids_json: &s
     serde_json::to_string(&Value::Object(lib)).ok()
 }
 
-pub(crate) fn merge_progress_meta_json(incoming_meta_json: &str, existing_meta_json: &str) -> String {
+pub(crate) fn merge_progress_meta_json(
+    incoming_meta_json: &str,
+    existing_meta_json: &str,
+) -> String {
     let incoming: Value = serde_json::from_str(incoming_meta_json).unwrap_or(json!({}));
     let existing: Value = serde_json::from_str(existing_meta_json).unwrap_or(json!({}));
 

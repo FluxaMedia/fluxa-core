@@ -146,7 +146,7 @@ pub(crate) fn calendar_season_candidates_json(request_json: &str) -> Option<Stri
     };
     let mut result: Vec<i32> = focused
         .into_iter()
-        .chain(full.into_iter())
+        .chain(full)
         .collect::<std::collections::BTreeSet<_>>()
         .into_iter()
         .collect();
@@ -217,14 +217,12 @@ pub(crate) fn calendar_notification_content_json(request_json: &str) -> Option<S
         };
         let body_text = match (item.season_number, item.episode_number) {
             (Some(s), Some(e)) => format!("{}:season:{}:episode:{}", item.title, s, e),
-            _ => {
-                [Some(item.title.as_str()), item.subtitle.as_deref()]
-                    .into_iter()
-                    .flatten()
-                    .filter(|s| !s.is_empty())
-                    .collect::<Vec<_>>()
-                    .join(" - ")
-            }
+            _ => [Some(item.title.as_str()), item.subtitle.as_deref()]
+                .into_iter()
+                .flatten()
+                .filter(|s| !s.is_empty())
+                .collect::<Vec<_>>()
+                .join(" - "),
         };
         items_out.push(json!({
             "key": key,
@@ -260,23 +258,43 @@ pub(crate) fn calendar_items_from_meta_json(meta_json: &str, month_prefix: &str)
     let meta: Value = serde_json::from_str(meta_json).ok()?;
     let meta_id = meta.get("id").and_then(Value::as_str).unwrap_or("");
     let meta_name = meta.get("name").and_then(Value::as_str).unwrap_or("");
-    let meta_poster = meta.get("poster").and_then(Value::as_str)
+    let meta_poster = meta
+        .get("poster")
+        .and_then(Value::as_str)
         .or_else(|| meta.get("background").and_then(Value::as_str));
     let videos = meta.get("videos").and_then(Value::as_array)?;
     let mut items: Vec<Value> = Vec::new();
     for video in videos {
         let released = video.get("released").and_then(Value::as_str).unwrap_or("");
-        let date_iso = match released.get(..10) { Some(d) => d, None => continue };
-        if !month_prefix.is_empty() && !date_iso.starts_with(month_prefix) { continue; }
+        let date_iso = match released.get(..10) {
+            Some(d) => d,
+            None => continue,
+        };
+        if !month_prefix.is_empty() && !date_iso.starts_with(month_prefix) {
+            continue;
+        }
         let season = video.get("season").and_then(Value::as_i64);
-        let episode = video.get("episode").or_else(|| video.get("number")).and_then(Value::as_i64);
+        let episode = video
+            .get("episode")
+            .or_else(|| video.get("number"))
+            .and_then(Value::as_i64);
         let episode_code = match (season, episode) {
             (Some(s), Some(e)) => Some(format!("S{s}:E{e}")),
             _ => None,
         };
-        let video_name = video.get("name").or_else(|| video.get("title")).and_then(Value::as_str);
-        let subtitle = [episode_code.as_deref(), video_name].into_iter().flatten().collect::<Vec<_>>().join(" ");
-        let poster = video.get("thumbnail").and_then(Value::as_str).or(meta_poster);
+        let video_name = video
+            .get("name")
+            .or_else(|| video.get("title"))
+            .and_then(Value::as_str);
+        let subtitle = [episode_code.as_deref(), video_name]
+            .into_iter()
+            .flatten()
+            .collect::<Vec<_>>()
+            .join(" ");
+        let poster = video
+            .get("thumbnail")
+            .and_then(Value::as_str)
+            .or(meta_poster);
         let video_id = video.get("id").and_then(Value::as_str).unwrap_or("");
         let key = format!("{meta_id}:{video_id}:{date_iso}");
         items.push(json!({
@@ -313,9 +331,16 @@ pub(crate) fn next_unaired_episode_json(videos_json: &str, now_ms: i64) -> Optio
 }
 
 pub(crate) fn calendar_item_matches_month_json(item_json: &str, month_prefix: &str) -> bool {
-    if month_prefix.is_empty() { return true; }
-    serde_json::from_str::<Value>(item_json).ok()
-        .and_then(|v| v.get("dateIso").and_then(Value::as_str).map(|d| d.starts_with(month_prefix)))
+    if month_prefix.is_empty() {
+        return true;
+    }
+    serde_json::from_str::<Value>(item_json)
+        .ok()
+        .and_then(|v| {
+            v.get("dateIso")
+                .and_then(Value::as_str)
+                .map(|d| d.starts_with(month_prefix))
+        })
         .unwrap_or(false)
 }
 
@@ -347,10 +372,8 @@ mod tests {
     #[test]
     fn season_candidates_covers_watched_next_and_last_season() {
         let result: Value = serde_json::from_str(
-            &calendar_season_candidates_json(
-                r#"{"seasonsCount":5,"lastVideoId":"tt1:2:3"}"#,
-            )
-            .unwrap(),
+            &calendar_season_candidates_json(r#"{"seasonsCount":5,"lastVideoId":"tt1:2:3"}"#)
+                .unwrap(),
         )
         .unwrap();
         let seasons: Vec<i64> = result
@@ -396,31 +419,35 @@ mod tests {
             "notificationsEnabled": true,
             "alertNewEpisodes": true
         });
-        let result: Value =
-            serde_json::from_str(&calendar_notification_content_json(&request.to_string()).unwrap())
-                .unwrap();
+        let result: Value = serde_json::from_str(
+            &calendar_notification_content_json(&request.to_string()).unwrap(),
+        )
+        .unwrap();
         assert_eq!(result["items"].as_array().unwrap().len(), 0);
     }
 
     #[test]
     fn next_unaired_episode_picks_earliest_future_date() {
-        let now_ms = chrono::DateTime::parse_from_rfc3339("2026-06-16T00:00:00Z").unwrap().timestamp_millis();
+        let now_ms = chrono::DateTime::parse_from_rfc3339("2026-06-16T00:00:00Z")
+            .unwrap()
+            .timestamp_millis();
         let videos = json!([
             {"id": "v1", "released": "2026-06-01T00:00:00Z"},
             {"id": "v2", "released": "2026-07-10T00:00:00Z"},
             {"id": "v3", "released": "2026-06-20T00:00:00Z"},
             {"id": "v4"}
         ]);
-        let result: Value = serde_json::from_str(
-            &next_unaired_episode_json(&videos.to_string(), now_ms).unwrap(),
-        )
-        .unwrap();
+        let result: Value =
+            serde_json::from_str(&next_unaired_episode_json(&videos.to_string(), now_ms).unwrap())
+                .unwrap();
         assert_eq!(result["id"], "v3");
     }
 
     #[test]
     fn next_unaired_episode_returns_none_when_nothing_upcoming() {
-        let now_ms = chrono::DateTime::parse_from_rfc3339("2026-06-16T00:00:00Z").unwrap().timestamp_millis();
+        let now_ms = chrono::DateTime::parse_from_rfc3339("2026-06-16T00:00:00Z")
+            .unwrap()
+            .timestamp_millis();
         let videos = json!([
             {"id": "v1", "released": "2026-06-01T00:00:00Z"},
             {"id": "v2"}

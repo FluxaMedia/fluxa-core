@@ -83,15 +83,27 @@ impl PlayerState {
     // behavior of overwriting `engine.state["player"]` with the flow's state outright.
     fn from_flow_state(flow_state: PlayerFlowState) -> Self {
         Self {
-            current_video_id: flow_state.current_video_id.map(Value::String).unwrap_or(Value::Null),
+            current_video_id: flow_state
+                .current_video_id
+                .map(Value::String)
+                .unwrap_or(Value::Null),
             current_streams: Value::Array(flow_state.current_streams),
             current_stream_index: flow_state.current_stream_index as i64,
-            current_url: flow_state.current_url.map(Value::String).unwrap_or(Value::Null),
+            current_url: flow_state
+                .current_url
+                .map(Value::String)
+                .unwrap_or(Value::Null),
             zero_speed_ticks: flow_state.zero_speed_ticks as i64,
             is_buffering: flow_state.is_buffering,
             is_video_rendered: flow_state.is_video_rendered,
-            player_error: flow_state.player_error.map(Value::String).unwrap_or(Value::Null),
-            preferred_binge_group: flow_state.preferred_binge_group.map(Value::String).unwrap_or(Value::Null),
+            player_error: flow_state
+                .player_error
+                .map(Value::String)
+                .unwrap_or(Value::Null),
+            preferred_binge_group: flow_state
+                .preferred_binge_group
+                .map(Value::String)
+                .unwrap_or(Value::Null),
             ..Self::default()
         }
     }
@@ -207,8 +219,15 @@ pub(super) fn dispatch_next_episode_prefetch(
     language: Option<String>,
     profile: Option<Value>,
 ) -> Vec<EffectEnvelope> {
-    let already_prefetching = engine.state.player.prefetching_next_video_id.as_str().is_some_and(|v| v == next_video_id);
-    let already_cached = engine.state.player.prefetched_next_episode["videoId"].as_str().is_some_and(|v| v == next_video_id);
+    let already_prefetching = engine
+        .state
+        .player
+        .prefetching_next_video_id
+        .as_str()
+        .is_some_and(|v| v == next_video_id);
+    let already_cached = engine.state.player.prefetched_next_episode["videoId"]
+        .as_str()
+        .is_some_and(|v| v == next_video_id);
     if already_prefetching || already_cached {
         return vec![];
     }
@@ -263,7 +282,10 @@ pub(super) fn dispatch_load_streams(
         let prefetched = engine.state.player.prefetched_next_episode.clone();
         let cached_video_id = prefetched["videoId"].as_str().map(str::to_string);
         if cached_video_id.is_some() && cached_video_id == current_video_id {
-            initial_streams = prefetched["streams"].as_array().cloned().unwrap_or_default();
+            initial_streams = prefetched["streams"]
+                .as_array()
+                .cloned()
+                .unwrap_or_default();
             effective_initial_video_id = cached_video_id;
             engine.state.player.prefetched_next_episode = Value::Null;
         }
@@ -303,12 +325,22 @@ pub(super) fn dispatch_load_streams(
         .into_iter()
         .map(|effect| {
             let mut payload = serde_json::to_value(&effect).unwrap_or(Value::Null);
-            let kind = payload.get("type").and_then(Value::as_str).unwrap_or("unknown").to_string();
+            let kind = payload
+                .get("type")
+                .and_then(Value::as_str)
+                .unwrap_or("unknown")
+                .to_string();
             if kind == "loadStreams" {
                 if let Value::Object(map) = &mut payload {
-                    map.insert("initialStreams".to_string(), pending_value["initialStreams"].clone());
+                    map.insert(
+                        "initialStreams".to_string(),
+                        pending_value["initialStreams"].clone(),
+                    );
                     map.insert("title".to_string(), pending_value["title"].clone());
-                    map.insert("originalName".to_string(), pending_value["originalName"].clone());
+                    map.insert(
+                        "originalName".to_string(),
+                        pending_value["originalName"].clone(),
+                    );
                     map.insert("year".to_string(), pending_value["year"].clone());
                     map.insert("language".to_string(), pending_value["language"].clone());
                     map.insert("profile".to_string(), pending_value["profile"].clone());
@@ -319,6 +351,7 @@ pub(super) fn dispatch_load_streams(
         .collect()
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(super) fn dispatch_streams_loaded(
     engine: &mut HeadlessEngine,
     streams: Vec<Value>,
@@ -348,8 +381,13 @@ pub(super) fn dispatch_streams_loaded(
     vec![]
 }
 
-pub(super) fn dispatch_streams_failed(engine: &mut HeadlessEngine, err_code: Option<String>) -> Vec<EffectEnvelope> {
-    let action = PlayerFlowAction::StreamsFailed { error_code: err_code };
+pub(super) fn dispatch_streams_failed(
+    engine: &mut HeadlessEngine,
+    err_code: Option<String>,
+) -> Vec<EffectEnvelope> {
+    let action = PlayerFlowAction::StreamsFailed {
+        error_code: err_code,
+    };
     let mut flow_state = engine.state.player.to_flow_state();
     let _ = player_flow::dispatch(&mut flow_state, action);
     engine.state.player = PlayerState::from_flow_state(flow_state);
@@ -372,8 +410,13 @@ pub(super) fn dispatch_resolve_playback(
     if stream_policy::is_torrent_playback_url(&url) {
         let stream_value = stream.unwrap_or(Value::Null);
         let file_idx = stream_value["fileIdx"].as_i64();
-        let preferred_filename = stream_value["effectiveFilename"].as_str().map(ToString::to_string);
-        let sources = stream_value["sources"].as_array().cloned().unwrap_or_default();
+        let preferred_filename = stream_value["effectiveFilename"]
+            .as_str()
+            .map(ToString::to_string);
+        let sources = stream_value["sources"]
+            .as_array()
+            .cloned()
+            .unwrap_or_default();
         vec![engine.effect(
             EffectKind::StartTorrentStream,
             generation,
@@ -390,7 +433,13 @@ pub(super) fn dispatch_resolve_playback(
     } else {
         engine.state.player.resolved_url = engine.state.player.current_url.clone();
         engine.state.player.is_buffering = false;
-        vec![engine.effect(EffectKind::StopTorrent, generation, StopTorrentPayload { reason: "directPlayback" })]
+        vec![engine.effect(
+            EffectKind::StopTorrent,
+            generation,
+            StopTorrentPayload {
+                reason: "directPlayback",
+            },
+        )]
     }
 }
 
@@ -431,16 +480,32 @@ pub(super) fn dispatch_intro_segments(
     vec![engine.effect(
         EffectKind::FetchIntroSegments,
         generation,
-        FetchIntroSegmentsPayload { imdb_id, season, episode, title, use_intro_db, use_ani_skip },
+        FetchIntroSegmentsPayload {
+            imdb_id,
+            season,
+            episode,
+            title,
+            use_intro_db,
+            use_ani_skip,
+        },
     )]
 }
 
-pub(super) fn dispatch_intro_imdb_id(engine: &mut HeadlessEngine, meta: Value, video_id: Option<String>, language: Option<String>) -> Vec<EffectEnvelope> {
+pub(super) fn dispatch_intro_imdb_id(
+    engine: &mut HeadlessEngine,
+    meta: Value,
+    video_id: Option<String>,
+    language: Option<String>,
+) -> Vec<EffectEnvelope> {
     let generation = engine.bump_generation(GenerationKey::Intro);
     vec![engine.effect(
         EffectKind::ResolveIntroImdbId,
         generation,
-        ResolveIntroImdbIdPayload { meta, video_id, language: language.unwrap_or_else(|| "en".to_string()) },
+        ResolveIntroImdbIdPayload {
+            meta,
+            video_id,
+            language: language.unwrap_or_else(|| "en".to_string()),
+        },
     )]
 }
 
@@ -456,7 +521,12 @@ pub(super) fn dispatch_subtitle_load(
     vec![engine.effect(
         EffectKind::FetchSubtitles,
         generation,
-        FetchSubtitlesPayload { stream, content_type, id, extra_args: extra_args.unwrap_or_default() },
+        FetchSubtitlesPayload {
+            stream,
+            content_type,
+            id,
+            extra_args: extra_args.unwrap_or_default(),
+        },
     )]
 }
 
@@ -478,9 +548,13 @@ pub(super) fn complete(
                         Some(pending["initialStreamIndex"].as_i64().unwrap_or(0) as i32),
                         pending["savedUrl"].as_str().map(ToString::to_string),
                         pending["savedTitle"].as_str().map(ToString::to_string),
-                        pending["sourceSelectionMode"].as_str().map(ToString::to_string),
+                        pending["sourceSelectionMode"]
+                            .as_str()
+                            .map(ToString::to_string),
                         pending["regexPattern"].as_str().map(ToString::to_string),
-                        pending["preferredBingeGroup"].as_str().map(ToString::to_string),
+                        pending["preferredBingeGroup"]
+                            .as_str()
+                            .map(ToString::to_string),
                     );
                 } else {
                     dispatch_streams_failed(engine, Some(error_code(&result.error)));
@@ -491,7 +565,8 @@ pub(super) fn complete(
         "startTorrentStream" => {
             if generation == engine.state.runtime.get(GenerationKey::Player) {
                 if result.status == "ok" {
-                    engine.state.player.resolved_url = result.value.get("url").cloned().unwrap_or(Value::Null);
+                    engine.state.player.resolved_url =
+                        result.value.get("url").cloned().unwrap_or(Value::Null);
                     engine.state.player.is_buffering = false;
                     engine.state.player.player_error = Value::Null;
                 } else {
@@ -512,7 +587,9 @@ pub(super) fn complete(
             }
         }
         "stopTorrent" => {
-            if generation == engine.state.runtime.get(GenerationKey::Player) && result.status != "ok" {
+            if generation == engine.state.runtime.get(GenerationKey::Player)
+                && result.status != "ok"
+            {
                 engine.state.player.stop_torrent_warning = normalize_error(result.error.clone());
             }
         }
@@ -542,8 +619,11 @@ pub(super) fn complete(
             if generation == engine.state.runtime.get(GenerationKey::Player) {
                 engine.state.player.subtitle_loading = false;
                 if result.status == "ok" {
-                    engine.state.player.subtitles =
-                        result.value.get("subtitles").cloned().unwrap_or_else(|| result.value.clone());
+                    engine.state.player.subtitles = result
+                        .value
+                        .get("subtitles")
+                        .cloned()
+                        .unwrap_or_else(|| result.value.clone());
                     engine.state.player.player_error = Value::Null;
                 } else {
                     engine.state.player.player_error = Value::String(error_code(&result.error));

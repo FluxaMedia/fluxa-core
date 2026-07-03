@@ -56,7 +56,11 @@ pub(super) fn dispatch(
     )]
 }
 
-pub(super) fn complete(engine: &mut HeadlessEngine, generation: u64, result: &EffectResultInput) -> Vec<EffectEnvelope> {
+pub(super) fn complete(
+    engine: &mut HeadlessEngine,
+    generation: u64,
+    result: &EffectResultInput,
+) -> Vec<EffectEnvelope> {
     if generation == engine.state.runtime.get(GenerationKey::Search) {
         engine.state.search.is_loading = false;
         if result.status == "ok" {
@@ -70,7 +74,8 @@ pub(super) fn complete(engine: &mut HeadlessEngine, generation: u64, result: &Ef
                 .get("categories")
                 .cloned()
                 .unwrap_or_else(|| serde_json::json!([]));
-            engine.state.search.grouping = result.value.get("grouping").cloned().unwrap_or(Value::Null);
+            engine.state.search.grouping =
+                result.value.get("grouping").cloned().unwrap_or(Value::Null);
             engine.state.search.error = Value::Null;
         } else {
             engine.state.search.error = normalize_error(result.error.clone());

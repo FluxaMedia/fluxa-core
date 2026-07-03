@@ -85,7 +85,10 @@ pub(crate) fn player_flow_dispatch_json(state_json: &str, action_json: &str) -> 
     serde_json::to_string(&PlayerFlowResult { state, effects }).ok()
 }
 
-pub(crate) fn dispatch(state: &mut PlayerFlowState, action: PlayerFlowAction) -> Vec<PlayerFlowEffect> {
+pub(crate) fn dispatch(
+    state: &mut PlayerFlowState,
+    action: PlayerFlowAction,
+) -> Vec<PlayerFlowEffect> {
     match action {
         PlayerFlowAction::LoadStreamsRequested {
             content_type,

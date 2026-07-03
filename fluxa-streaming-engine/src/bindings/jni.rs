@@ -1,5 +1,5 @@
 use crate::chapters::parse_mkv_chapters_json;
-use crate::dv_rewrite::{dv_auto_detect_was_iptpqc2, dv_get_stream_stats_json, dv_rewrite_segment_bytes, dv_rpu_self_test, start_dv_rewrite_local_stream_server};
+use crate::dv_rewrite::{dv_auto_detect_was_iptpqc2, dv_get_current_l1_json, dv_get_stream_stats_json, dv_rewrite_segment_bytes, dv_rpu_self_test, start_dv_rewrite_local_stream_server};
 use crate::local_stream::{start_local_stream_server, stop_local_stream_server};
 use crate::torrent_engine;
 use jni::objects::{JByteArray, JClass, JString};
@@ -24,6 +24,9 @@ fn write_jstring(env: &mut JNIEnv<'_>, value: Option<String>) -> JStringReturn {
 }
 
 #[no_mangle]
+/// # Safety
+/// Called by the JVM with JNI-managed arguments. The function validates JNI
+/// conversions, catches panics, and returns null on failure.
 pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaStreamingNative_startLocalStreamServerNative(
     mut env: JNIEnv<'_>,
     _class: JObject<'_>,
@@ -47,6 +50,9 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaStreamingNative_
 }
 
 #[no_mangle]
+/// # Safety
+/// Called by the JVM with JNI-managed arguments. The function validates JNI
+/// conversions, catches panics, and returns null on failure.
 pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaStreamingNative_startDvRewriteLocalStreamServerNative(
     mut env: JNIEnv<'_>,
     _class: JObject<'_>,
@@ -70,6 +76,9 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaStreamingNative_
 }
 
 #[no_mangle]
+/// # Safety
+/// Called by the JVM with JNI-managed arguments. The function validates JNI
+/// conversions, catches panics, and returns false on failure.
 pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaStreamingNative_stopLocalStreamServerNative(
     mut env: JNIEnv<'_>,
     _class: JObject<'_>,
@@ -85,21 +94,29 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaStreamingNative_
 }
 
 #[no_mangle]
+/// # Safety
+/// Called by the JVM with JNI-managed arguments. The function validates JNI
+/// conversions, catches panics, and returns null on failure.
 pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaStreamingNative_startTorrentServerNative(
     mut env: JNIEnv<'_>,
     _class: JObject<'_>,
     cache_dir: JString<'_>,
     preferred_port: JInt,
+    access_token: JString<'_>,
 ) -> JStringReturn {
     std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        let output = read_jstring(&mut env, &cache_dir)
-            .and_then(|cache_dir| torrent_engine::start_torrent_server(&cache_dir, preferred_port));
+        let output = read_jstring(&mut env, &cache_dir).and_then(|cache_dir| {
+            let access_token = read_jstring(&mut env, &access_token).unwrap_or_default();
+            torrent_engine::start_torrent_server(&cache_dir, preferred_port, &access_token)
+        });
         write_jstring(&mut env, output)
     }))
     .unwrap_or(ptr::null_mut())
 }
 
 #[no_mangle]
+/// # Safety
+/// Called by the JVM. The function catches panics and returns false on failure.
 pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaStreamingNative_stopTorrentServerNative(
     _env: JNIEnv<'_>,
     _class: JObject<'_>,
@@ -111,6 +128,8 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaStreamingNative_
 }
 
 #[no_mangle]
+/// # Safety
+/// Called by the JVM. The function catches panics and returns false on failure.
 pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaStreamingNative_dvRpuSelfTestNative(
     _env: JNIEnv<'_>,
     _class: JObject<'_>,
@@ -122,6 +141,8 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaStreamingNative_
 }
 
 #[no_mangle]
+/// # Safety
+/// Called by the JVM. The function catches panics and returns false on failure.
 pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaStreamingNative_dvAutoDetectWasIptPqc2Native(
     _env: JNIEnv<'_>,
     _class: JObject<'_>,
@@ -133,6 +154,9 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaStreamingNative_
 }
 
 #[no_mangle]
+/// # Safety
+/// Called by the JVM with JNI-managed arguments. The function validates byte
+/// array conversions, catches panics, and returns null on unrecoverable failure.
 pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaStreamingNative_dvRewriteSegmentBytesNative(
     env: JNIEnv<'_>,
     _class: JObject<'_>,
@@ -178,6 +202,8 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaStreamingNative_
 }
 
 #[no_mangle]
+/// # Safety
+/// Called by the JVM. The function catches panics and returns null on failure.
 pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaStreamingNative_dvGetStreamStatsJsonNative(
     mut env: JNIEnv<'_>,
     _class: JObject<'_>,
@@ -189,6 +215,22 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaStreamingNative_
 }
 
 #[no_mangle]
+/// # Safety
+/// Called by the JVM. The function catches panics and returns null on failure.
+pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaStreamingNative_dvGetCurrentL1JsonNative(
+    mut env: JNIEnv<'_>,
+    _class: JObject<'_>,
+) -> JStringReturn {
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        write_jstring(&mut env, Some(dv_get_current_l1_json()))
+    }))
+    .unwrap_or(ptr::null_mut())
+}
+
+#[no_mangle]
+/// # Safety
+/// Called by the JVM with JNI-managed arguments. The function validates byte
+/// array conversions, catches panics, and returns null on unrecoverable failure.
 pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaStreamingNative_parseMkvChaptersNative(
     mut env: JNIEnv<'_>,
     _class: JObject<'_>,

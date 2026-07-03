@@ -31,6 +31,7 @@ pub enum EffectKind {
     ReadDetailLocalState,
     ReadDiscoverCatalogFilters,
     ReadHomeBootstrap,
+    RefreshContinueWatching,
     ReadLibraryState,
     ReadPlaybackProgress,
     RefreshAuthToken,
@@ -78,6 +79,7 @@ impl EffectKind {
             EffectKind::ReadDetailLocalState => "readDetailLocalState",
             EffectKind::ReadDiscoverCatalogFilters => "readDiscoverCatalogFilters",
             EffectKind::ReadHomeBootstrap => "readHomeBootstrap",
+            EffectKind::RefreshContinueWatching => "refreshContinueWatching",
             EffectKind::ReadLibraryState => "readLibraryState",
             EffectKind::ReadPlaybackProgress => "readPlaybackProgress",
             EffectKind::RefreshAuthToken => "refreshAuthToken",
@@ -100,6 +102,7 @@ impl EffectKind {
         }
     }
 
+    #[allow(clippy::should_implement_trait)]
     pub fn from_str(value: &str) -> Option<Self> {
         Some(match value {
             "clearPlaybackProgress" => EffectKind::ClearPlaybackProgress,
@@ -125,6 +128,7 @@ impl EffectKind {
             "readDetailLocalState" => EffectKind::ReadDetailLocalState,
             "readDiscoverCatalogFilters" => EffectKind::ReadDiscoverCatalogFilters,
             "readHomeBootstrap" => EffectKind::ReadHomeBootstrap,
+            "refreshContinueWatching" => EffectKind::RefreshContinueWatching,
             "readLibraryState" => EffectKind::ReadLibraryState,
             "readPlaybackProgress" => EffectKind::ReadPlaybackProgress,
             "refreshAuthToken" => EffectKind::RefreshAuthToken,

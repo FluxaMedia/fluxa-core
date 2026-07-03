@@ -149,6 +149,11 @@ pub(super) enum AppAction {
         language: Option<String>,
         force: Option<bool>,
     },
+    #[serde(rename = "refreshContinueWatchingRequested")]
+    RefreshContinueWatchingRequested {
+        profile: Option<Value>,
+        language: Option<String>,
+    },
     #[serde(rename = "libraryHydrateRequested")]
     LibraryHydrateRequested { profile_id: Option<String> },
     #[serde(rename = "toggleWatchlistRequested")]

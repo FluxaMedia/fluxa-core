@@ -133,7 +133,9 @@ pub(super) fn upsert_by_key(target: &mut Value, key: &str, value: &str, item: Va
     if !target.is_array() {
         *target = json!([]);
     }
-    let Some(items) = target.as_array_mut() else { return };
+    let Some(items) = target.as_array_mut() else {
+        return;
+    };
     if let Some(existing) = items
         .iter_mut()
         .find(|existing| existing[key].as_str() == Some(value))

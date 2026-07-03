@@ -109,8 +109,10 @@ pub(super) fn complete(
             if generation == engine.state.runtime.get(GenerationKey::Sync) {
                 engine.state.sync.is_loading = false;
                 if result.status == "ok" {
-                    let updated_profile = result.value.get("profile").cloned().unwrap_or(Value::Null);
-                    engine.state.sync.snapshot = result.value.get("snapshot").cloned().unwrap_or(Value::Null);
+                    let updated_profile =
+                        result.value.get("profile").cloned().unwrap_or(Value::Null);
+                    engine.state.sync.snapshot =
+                        result.value.get("snapshot").cloned().unwrap_or(Value::Null);
                     if !updated_profile.is_null() {
                         profile::update_active(engine, updated_profile);
                     }

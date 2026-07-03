@@ -40,7 +40,11 @@ struct RefreshAuthTokenPayload {
     profile: Value,
 }
 
-pub(super) fn dispatch_flow(engine: &mut HeadlessEngine, provider: String, mode: String) -> Vec<EffectEnvelope> {
+pub(super) fn dispatch_flow(
+    engine: &mut HeadlessEngine,
+    provider: String,
+    mode: String,
+) -> Vec<EffectEnvelope> {
     let generation = engine.bump_generation(GenerationKey::Auth);
     engine.state.auth = AuthState {
         provider: provider.clone(),
@@ -50,7 +54,11 @@ pub(super) fn dispatch_flow(engine: &mut HeadlessEngine, provider: String, mode:
         error: Value::Null,
         generation,
     };
-    vec![engine.effect(EffectKind::RunAuthFlow, generation, RunAuthFlowPayload { provider, mode })]
+    vec![engine.effect(
+        EffectKind::RunAuthFlow,
+        generation,
+        RunAuthFlowPayload { provider, mode },
+    )]
 }
 
 pub(super) fn dispatch_exchange(
@@ -81,7 +89,11 @@ pub(super) fn dispatch_exchange(
     )]
 }
 
-pub(super) fn dispatch_token_refresh(engine: &mut HeadlessEngine, provider: String, profile: Value) -> Vec<EffectEnvelope> {
+pub(super) fn dispatch_token_refresh(
+    engine: &mut HeadlessEngine,
+    provider: String,
+    profile: Value,
+) -> Vec<EffectEnvelope> {
     let generation = engine.bump_generation(GenerationKey::Auth);
     engine.state.auth = AuthState {
         provider: provider.clone(),
@@ -91,7 +103,11 @@ pub(super) fn dispatch_token_refresh(engine: &mut HeadlessEngine, provider: Stri
         error: Value::Null,
         generation,
     };
-    vec![engine.effect(EffectKind::RefreshAuthToken, generation, RefreshAuthTokenPayload { provider, profile })]
+    vec![engine.effect(
+        EffectKind::RefreshAuthToken,
+        generation,
+        RefreshAuthTokenPayload { provider, profile },
+    )]
 }
 
 pub(super) fn complete(

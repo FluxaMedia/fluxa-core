@@ -1,4 +1,6 @@
-use crate::{cast_protocol, headless_engine, offline_download, player_policy, stream_policy};
+use crate::stream_policy;
+#[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
+use crate::{cast_protocol, headless_engine, offline_download, player_policy};
 
 pub struct FluxaCore;
 
@@ -9,90 +11,155 @@ fn guard<T>(default: T, f: impl FnOnce() -> T) -> T {
 }
 
 impl FluxaCore {
+    #[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
     pub fn create_headless_engine(initial_json: &str) -> u64 {
         guard(0, || headless_engine::create_headless_engine(initial_json))
     }
 
+    #[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
     pub fn headless_engine_snapshot_json(handle: u64) -> Option<String> {
-        guard(None, || headless_engine::headless_engine_snapshot_json(handle))
+        guard(None, || {
+            headless_engine::headless_engine_snapshot_json(handle)
+        })
     }
 
+    #[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
     pub fn headless_engine_dispatch_json(handle: u64, action_json: &str) -> Option<String> {
-        guard(None, || headless_engine::headless_engine_dispatch_json(handle, action_json))
+        guard(None, || {
+            headless_engine::headless_engine_dispatch_json(handle, action_json)
+        })
     }
 
+    #[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
     pub fn headless_engine_complete_effect_json(handle: u64, result_json: &str) -> Option<String> {
-        guard(None, || headless_engine::headless_engine_complete_effect_json(handle, result_json))
+        guard(None, || {
+            headless_engine::headless_engine_complete_effect_json(handle, result_json)
+        })
     }
 
     pub fn stream_playback_info_json(stream_json: &str) -> Option<String> {
-        guard(None, || stream_policy::stream_playback_info_json(stream_json))
+        guard(None, || {
+            stream_policy::stream_playback_info_json(stream_json)
+        })
     }
 
     pub fn torrent_runtime_info_json(request_json: &str) -> Option<String> {
-        guard(None, || stream_policy::torrent_runtime_info_json(request_json))
+        guard(None, || {
+            stream_policy::torrent_runtime_info_json(request_json)
+        })
     }
 
+    #[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
     pub fn player_buffer_targets_json(request_json: &str) -> Option<String> {
-        guard(None, || player_policy::player_buffer_targets_json(request_json))
+        guard(None, || {
+            player_policy::player_buffer_targets_json(request_json)
+        })
     }
 
+    #[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
     pub fn offline_download_plan_json(request_json: &str) -> Option<String> {
-        guard(None, || offline_download::offline_download_plan_json(request_json))
+        guard(None, || {
+            offline_download::offline_download_plan_json(request_json)
+        })
     }
 
+    #[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
     pub fn validate_stream_url(url: &str) -> bool {
         guard(false, || cast_protocol::validate_stream_url(url))
     }
 
+    #[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
     pub fn dlna_parse_device_description(xml: &str, base_url: &str) -> Option<String> {
-        guard(None, || cast_protocol::dlna_parse_device_description_json(xml, base_url))
+        guard(None, || {
+            cast_protocol::dlna_parse_device_description_json(xml, base_url)
+        })
     }
 
+    #[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
     pub fn dlna_soap_action_body(urn: &str, action: &str, args: &str) -> String {
-        guard(String::new(), || cast_protocol::soap_action_body(urn, action, args))
+        guard(String::new(), || {
+            cast_protocol::soap_action_body(urn, action, args)
+        })
     }
 
-    pub fn dlna_set_av_transport_args(media_url: &str, title: &str, subtitle_url: Option<&str>) -> Option<String> {
-        guard(None, || cast_protocol::dlna_set_av_transport_args(media_url, title, subtitle_url))
+    #[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
+    pub fn dlna_set_av_transport_args(
+        media_url: &str,
+        title: &str,
+        subtitle_url: Option<&str>,
+    ) -> Option<String> {
+        guard(None, || {
+            cast_protocol::dlna_set_av_transport_args(media_url, title, subtitle_url)
+        })
     }
 
+    #[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
     pub fn dlna_seek_args(position_secs: f64) -> String {
-        guard(String::new(), || cast_protocol::dlna_seek_args(position_secs))
+        guard(String::new(), || {
+            cast_protocol::dlna_seek_args(position_secs)
+        })
     }
 
+    #[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
     pub fn dlna_set_volume_args(level: f64) -> String {
         guard(String::new(), || cast_protocol::dlna_set_volume_args(level))
     }
 
+    #[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
     pub fn dlna_resolve_loopback_url(stream_url: &str, lan_ip: &str) -> String {
-        guard(stream_url.to_string(), || cast_protocol::resolve_loopback_url(stream_url, lan_ip))
+        guard(stream_url.to_string(), || {
+            cast_protocol::resolve_loopback_url(stream_url, lan_ip)
+        })
     }
 
+    #[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
     pub fn chromecast_guess_content_type(media_url: &str) -> String {
-        guard("video/mp4".to_string(), || cast_protocol::guess_cast_content_type(media_url).to_string())
+        guard("video/mp4".to_string(), || {
+            cast_protocol::guess_cast_content_type(media_url).to_string()
+        })
     }
 
-    pub fn chromecast_encode_message(source_id: &str, destination_id: &str, namespace: &str, payload_utf8: &str) -> Vec<u8> {
-        guard(Vec::new(), || cast_protocol::encode_cast_message(source_id, destination_id, namespace, payload_utf8))
+    #[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
+    pub fn chromecast_encode_message(
+        source_id: &str,
+        destination_id: &str,
+        namespace: &str,
+        payload_utf8: &str,
+    ) -> Vec<u8> {
+        guard(Vec::new(), || {
+            cast_protocol::encode_cast_message(source_id, destination_id, namespace, payload_utf8)
+        })
     }
 
+    #[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
     pub fn chromecast_decode_message(buf: &[u8]) -> Option<(String, String)> {
-        guard(None, || cast_protocol::decode_cast_message(buf).map(|m| (m.namespace, m.payload_utf8)))
+        guard(None, || {
+            cast_protocol::decode_cast_message(buf).map(|m| (m.namespace, m.payload_utf8))
+        })
     }
 
+    #[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
     pub fn roku_device_name(xml: &str) -> Option<String> {
         guard(None, || cast_protocol::roku_device_name(xml))
     }
 
-    pub fn roku_launch_url(host: &str, media_url: &str, subtitle_url: Option<&str>) -> Option<String> {
-        guard(None, || cast_protocol::roku_launch_url(host, media_url, subtitle_url))
+    #[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
+    pub fn roku_launch_url(
+        host: &str,
+        media_url: &str,
+        subtitle_url: Option<&str>,
+    ) -> Option<String> {
+        guard(None, || {
+            cast_protocol::roku_launch_url(host, media_url, subtitle_url)
+        })
     }
 
+    #[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
     pub fn airplay_volume_db(level: f64) -> f64 {
         guard(-30.0, || cast_protocol::airplay_volume_db(level))
     }
 
+    #[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
     pub fn airplay_play_body(media_url: &str) -> Option<String> {
         guard(None, || cast_protocol::airplay_play_body(media_url))
     }

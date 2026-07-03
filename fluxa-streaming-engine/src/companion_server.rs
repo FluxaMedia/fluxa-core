@@ -4,8 +4,9 @@
 /// Tauri commands in fluxa-desktop/src-tauri/src/lib.rs and oauth.rs, just
 /// exposed over HTTP instead of IPC. Used by both the standalone
 /// `companion_server` binary and the `fluxa-companion` tray app.
-use axum::extract::State;
-use axum::http::{HeaderValue, Method, StatusCode};
+use axum::extract::{Request, State};
+use axum::http::{header, HeaderMap, HeaderValue, Method, StatusCode};
+use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
@@ -34,6 +35,45 @@ async fn health() -> &'static str {
     "ok"
 }
 
+fn companion_token() -> Option<String> {
+    std::env::var("FLUXA_COMPANION_TOKEN")
+        .ok()
+        .map(|token| token.trim().to_string())
+        .filter(|token| !token.is_empty())
+}
+
+fn token_authorized(
+    expected: &str,
+    authorization: Option<&HeaderValue>,
+    x_token: Option<&HeaderValue>,
+) -> bool {
+    authorization
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.strip_prefix("Bearer "))
+        .is_some_and(|token| token == expected)
+        || x_token
+            .and_then(|value| value.to_str().ok())
+            .is_some_and(|token| token == expected)
+}
+
+async fn require_companion_token(request: Request, next: Next) -> Response {
+    if request.method() == Method::OPTIONS || request.uri().path() == "/health" {
+        return next.run(request).await;
+    }
+    let Some(expected) = companion_token() else {
+        return next.run(request).await;
+    };
+    let headers: &HeaderMap = request.headers();
+    if token_authorized(
+        &expected,
+        headers.get(header::AUTHORIZATION),
+        headers.get("x-fluxa-companion-token"),
+    ) {
+        return next.run(request).await;
+    }
+    (StatusCode::UNAUTHORIZED, Json(json!({ "error": "unauthorized" }))).into_response()
+}
+
 async fn start_torrent(
     State(state): State<Arc<AppState>>,
     Json(body): Json<StartTorrentBody>,
@@ -50,7 +90,12 @@ async fn start_torrent_inner(state: &AppState, body: StartTorrentBody) -> Result
         Some(url) => url.clone(),
         None => {
             let cache_dir = std::env::temp_dir().join("fluxa-web-torrent-cache");
-            let server_json = crate::start_torrent_server(&cache_dir.to_string_lossy(), 0)
+            let access_token = std::env::var("FLUXA_COMPANION_TORRENT_TOKEN").unwrap_or_default();
+            let server_json = crate::start_torrent_server(
+                &cache_dir.to_string_lossy(),
+                0,
+                &access_token,
+            )
                 .ok_or_else(|| "failed to start torrent server".to_string())?;
             let server: Value = serde_json::from_str(&server_json)
                 .map_err(|e| format!("invalid torrent server response: {e}"))?;
@@ -157,8 +202,12 @@ fn cors_layer() -> CorsLayer {
 
     CorsLayer::new()
         .allow_origin(origins)
-        .allow_methods([Method::GET, Method::POST])
-        .allow_headers([axum::http::header::CONTENT_TYPE])
+        .allow_methods([Method::GET, Method::POST, Method::OPTIONS])
+        .allow_headers([
+            header::CONTENT_TYPE,
+            header::AUTHORIZATION,
+            axum::http::HeaderName::from_static("x-fluxa-companion-token"),
+        ])
 }
 
 pub fn router() -> Router {
@@ -170,6 +219,7 @@ pub fn router() -> Router {
         .with_state(state)
         .merge(crate::transcode::router())
         .merge(crate::oauth_proxy::router())
+        .layer(middleware::from_fn(require_companion_token))
         .layer(cors_layer())
 }
 
@@ -179,4 +229,38 @@ pub async fn serve(port: u16) -> std::io::Result<()> {
     let listener = TcpListener::bind(("127.0.0.1", port)).await?;
     eprintln!("[companion-server] listening on http://127.0.0.1:{port}");
     axum::serve(listener, router()).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::token_authorized;
+    use axum::http::HeaderValue;
+
+    #[test]
+    fn companion_token_accepts_bearer_header() {
+        assert!(token_authorized(
+            "secret",
+            Some(&HeaderValue::from_static("Bearer secret")),
+            None,
+        ));
+    }
+
+    #[test]
+    fn companion_token_accepts_custom_header() {
+        assert!(token_authorized(
+            "secret",
+            None,
+            Some(&HeaderValue::from_static("secret")),
+        ));
+    }
+
+    #[test]
+    fn companion_token_rejects_missing_or_wrong_headers() {
+        assert!(!token_authorized("secret", None, None));
+        assert!(!token_authorized(
+            "secret",
+            Some(&HeaderValue::from_static("Bearer other")),
+            None,
+        ));
+    }
 }

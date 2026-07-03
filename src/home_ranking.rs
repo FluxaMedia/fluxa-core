@@ -420,7 +420,7 @@ pub(crate) fn optimize_home_rows_json(request_json: &str) -> Option<String> {
     output.extend(kept);
     output.extend(fallback);
     let limit = 24 + output_pinned_count(&output);
-    let output = distinct_categories(output.into_iter())
+    let output = distinct_categories(output)
         .into_iter()
         .take(limit)
         .collect::<Vec<_>>();
@@ -686,7 +686,7 @@ pub(crate) fn build_billboard_pool_json(
         .collect();
 
     let mut editorial = editorial_raw;
-    editorial.sort_by(|a, b| score_candidate(b, None).cmp(&score_candidate(a, None)));
+    editorial.sort_by_key(|item| std::cmp::Reverse(score_candidate(item, None)));
     let editorial: Vec<Value> = distinct_by_title_key(editorial)
         .into_iter()
         .take(3)
@@ -725,10 +725,8 @@ pub(crate) fn build_billboard_pool_json(
     let final_pool: Vec<Value> = if preferred.len() >= 10 {
         preferred.into_iter().take(10).collect()
     } else {
-        let preferred_keys: HashSet<String> =
-            preferred.iter().map(billboard_key_value).collect();
-        let preferred_titles: HashSet<String> =
-            preferred.iter().map(title_key_value).collect();
+        let preferred_keys: HashSet<String> = preferred.iter().map(billboard_key_value).collect();
+        let preferred_titles: HashSet<String> = preferred.iter().map(title_key_value).collect();
         let extras = ranked.into_iter().filter(|m| {
             !preferred_keys.contains(&billboard_key_value(m))
                 && !preferred_titles.contains(&title_key_value(m))
@@ -763,8 +761,8 @@ pub(crate) fn normalize_home_catalog_items_json(
     today_iso: &str,
 ) -> Option<String> {
     let items: Vec<Value> = serde_json::from_str(items_json).ok()?;
-    let assign_rank = genre.map(|g| g.is_empty()).unwrap_or(true)
-        && RANKED_CATALOG_IDS.contains(&catalog_id);
+    let assign_rank =
+        genre.map(|g| g.is_empty()).unwrap_or(true) && RANKED_CATALOG_IDS.contains(&catalog_id);
 
     let mut rank: i64 = 0;
     let result: Vec<Value> = items
@@ -787,12 +785,19 @@ pub(crate) fn normalize_home_catalog_items_json(
     serde_json::to_string(&result).ok()
 }
 
-pub(crate) fn build_home_collection_shelves_json(profile_json: &str, addons_json: &str) -> Option<String> {
+pub(crate) fn build_home_collection_shelves_json(
+    profile_json: &str,
+    addons_json: &str,
+) -> Option<String> {
     let profile: Value = serde_json::from_str(profile_json).ok()?;
-    let collections = match profile.get("libraryCollections").and_then(Value::as_array) {
-        Some(c) => c,
-        None => return serde_json::to_string(&json!({ "pinnedShelves": [], "regularShelves": [], "hiddenFolderCategories": [] })).ok(),
-    };
+    let collections =
+        match profile.get("libraryCollections").and_then(Value::as_array) {
+            Some(c) => c,
+            None => return serde_json::to_string(
+                &json!({ "pinnedShelves": [], "regularShelves": [], "hiddenFolderCategories": [] }),
+            )
+            .ok(),
+        };
 
     let mut pinned: Vec<Value> = Vec::new();
     let mut regular: Vec<Value> = Vec::new();
@@ -803,10 +808,18 @@ pub(crate) fn build_home_collection_shelves_json(profile_json: &str, addons_json
             Some(o) => o,
             None => continue,
         };
-        if !c.get("showOnHome").and_then(Value::as_bool).unwrap_or(false) {
+        if !c
+            .get("showOnHome")
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+        {
             continue;
         }
-        let folders = c.get("folders").and_then(Value::as_array).map(Vec::as_slice).unwrap_or(&[]);
+        let folders = c
+            .get("folders")
+            .and_then(Value::as_array)
+            .map(Vec::as_slice)
+            .unwrap_or(&[]);
         if folders.is_empty() {
             continue;
         }
@@ -818,17 +831,28 @@ pub(crate) fn build_home_collection_shelves_json(profile_json: &str, addons_json
                 Some(o) => o,
                 None => continue,
             };
-            let folder_title = folder.get("title").and_then(Value::as_str).unwrap_or("").to_string();
+            let folder_title = folder
+                .get("title")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string();
             if folder_title.is_empty() {
                 continue;
             }
-            let folder_id = folder.get("id").and_then(Value::as_str)
+            let folder_id = folder
+                .get("id")
+                .and_then(Value::as_str)
                 .map(str::to_string)
                 .unwrap_or_else(|| format!("col{ci}_f{fi}"));
 
             let resolved = resolve_folder_catalog_sources(folder, addons_json);
             if !resolved.is_empty() {
-                hidden.push(hidden_folder_category(&folder_id, &folder_title, folder, resolved));
+                hidden.push(hidden_folder_category(
+                    &folder_id,
+                    &folder_title,
+                    folder,
+                    resolved,
+                ));
             }
             tiles.push(folder_tile(&folder_id, &folder_title, folder));
         }
@@ -837,7 +861,9 @@ pub(crate) fn build_home_collection_shelves_json(profile_json: &str, addons_json
             continue;
         }
 
-        let shelf_id = c.get("id").and_then(Value::as_str)
+        let shelf_id = c
+            .get("id")
+            .and_then(Value::as_str)
             .map(str::to_string)
             .unwrap_or_else(|| format!("col{ci}"));
         let shelf = json!({
@@ -859,7 +885,8 @@ pub(crate) fn build_home_collection_shelves_json(profile_json: &str, addons_json
         "pinnedShelves": pinned,
         "regularShelves": regular,
         "hiddenFolderCategories": hidden,
-    })).ok()
+    }))
+    .ok()
 }
 
 // A folder's catalog sources, preferring its explicit catalogSources list and
@@ -874,7 +901,8 @@ fn resolve_folder_catalog_sources(folder: &Map<String, Value>, addons_json: &str
             if let Some(t_url) = resolve_transport_url_json(&s.to_string(), addons_json) {
                 let catalog_id = s.get("catalogId").and_then(Value::as_str).unwrap_or("");
                 let content_type = s.get("type").and_then(Value::as_str).unwrap_or("movie");
-                let mut entry = json!({ "transportUrl": t_url, "catalogId": catalog_id, "type": content_type });
+                let mut entry =
+                    json!({ "transportUrl": t_url, "catalogId": catalog_id, "type": content_type });
                 if let Some(g) = folder.get("genre").and_then(Value::as_str) {
                     entry["genre"] = Value::String(g.to_string());
                 }
@@ -887,7 +915,8 @@ fn resolve_folder_catalog_sources(folder: &Map<String, Value>, addons_json: &str
         if let Some(catalog_id) = folder.get("catalogId").and_then(Value::as_str) {
             let src = json!({ "catalogId": catalog_id, "type": "movie" });
             if let Some(t_url) = resolve_transport_url_json(&src.to_string(), addons_json) {
-                let mut entry = json!({ "transportUrl": t_url, "catalogId": catalog_id, "type": "movie" });
+                let mut entry =
+                    json!({ "transportUrl": t_url, "catalogId": catalog_id, "type": "movie" });
                 if let Some(g) = folder.get("genre").and_then(Value::as_str) {
                     entry["genre"] = Value::String(g.to_string());
                 }
@@ -919,11 +948,19 @@ fn hidden_folder_category(
 }
 
 fn folder_tile(folder_id: &str, folder_title: &str, folder: &Map<String, Value>) -> Value {
-    let img_url = folder.get("coverImageUrl").and_then(Value::as_str)
+    let img_url = folder
+        .get("coverImageUrl")
+        .and_then(Value::as_str)
         .or_else(|| folder.get("imageUrl").and_then(Value::as_str))
         .unwrap_or("");
-    let bg_url = folder.get("heroBackdropUrl").and_then(Value::as_str).unwrap_or(img_url);
-    let focus_gif_enabled = folder.get("focusGifEnabled").and_then(Value::as_bool).unwrap_or(true);
+    let bg_url = folder
+        .get("heroBackdropUrl")
+        .and_then(Value::as_str)
+        .unwrap_or(img_url);
+    let focus_gif_enabled = folder
+        .get("focusGifEnabled")
+        .and_then(Value::as_bool)
+        .unwrap_or(true);
 
     let mut tile = json!({
         "id": folder_id,
@@ -993,7 +1030,10 @@ mod tests {
         assert_eq!(pinned.len(), 1);
         assert_eq!(pinned[0]["id"], "col1");
         assert_eq!(pinned[0]["items"][0]["id"], "f1");
-        assert_eq!(pinned[0]["items"][0]["poster"], "https://img.example/cover.jpg");
+        assert_eq!(
+            pinned[0]["items"][0]["poster"],
+            "https://img.example/cover.jpg"
+        );
 
         let hidden = result["hiddenFolderCategories"].as_array().unwrap();
         assert_eq!(hidden.len(), 1);

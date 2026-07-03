@@ -86,20 +86,43 @@ pub(super) fn complete(
     }
     engine.state.calendar.is_loading = false;
     if result.status == "ok" {
-        let items = result.value.get("items").cloned().unwrap_or_else(|| result.value.clone());
-        let local_items = result.value.get("localItems").cloned().unwrap_or_else(|| serde_json::json!([]));
-        let external_items = result.value.get("externalItems").cloned().unwrap_or_else(|| serde_json::json!([]));
+        let items = result
+            .value
+            .get("items")
+            .cloned()
+            .unwrap_or_else(|| result.value.clone());
+        let local_items = result
+            .value
+            .get("localItems")
+            .cloned()
+            .unwrap_or_else(|| serde_json::json!([]));
+        let external_items = result
+            .value
+            .get("externalItems")
+            .cloned()
+            .unwrap_or_else(|| serde_json::json!([]));
         engine.state.calendar.items = items.clone();
         engine.state.calendar.local_items = local_items;
         engine.state.calendar.external_items = external_items.clone();
         engine.state.calendar.error = Value::Null;
-        let profile = effect.payload.get("profile").cloned().unwrap_or(Value::Null);
-        let profile_id = effect.payload.get("profileId").cloned().unwrap_or(Value::Null);
+        let profile = effect
+            .payload
+            .get("profile")
+            .cloned()
+            .unwrap_or(Value::Null);
+        let profile_id = effect
+            .payload
+            .get("profileId")
+            .cloned()
+            .unwrap_or(Value::Null);
         let mut follow_up = vec![
             engine.effect(
                 EffectKind::UpdateCalendarWidget,
                 generation,
-                CalendarItemsPayload { profile: profile.clone(), items: items.clone() },
+                CalendarItemsPayload {
+                    profile: profile.clone(),
+                    items: items.clone(),
+                },
             ),
             engine.effect(
                 EffectKind::NotifyReleasedEpisodes,
@@ -111,7 +134,10 @@ pub(super) fn complete(
             follow_up.push(engine.effect(
                 EffectKind::ReplaceExternalContinueWatching,
                 generation,
-                ReplaceExternalContinueWatchingPayload { profile_id, items: external_items },
+                ReplaceExternalContinueWatchingPayload {
+                    profile_id,
+                    items: external_items,
+                },
             ));
         }
         follow_up

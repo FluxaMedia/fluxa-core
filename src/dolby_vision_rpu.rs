@@ -1,5 +1,5 @@
-use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use ::dolby_vision::rpu::dovi_rpu::DoviRpu;
+use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use serde::{Deserialize, Serialize};
 
 #[derive(Deserialize)]
@@ -84,7 +84,9 @@ pub fn dolby_vision_convert_rpu_json(input: &str) -> Option<String> {
                             rpu_base64: Some(BASE64.encode(&out)),
                             error: None,
                         },
-                        Err(error) => convert_error(profile_before, el_type_before, error.to_string()),
+                        Err(error) => {
+                            convert_error(profile_before, el_type_before, error.to_string())
+                        }
                     },
                     Err(error) => convert_error(profile_before, el_type_before, error.to_string()),
                 }
@@ -186,6 +188,9 @@ mod tests {
         // to panic (byte-range slicing assumed 1 char == 1 byte); it must now
         // surface as an error.
         assert!(hex_decode("aébb").is_err());
-        assert!(hex_decode("abc").is_err(), "odd length must error, not panic");
+        assert!(
+            hex_decode("abc").is_err(),
+            "odd length must error, not panic"
+        );
     }
 }

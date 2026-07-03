@@ -64,11 +64,7 @@ pub(crate) fn active_profile_plan_json(request_json: &str) -> Option<String> {
     }
     let stored = request.stored_active_id.as_deref().unwrap_or("").trim();
     let active = if stored.is_empty() || stored == GUEST_PROFILE_ID {
-        request
-            .profiles
-            .first()
-            .cloned()
-            .unwrap_or(Value::Null)
+        request.profiles.first().cloned().unwrap_or(Value::Null)
     } else {
         request
             .profiles
@@ -106,7 +102,9 @@ pub(crate) fn token_merge_plan_json(request_json: &str) -> Option<String> {
     match provider {
         "trakt" => {
             let token = auth.get("accessToken").or_else(|| auth.get("access_token"));
-            let refresh = auth.get("refreshToken").or_else(|| auth.get("refresh_token"));
+            let refresh = auth
+                .get("refreshToken")
+                .or_else(|| auth.get("refresh_token"));
             let expires_at = auth
                 .get("expiresAt")
                 .or_else(|| auth.get("expires_at"))
@@ -124,7 +122,9 @@ pub(crate) fn token_merge_plan_json(request_json: &str) -> Option<String> {
         }
         "mal" => {
             let token = auth.get("accessToken").or_else(|| auth.get("access_token"));
-            let refresh = auth.get("refreshToken").or_else(|| auth.get("refresh_token"));
+            let refresh = auth
+                .get("refreshToken")
+                .or_else(|| auth.get("refresh_token"));
             if let Some(t) = token {
                 obj.insert("malAccessToken".to_string(), t.clone());
             }
@@ -218,7 +218,8 @@ pub(crate) fn profile_settings_migration_plan_json(request_json: &str) -> Option
         if let Some(addon_settings) = obj.remove("addonSettings") {
             if let Some(addon_obj) = addon_settings.as_object() {
                 if let Some(local) = addon_obj.get("localAddons") {
-                    obj.entry("localAddons".to_string()).or_insert(local.clone());
+                    obj.entry("localAddons".to_string())
+                        .or_insert(local.clone());
                 }
                 if let Some(disabled) = addon_obj.get("disabledLocalAddons") {
                     obj.entry("disabledLocalAddons".to_string())
@@ -329,10 +330,7 @@ pub(crate) fn profile_settings_migration_plan_json(request_json: &str) -> Option
             .and_then(Value::as_array)
             .is_some_and(|arr| !arr.is_empty());
         if !has_local_addons {
-            obj.insert(
-                "localAddons".to_string(),
-                json!([DEFAULT_ADDON_URL]),
-            );
+            obj.insert("localAddons".to_string(), json!([DEFAULT_ADDON_URL]));
             applied.push("ensure_default_addon".to_string());
         }
     }
@@ -379,10 +377,7 @@ mod tests {
     #[test]
     fn active_profile_plan_returns_first_when_no_stored_id() {
         let result: Value = serde_json::from_str(
-            &active_profile_plan_json(
-                r#"{"profiles":[{"id":"p1"},{"id":"p2"}]}"#,
-            )
-            .unwrap(),
+            &active_profile_plan_json(r#"{"profiles":[{"id":"p1"},{"id":"p2"}]}"#).unwrap(),
         )
         .unwrap();
         assert_eq!(result["activeId"], "p1");
@@ -391,10 +386,8 @@ mod tests {
 
     #[test]
     fn active_profile_plan_creates_default_when_profiles_empty() {
-        let result: Value = serde_json::from_str(
-            &active_profile_plan_json(r#"{"profiles":[]}"#).unwrap(),
-        )
-        .unwrap();
+        let result: Value =
+            serde_json::from_str(&active_profile_plan_json(r#"{"profiles":[]}"#).unwrap()).unwrap();
         assert_eq!(result["activeId"], "guest");
         assert_eq!(result["shouldCreateDefault"], true);
     }
@@ -434,10 +427,7 @@ mod tests {
             .unwrap(),
         )
         .unwrap();
-        assert_eq!(
-            result["migratedProfile"]["traktAccessToken"],
-            "tok"
-        );
+        assert_eq!(result["migratedProfile"]["traktAccessToken"], "tok");
         assert!(result["appliedMigrations"]
             .as_array()
             .unwrap()
@@ -455,7 +445,10 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(result["migratedProfile"]["libraryCollections"][0]["id"], "c1");
+        assert_eq!(
+            result["migratedProfile"]["libraryCollections"][0]["id"],
+            "c1"
+        );
     }
 
     #[test]

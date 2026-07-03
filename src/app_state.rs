@@ -264,7 +264,9 @@ fn store() -> &'static Mutex<HashMap<u64, AppCoreState>> {
 // See headless_engine::lock_engines — recovering from poison keeps this store
 // usable after a single caught panic instead of going dark for every handle.
 fn lock_store() -> std::sync::MutexGuard<'static, HashMap<u64, AppCoreState>> {
-    store().lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+    store()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
 pub fn create_app_core_state(initial_json: &str) -> u64 {

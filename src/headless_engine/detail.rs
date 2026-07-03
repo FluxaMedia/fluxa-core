@@ -1,5 +1,6 @@
 use super::helpers::{
-    active_profile_id, normalize_error, normalize_meta_trailers, value_array_is_empty, visible_streams,
+    active_profile_id, normalize_error, normalize_meta_trailers, value_array_is_empty,
+    visible_streams,
 };
 use super::state::GenerationKey;
 use super::{EffectResultInput, HeadlessEngine};
@@ -216,7 +217,11 @@ pub(super) fn dispatch_load(
                 profile: profile.unwrap_or(Value::Null),
             },
         ),
-        engine.effect(EffectKind::ReadPlaybackProgress, generation, ReadPlaybackProgressPayload { id }),
+        engine.effect(
+            EffectKind::ReadPlaybackProgress,
+            generation,
+            ReadPlaybackProgressPayload { id },
+        ),
     ]
 }
 
@@ -335,17 +340,29 @@ pub(super) fn dispatch_streams_appended(
     if !engine.state.detail.is_loading_streams {
         return vec![];
     }
-    let mut merged: Vec<Value> = engine.state.detail.streams.as_array().cloned().unwrap_or_default();
+    let mut merged: Vec<Value> = engine
+        .state
+        .detail
+        .streams
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
     merged.extend(streams);
     engine.state.detail.streams = serde_json::json!(merged);
-    engine.state.detail.visible_streams =
-        visible_streams(&engine.state.detail.streams, engine.state.detail.selected_addon.as_str());
+    engine.state.detail.visible_streams = visible_streams(
+        &engine.state.detail.streams,
+        engine.state.detail.selected_addon.as_str(),
+    );
     let mut all_addons: Vec<String> = engine
         .state
         .detail
         .available_addons
         .as_array()
-        .map(|arr| arr.iter().filter_map(|v| v.as_str().map(str::to_string)).collect())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str().map(str::to_string))
+                .collect()
+        })
         .unwrap_or_default();
     for addon in available_addons {
         if !all_addons.contains(&addon) {
@@ -353,17 +370,29 @@ pub(super) fn dispatch_streams_appended(
         }
     }
     engine.state.detail.available_addons = serde_json::json!(all_addons);
-    engine.state.detail.has_stream_providers = Value::Bool(!value_array_is_empty(&engine.state.detail.streams));
+    engine.state.detail.has_stream_providers =
+        Value::Bool(!value_array_is_empty(&engine.state.detail.streams));
     vec![]
 }
 
-pub(super) fn dispatch_selected_addon_changed(engine: &mut HeadlessEngine, addon: Option<String>) -> Vec<EffectEnvelope> {
+pub(super) fn dispatch_selected_addon_changed(
+    engine: &mut HeadlessEngine,
+    addon: Option<String>,
+) -> Vec<EffectEnvelope> {
     let selected = addon.and_then(|value| {
         let trimmed = value.trim().to_string();
-        if trimmed.is_empty() { None } else { Some(trimmed) }
+        if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed)
+        }
     });
-    engine.state.detail.selected_addon = selected.as_ref().map(|value| Value::String(value.clone())).unwrap_or(Value::Null);
-    engine.state.detail.visible_streams = visible_streams(&engine.state.detail.streams, selected.as_deref());
+    engine.state.detail.selected_addon = selected
+        .as_ref()
+        .map(|value| Value::String(value.clone()))
+        .unwrap_or(Value::Null);
+    engine.state.detail.visible_streams =
+        visible_streams(&engine.state.detail.streams, selected.as_deref());
     vec![]
 }
 
@@ -436,28 +465,43 @@ pub(super) fn complete(
         }
         "readPlaybackProgress" => {
             if generation == engine.state.runtime.get(GenerationKey::Detail) {
-                engine.state.detail.saved_playback = if result.status == "ok" { result.value.clone() } else { Value::Null };
+                engine.state.detail.saved_playback = if result.status == "ok" {
+                    result.value.clone()
+                } else {
+                    Value::Null
+                };
             }
         }
         "readDetailLocalState" => {
             if generation == engine.state.runtime.get(GenerationKey::Detail) {
                 if result.status == "ok" {
-                    engine.state.detail.saved_playback = result.value.get("savedPlayback").cloned().unwrap_or(Value::Null);
+                    engine.state.detail.saved_playback = result
+                        .value
+                        .get("savedPlayback")
+                        .cloned()
+                        .unwrap_or(Value::Null);
                     engine.state.detail.local_watched_video_ids = result
                         .value
                         .get("localWatchedVideoIds")
                         .cloned()
                         .unwrap_or_else(|| serde_json::json!([]));
-                    engine.state.detail.is_in_watchlist =
-                        result.value.get("isInWatchlist").cloned().unwrap_or_else(|| Value::Bool(false));
-                    engine.state.detail.feedback = result.value.get("feedback").cloned().unwrap_or(Value::Null);
+                    engine.state.detail.is_in_watchlist = result
+                        .value
+                        .get("isInWatchlist")
+                        .cloned()
+                        .unwrap_or(Value::Bool(false));
+                    engine.state.detail.feedback =
+                        result.value.get("feedback").cloned().unwrap_or(Value::Null);
                     engine.state.detail.has_stream_providers = result
                         .value
                         .get("hasStreamProviders")
                         .cloned()
-                        .unwrap_or_else(|| Value::Bool(false));
-                    engine.state.detail.user_addons =
-                        result.value.get("userAddons").cloned().unwrap_or_else(|| serde_json::json!([]));
+                        .unwrap_or(Value::Bool(false));
+                    engine.state.detail.user_addons = result
+                        .value
+                        .get("userAddons")
+                        .cloned()
+                        .unwrap_or_else(|| serde_json::json!([]));
                 } else {
                     engine.state.detail.error = normalize_error(result.error.clone());
                 }
@@ -466,16 +510,33 @@ pub(super) fn complete(
         "fetchDetailSecondary" => {
             if generation == engine.state.runtime.get(GenerationKey::Detail) {
                 if result.status == "ok" {
-                    engine.state.detail.watched_video_ids =
-                        result.value.get("watchedVideoIds").cloned().unwrap_or_else(|| serde_json::json!([]));
-                    engine.state.detail.similar_items =
-                        result.value.get("similarItems").cloned().unwrap_or_else(|| serde_json::json!([]));
+                    engine.state.detail.watched_video_ids = result
+                        .value
+                        .get("watchedVideoIds")
+                        .cloned()
+                        .unwrap_or_else(|| serde_json::json!([]));
+                    engine.state.detail.similar_items = result
+                        .value
+                        .get("similarItems")
+                        .cloned()
+                        .unwrap_or_else(|| serde_json::json!([]));
                     if value_array_is_empty(&engine.state.detail.trailers) {
-                        engine.state.detail.trailers =
-                            result.value.get("trailers").cloned().unwrap_or_else(|| serde_json::json!([]));
+                        engine.state.detail.trailers = result
+                            .value
+                            .get("trailers")
+                            .cloned()
+                            .unwrap_or_else(|| serde_json::json!([]));
                     }
-                    engine.state.detail.omdb_ratings = result.value.get("omdbRatings").cloned().unwrap_or(Value::Null);
-                    engine.state.detail.fanart_artwork = result.value.get("fanartArtwork").cloned().unwrap_or(Value::Null);
+                    engine.state.detail.omdb_ratings = result
+                        .value
+                        .get("omdbRatings")
+                        .cloned()
+                        .unwrap_or(Value::Null);
+                    engine.state.detail.fanart_artwork = result
+                        .value
+                        .get("fanartArtwork")
+                        .cloned()
+                        .unwrap_or(Value::Null);
                 } else {
                     engine.state.detail.error = normalize_error(result.error.clone());
                 }
@@ -494,16 +555,29 @@ pub(super) fn complete(
             if generation == engine.state.runtime.get(GenerationKey::DetailStreams) {
                 engine.state.detail.is_loading_streams = false;
                 if result.status == "ok" {
-                    engine.state.detail.streams =
-                        result.value.get("streams").cloned().unwrap_or_else(|| serde_json::json!([]));
+                    engine.state.detail.streams = result
+                        .value
+                        .get("streams")
+                        .cloned()
+                        .unwrap_or_else(|| serde_json::json!([]));
                     engine.state.detail.selected_addon = Value::Null;
                     engine.state.detail.visible_streams = engine.state.detail.streams.clone();
-                    engine.state.detail.available_addons =
-                        result.value.get("availableAddons").cloned().unwrap_or_else(|| serde_json::json!([]));
+                    engine.state.detail.available_addons = result
+                        .value
+                        .get("availableAddons")
+                        .cloned()
+                        .unwrap_or_else(|| serde_json::json!([]));
                     engine.state.detail.loading_addon_names = serde_json::json!([]);
-                    engine.state.detail.resolved_request_id = result.value.get("resolvedRequestId").cloned().unwrap_or(Value::Null);
-                    engine.state.detail.has_stream_providers =
-                        result.value.get("hasStreamProviders").cloned().unwrap_or_else(|| Value::Bool(false));
+                    engine.state.detail.resolved_request_id = result
+                        .value
+                        .get("resolvedRequestId")
+                        .cloned()
+                        .unwrap_or(Value::Null);
+                    engine.state.detail.has_stream_providers = result
+                        .value
+                        .get("hasStreamProviders")
+                        .cloned()
+                        .unwrap_or(Value::Bool(false));
                     engine.state.detail.streams_error = Value::Null;
                 } else {
                     engine.state.detail.streams_error = normalize_error(result.error.clone());
@@ -532,8 +606,11 @@ pub(super) fn complete(
             if generation == engine.state.runtime.get(GenerationKey::Detail) {
                 engine.state.detail.season_loading = Value::Null;
                 if result.status == "ok" {
-                    engine.state.detail.season_episodes =
-                        result.value.get("episodes").cloned().unwrap_or_else(|| result.value.clone());
+                    engine.state.detail.season_episodes = result
+                        .value
+                        .get("episodes")
+                        .cloned()
+                        .unwrap_or_else(|| result.value.clone());
                     engine.state.detail.error = Value::Null;
                 } else {
                     engine.state.detail.error = normalize_error(result.error.clone());

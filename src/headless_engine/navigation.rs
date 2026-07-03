@@ -19,7 +19,11 @@ impl Default for NavigationState {
     }
 }
 
-pub(super) fn dispatch(engine: &mut HeadlessEngine, route: String, params: Option<Value>) -> Vec<EffectEnvelope> {
+pub(super) fn dispatch(
+    engine: &mut HeadlessEngine,
+    route: String,
+    params: Option<Value>,
+) -> Vec<EffectEnvelope> {
     engine.state.navigation = NavigationState {
         route,
         params: params.unwrap_or(Value::Null),

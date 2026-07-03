@@ -23,23 +23,13 @@ native = [
 [dependencies]
 axum = { version = "0.8", optional = true }
 tower-http = { version = "0.6", features = ["cors"], optional = true }
-dolby_vision = { git = "https://github.com/quietvoid/dovi_tool.git", package = "dolby_vision", default-features = false }
-fluxa_core = { path = "..", default-features = false, optional = true }
-jni = { version = "0.21", optional = true }
+dolby_vision = { workspace = true }
+fluxa_core = { workspace = true, features = ["streaming-shared"], optional = true }
+jni = { workspace = true, optional = true }
 librqbit = { version = "8.1.1", default-features = false, features = ["rust-tls", "disable-upload"], optional = true }
-reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"], optional = true }
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
+reqwest = { version = "0.13", default-features = false, features = ["blocking", "json", "form", "rustls"], optional = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
 tokio = { version = "1", features = ["rt-multi-thread", "net", "time", "io-util", "sync", "process", "fs", "macros"], optional = true }
 tokio-util = { version = "0.7", features = ["io"], optional = true }
 url = { version = "2", optional = true }
-
-[profile.release]
-opt-level = 3
-lto = true
-codegen-units = 1
-strip = "debuginfo"
-# Must stay "unwind" — bindings/jni.rs catch_unwind at the FFI boundary so a
-# panic in the streaming/rewrite logic becomes a safe null/false return
-# instead of aborting the host app. "abort" would silently defeat that.
-panic = "unwind"

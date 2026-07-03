@@ -19,12 +19,17 @@ pub fn core_invoke(method: String, args_json: String) -> String {
 
 #[uniffi::export]
 pub fn create_headless_engine_json(initial_json: String) -> i64 {
-    guard(0, || headless_engine::create_headless_engine(&initial_json) as i64)
+    guard(0, || {
+        headless_engine::create_headless_engine(&initial_json) as i64
+    })
 }
 
 #[uniffi::export]
 pub fn destroy_headless_engine_json(handle: i64) -> bool {
-    handle > 0 && guard(false, || headless_engine::destroy_headless_engine(handle as u64))
+    handle > 0
+        && guard(false, || {
+            headless_engine::destroy_headless_engine(handle as u64)
+        })
 }
 
 #[uniffi::export]
@@ -43,7 +48,8 @@ pub fn headless_engine_dispatch_json(handle: i64, action_json: String) -> String
         return String::new();
     }
     guard(String::new(), || {
-        headless_engine::headless_engine_dispatch_json(handle as u64, &action_json).unwrap_or_default()
+        headless_engine::headless_engine_dispatch_json(handle as u64, &action_json)
+            .unwrap_or_default()
     })
 }
 
@@ -60,7 +66,9 @@ pub fn headless_engine_complete_effect_json(handle: i64, result_json: String) ->
 
 #[uniffi::export]
 pub fn core_capabilities_json(portable: bool) -> String {
-    guard(String::new(), || core_contract::core_capabilities_json(portable))
+    guard(String::new(), || {
+        core_contract::core_capabilities_json(portable)
+    })
 }
 
 #[uniffi::export]

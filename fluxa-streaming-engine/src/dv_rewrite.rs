@@ -1,4 +1,5 @@
 use dolby_vision::rpu::dovi_rpu::DoviRpu;
+use dolby_vision::rpu::extension_metadata::blocks::ExtMetadataBlock;
 use serde::Deserialize;
 
 // Startup self-test
@@ -15,9 +16,34 @@ pub(crate) fn dv_rpu_self_test() -> bool {
 // Set to true by stream_auto_detect when it strips a P5 CID≠1 (IPTPQc2) stream.
 // Read by Kotlin in onVideoInputFormatChanged to activate the IPTPQc2 → SDR shader.
 static DV_LAST_AUTO_DETECT_IPTPQC2: AtomicBool = AtomicBool::new(false);
+static LAST_L1_VALID: AtomicBool = AtomicBool::new(false);
+static LAST_L1_MIN_PQ: AtomicU32 = AtomicU32::new(0);
+static LAST_L1_MAX_PQ: AtomicU32 = AtomicU32::new(2048);
+static LAST_L1_AVG_PQ: AtomicU32 = AtomicU32::new(1024);
 
 pub(crate) fn dv_auto_detect_was_iptpqc2() -> bool {
     DV_LAST_AUTO_DETECT_IPTPQC2.load(Ordering::Relaxed)
+}
+
+pub(crate) fn dv_get_current_l1_json() -> String {
+    if !LAST_L1_VALID.load(Ordering::Relaxed) {
+        return "{\"available\":false}".to_string();
+    }
+    format!(
+        "{{\"available\":true,\"min_pq\":{},\"max_pq\":{},\"avg_pq\":{}}}",
+        LAST_L1_MIN_PQ.load(Ordering::Relaxed),
+        LAST_L1_MAX_PQ.load(Ordering::Relaxed),
+        LAST_L1_AVG_PQ.load(Ordering::Relaxed),
+    )
+}
+
+fn store_l1_from_rpu(rpu: &DoviRpu) {
+    let Some(dm) = &rpu.vdr_dm_data else { return };
+    let Some(ExtMetadataBlock::Level1(l1)) = dm.get_block(1) else { return };
+    LAST_L1_MIN_PQ.store(l1.min_pq as u32, Ordering::Relaxed);
+    LAST_L1_MAX_PQ.store(l1.max_pq as u32, Ordering::Relaxed);
+    LAST_L1_AVG_PQ.store(l1.avg_pq as u32, Ordering::Relaxed);
+    LAST_L1_VALID.store(true, Ordering::Relaxed);
 }
 
 // Synchronous byte-buffer segment rewriter
@@ -100,14 +126,14 @@ use serde_json::json;
 use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
 
 use crate::local_stream::{
-    build_proxy_client, local_stream_servers, parse_request, send_upstream_request,
-    write_simple_response, LocalStreamConfig, LocalStreamHandle, LOCAL_STREAM_ID,
+    build_proxy_client, local_stream_servers, next_local_stream_id, parse_request,
+    send_upstream_request, write_simple_response, LocalStreamConfig, LocalStreamHandle,
 };
 
 // Public config
@@ -163,11 +189,9 @@ pub(crate) fn start_dv_rewrite_local_stream_server(
         serde_json::from_str::<HashMap<String, String>>(headers_json).unwrap_or_default();
     let dv_config = Arc::new(serde_json::from_str::<DvRewriteConfig>(dv_config_json).ok()?);
 
-    let id = LOCAL_STREAM_ID
-        .fetch_add(1, Ordering::Relaxed)
-        .to_string();
+    let id = next_local_stream_id();
     let bind_port = preferred_port.clamp(0, u16::MAX as i32) as u16;
-    let listener = TcpListener::bind(("127.0.0.1", bind_port)).ok()?;
+    let listener = TcpListener::bind(("0.0.0.0", bind_port)).ok()?;
     let port = listener.local_addr().ok()?.port();
     listener.set_nonblocking(true).ok()?;
 
@@ -178,6 +202,8 @@ pub(crate) fn start_dv_rewrite_local_stream_server(
         target_url: target_url.to_string(),
         headers,
         client: Arc::new(build_proxy_client()),
+        active_connections: Arc::new(AtomicUsize::new(0)),
+        port,
     };
 
     let thread = thread::spawn(move || {
@@ -209,7 +235,6 @@ pub(crate) fn start_dv_rewrite_local_stream_server(
     .ok()
 }
 
-// Per-connection handler
 fn handle_dv_stream(mut stream: TcpStream, config: LocalStreamConfig, dv: &DvRewriteConfig) {
     let Some(request) = parse_request(&mut stream) else {
         write_simple_response(&mut stream, "400 Bad Request");
@@ -221,6 +246,11 @@ fn handle_dv_stream(mut stream: TcpStream, config: LocalStreamConfig, dv: &DvRew
     }
     if request.method != "GET" && request.method != "HEAD" {
         write_simple_response(&mut stream, "405 Method Not Allowed");
+        return;
+    }
+
+    if dv.action == "hls_rpu_convert" {
+        handle_hls_rpu_convert(stream, config, dv, &request);
         return;
     }
 
@@ -262,6 +292,289 @@ fn handle_dv_stream(mut stream: TcpStream, config: LocalStreamConfig, dv: &DvRew
             let _ = std::io::copy(&mut response, &mut stream);
         }
     }
+}
+
+fn handle_hls_rpu_convert(
+    mut downstream: TcpStream,
+    config: LocalStreamConfig,
+    dv: &DvRewriteConfig,
+    request: &crate::local_stream::ParsedLocalRequest,
+) {
+    let seg_prefix = format!("/stream/{}/seg", config.id);
+    let stream_path = format!("/stream/{}", config.id);
+
+    if request.path.starts_with(&seg_prefix) {
+        let query = request.path[seg_prefix.len()..].trim_start_matches('?');
+        let seg_url = query
+            .split('&')
+            .find_map(|p| p.strip_prefix("u="))
+            .map(hls_percent_decode)
+            .unwrap_or_default();
+
+        if seg_url.is_empty() {
+            write_simple_response(&mut downstream, "400 Bad Request");
+            return;
+        }
+
+        let url_lower = seg_url.to_ascii_lowercase();
+        if url_lower.contains(".m3u8") {
+            serve_hls_manifest_rewritten(&mut downstream, &config, dv, &seg_url, request);
+        } else {
+            serve_hls_segment_rpu_convert(&mut downstream, &config, dv, &seg_url, request);
+        }
+    } else if request.path == stream_path
+        || request.path.starts_with(&format!("{}?", stream_path))
+    {
+        serve_hls_manifest_rewritten(&mut downstream, &config, dv, &config.target_url.clone(), request);
+    } else {
+        write_simple_response(&mut downstream, "404 Not Found");
+    }
+}
+
+fn serve_hls_manifest_rewritten(
+    downstream: &mut TcpStream,
+    config: &LocalStreamConfig,
+    _dv: &DvRewriteConfig,
+    manifest_url: &str,
+    request: &crate::local_stream::ParsedLocalRequest,
+) {
+    let mut upstream = match fetch_arbitrary_url(&config.client, manifest_url, &config.headers, &request.headers) {
+        Ok(r) => r,
+        Err(_) => {
+            write_simple_response(downstream, "502 Bad Gateway");
+            return;
+        }
+    };
+    let ct = upstream
+        .headers()
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("application/vnd.apple.mpegurl")
+        .to_owned();
+    let body = match upstream.text() {
+        Ok(t) => t,
+        Err(_) => {
+            write_simple_response(downstream, "502 Bad Gateway");
+            return;
+        }
+    };
+
+    let proxy_seg_base = format!("http://127.0.0.1:{}/stream/{}/seg?u=", config.port, config.id);
+    let rewritten = rewrite_hls_manifest_for_dv(&body, manifest_url, &proxy_seg_base);
+    let bytes = rewritten.as_bytes();
+
+    let _ = write!(
+        downstream,
+        "HTTP/1.1 200 OK\r\nContent-Type: {ct}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+        bytes.len()
+    );
+    if request.method != "HEAD" {
+        let _ = downstream.write_all(bytes);
+    }
+}
+
+fn serve_hls_segment_rpu_convert(
+    downstream: &mut TcpStream,
+    config: &LocalStreamConfig,
+    dv: &DvRewriteConfig,
+    seg_url: &str,
+    request: &crate::local_stream::ParsedLocalRequest,
+) {
+    let mut response = match fetch_arbitrary_url(&config.client, seg_url, &config.headers, &request.headers) {
+        Ok(r) => r,
+        Err(_) => {
+            write_simple_response(downstream, "502 Bad Gateway");
+            return;
+        }
+    };
+
+    let status = response.status();
+    let _ = write!(downstream, "HTTP/1.1 {} {}\r\n", status.as_u16(), status.canonical_reason().unwrap_or("OK"));
+    for name in ["content-type", "content-range", "accept-ranges"] {
+        if let Some(v) = response.headers().get(name).and_then(|v| v.to_str().ok()) {
+            let _ = write!(downstream, "{name}: {v}\r\n");
+        }
+    }
+    let _ = write!(downstream, "Connection: close\r\n\r\n");
+
+    if request.method != "HEAD" {
+        stream_rpu_convert(&mut response, downstream, dv.rpu_mode, dv.zero_level5, dv.remove_hdr10plus);
+    }
+}
+
+fn fetch_arbitrary_url(
+    client: &reqwest::blocking::Client,
+    url: &str,
+    stream_headers: &HashMap<String, String>,
+    request_headers: &HashMap<String, String>,
+) -> Result<reqwest::blocking::Response, reqwest::Error> {
+    let mut req = client.get(url);
+    for (k, v) in stream_headers {
+        req = req.header(k, v);
+    }
+    if let Some(range) = request_headers.get("range") {
+        req = req.header("Range", range);
+    }
+    req.send()
+}
+
+fn rewrite_hls_manifest_for_dv(manifest: &str, base_url: &str, proxy_seg_base: &str) -> String {
+    manifest
+        .lines()
+        .map(|line| {
+            if line.is_empty() {
+                return line.to_string();
+            }
+            if line.starts_with('#') {
+                let line = rewrite_hls_p7_codecs(line);
+                rewrite_hls_uri_attributes(&line, base_url, proxy_seg_base)
+            } else {
+                let abs = hls_resolve_url(base_url, line);
+                format!("{}{}", proxy_seg_base, hls_percent_encode(&abs))
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn rewrite_hls_p7_codecs(line: &str) -> String {
+    let lower = line.to_ascii_lowercase();
+    if !lower.contains("dvhe.07") && !lower.contains("dvh1.07") {
+        return line.to_string();
+    }
+    let mut result = String::with_capacity(line.len());
+    let bytes = line.as_bytes();
+    let lower_bytes = lower.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        if lower_bytes[i..].starts_with(b"dvhe.07") {
+            result.push_str("dvhe.08");
+            i += 7;
+        } else if lower_bytes[i..].starts_with(b"dvh1.07") {
+            result.push_str("dvh1.08");
+            i += 7;
+        } else {
+            let ch = line[i..].chars().next().unwrap();
+            result.push(ch);
+            i += ch.len_utf8();
+        }
+    }
+    result
+}
+
+fn rewrite_hls_uri_attributes(line: &str, base_url: &str, proxy_seg_base: &str) -> String {
+    let lower = line.to_ascii_lowercase();
+    if !lower.contains("uri=\"") {
+        return line.to_string();
+    }
+    let mut result = String::with_capacity(line.len() + 128);
+    let mut rest = line;
+    loop {
+        let rest_lower = rest.to_ascii_lowercase();
+        let Some(pos) = rest_lower.find("uri=\"") else {
+            result.push_str(rest);
+            break;
+        };
+        result.push_str(&rest[..pos]);
+        let after = &rest[pos + 5..];
+        if let Some(end) = after.find('"') {
+            let inner = &after[..end];
+            let abs = hls_resolve_url(base_url, inner);
+            result.push_str("URI=\"");
+            result.push_str(&format!("{}{}", proxy_seg_base, hls_percent_encode(&abs)));
+            result.push('"');
+            rest = &after[end + 1..];
+        } else {
+            result.push_str(&rest[pos..]);
+            break;
+        }
+    }
+    result
+}
+
+fn hls_resolve_url(base_url: &str, relative: &str) -> String {
+    let rel_lower = relative.to_ascii_lowercase();
+    if rel_lower.starts_with("http://") || rel_lower.starts_with("https://") {
+        return relative.to_string();
+    }
+    if relative.starts_with('/') {
+        if let Some(scheme_end) = base_url.find("://") {
+            let rest = &base_url[scheme_end + 3..];
+            let authority_end = rest.find('/').unwrap_or(rest.len());
+            let origin = &base_url[..scheme_end + 3 + authority_end];
+            return format!("{}{}", origin, relative);
+        }
+    }
+    let base_dir = if let Some(pos) = base_url.rfind('/') {
+        if base_url[..pos].contains("://") || pos == 0 {
+            &base_url[..pos + 1]
+        } else {
+            &base_url[..pos + 1]
+        }
+    } else {
+        base_url
+    };
+    let combined = format!("{}{}", base_dir, relative);
+    hls_normalize_url_path(combined)
+}
+
+fn hls_normalize_url_path(url: String) -> String {
+    let path_start = if let Some(pos) = url.find("://") {
+        let rest = &url[pos + 3..];
+        pos + 3 + rest.find('/').unwrap_or(rest.len())
+    } else {
+        return url;
+    };
+    let (prefix, path) = url.split_at(path_start);
+    let mut parts: Vec<&str> = Vec::new();
+    for seg in path.split('/') {
+        match seg {
+            ".." => { parts.pop(); }
+            "." | "" => {}
+            s => parts.push(s),
+        }
+    }
+    let trailing = if path.ends_with('/') { "/" } else { "" };
+    format!("{}/{}{}", prefix, parts.join("/"), trailing)
+}
+
+fn hls_percent_encode(s: &str) -> String {
+    let mut out = String::with_capacity(s.len() * 3);
+    for byte in s.bytes() {
+        match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9'
+            | b'-' | b'_' | b'.' | b'~' | b':' | b'/' | b'?' | b'#' | b'@' | b'!' | b'$'
+            | b'&' | b'\'' | b'(' | b')' | b'*' | b'+' | b',' | b';' | b'=' => {
+                out.push(byte as char);
+            }
+            b => {
+                out.push('%');
+                out.push(char::from_digit((b >> 4) as u32, 16).unwrap().to_ascii_uppercase());
+                out.push(char::from_digit((b & 0xf) as u32, 16).unwrap().to_ascii_uppercase());
+            }
+        }
+    }
+    out
+}
+
+fn hls_percent_decode(s: &str) -> String {
+    let mut out = Vec::with_capacity(s.len());
+    let bytes = s.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' && i + 2 < bytes.len() {
+            let hi = char::from(bytes[i + 1]).to_digit(16);
+            let lo = char::from(bytes[i + 2]).to_digit(16);
+            if let (Some(h), Some(l)) = (hi, lo) {
+                out.push(((h << 4) | l) as u8);
+                i += 3;
+                continue;
+            }
+        }
+        out.push(bytes[i]);
+        i += 1;
+    }
+    String::from_utf8_lossy(&out).into_owned()
 }
 
 // DVCC strip (MKV / MP4 container)
@@ -1055,10 +1368,9 @@ fn emit_nal(nal_with_sc: &[u8], mode: &NalProcessMode, out: &mut Vec<u8>) -> (u3
 
 fn convert_rpu_nal(nal: &[u8], mode: u8, zero_level5: bool) -> Option<Vec<u8>> {
     let mut rpu = DoviRpu::parse_unspec62_nalu(nal).ok()?;
+    store_l1_from_rpu(&rpu);
     rpu.convert_with_mode(mode).ok()?;
     if zero_level5 {
-        // Zero all Level 5 active-area offsets — mirrors Kodi's SetDoviZeroLevel5.
-        // crop() calls set_active_area_offsets(0, 0, 0, 0) internally.
         let _ = rpu.crop();
     }
     rpu.write_hevc_unspec62_nalu().ok()

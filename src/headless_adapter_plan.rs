@@ -39,9 +39,9 @@ struct PrefetchPlanRequest {
 pub(crate) fn provider_availability_plan_json(request_json: &str) -> Option<String> {
     let request = serde_json::from_str::<ProviderAvailabilityRequest>(request_json).ok()?;
     let has_stremio_stream_addon = request.addons.iter().any(|addon| {
-        addon
-            .get("manifest")
-            .is_some_and(|manifest| addon_protocol::supports_resource(&manifest.to_string(), "stream", None, None))
+        addon.get("manifest").is_some_and(|manifest| {
+            addon_protocol::supports_resource(&manifest.to_string(), "stream", None, None)
+        })
     });
     let plugin_names = stable_non_empty_strings(request.plugin_names);
     serde_json::to_string(&json!({

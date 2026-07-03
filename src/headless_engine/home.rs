@@ -82,6 +82,33 @@ struct FetchCatalogPagePayload {
     search: Option<String>,
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RefreshContinueWatchingPayload {
+    profile_id: String,
+    profile: Value,
+    language: String,
+}
+
+pub(super) fn dispatch_refresh_continue_watching(
+    engine: &mut HeadlessEngine,
+    profile: Option<Value>,
+    language: Option<String>,
+) -> Vec<EffectEnvelope> {
+    let profile_value = profile.unwrap_or_else(|| engine.state.profile.active.clone());
+    let profile_id = active_profile_id(&engine.state, &profile_value);
+    let generation = engine.state.runtime.get(GenerationKey::Home);
+    vec![engine.effect(
+        EffectKind::RefreshContinueWatching,
+        generation,
+        RefreshContinueWatchingPayload {
+            profile_id,
+            profile: profile_value,
+            language: language.unwrap_or_else(|| "en".to_string()),
+        },
+    )]
+}
+
 pub(super) fn remove_from_continue_watching(engine: &mut HeadlessEngine, dropped_id: &str) {
     if let Some(items) = engine.state.home.continue_watching.as_array_mut() {
         items.retain(|item| item.get("id").and_then(Value::as_str) != Some(dropped_id));
@@ -145,6 +172,7 @@ pub(super) fn dispatch_direct_playback(
     )]
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(super) fn dispatch_catalog_page(
     engine: &mut HeadlessEngine,
     category_id: String,
@@ -185,27 +213,47 @@ pub(super) fn complete(
     result: &EffectResultInput,
 ) -> Vec<EffectEnvelope> {
     match effect_type {
+        "refreshContinueWatching" => {
+            if result.status == "ok" {
+                if let Some(cw) = result.value.get("continueWatching") {
+                    engine.state.home.continue_watching = cw.clone();
+                }
+            }
+        }
         "readHomeBootstrap" => {
             if generation == engine.state.runtime.get(GenerationKey::Home) {
                 engine.state.home.is_loading = false;
                 if result.status == "ok" {
-                    engine.state.home.categories =
-                        result.value.get("categories").cloned().unwrap_or_else(|| serde_json::json!([]));
+                    engine.state.home.categories = result
+                        .value
+                        .get("categories")
+                        .cloned()
+                        .unwrap_or_else(|| serde_json::json!([]));
                     engine.state.home.continue_watching = result
                         .value
                         .get("continueWatching")
                         .cloned()
                         .unwrap_or_else(|| serde_json::json!([]));
-                    engine.state.home.watchlist =
-                        result.value.get("watchlist").cloned().unwrap_or_else(|| serde_json::json!([]));
-                    engine.state.home.user_addons =
-                        result.value.get("userAddons").cloned().unwrap_or_else(|| serde_json::json!([]));
+                    engine.state.home.watchlist = result
+                        .value
+                        .get("watchlist")
+                        .cloned()
+                        .unwrap_or_else(|| serde_json::json!([]));
+                    engine.state.home.user_addons = result
+                        .value
+                        .get("userAddons")
+                        .cloned()
+                        .unwrap_or_else(|| serde_json::json!([]));
                     engine.state.home.metadata_feeds = result
                         .value
                         .get("metadataFeeds")
                         .cloned()
                         .unwrap_or_else(|| serde_json::json!([]));
-                    engine.state.home.billboard = result.value.get("billboard").cloned().unwrap_or(Value::Null);
+                    engine.state.home.billboard = result
+                        .value
+                        .get("billboard")
+                        .cloned()
+                        .unwrap_or(Value::Null);
                     engine.state.home.error = Value::Null;
                 } else {
                     engine.state.home.error = normalize_error(result.error.clone());
@@ -218,7 +266,11 @@ pub(super) fn complete(
                 if result.status == "ok" {
                     player::complete_direct_playback(engine, result.value.clone(), Value::Null);
                 } else {
-                    player::complete_direct_playback(engine, Value::Null, Value::String(error_code(&result.error)));
+                    player::complete_direct_playback(
+                        engine,
+                        Value::Null,
+                        Value::String(error_code(&result.error)),
+                    );
                 }
             }
         }
@@ -226,8 +278,11 @@ pub(super) fn complete(
             if generation == engine.state.runtime.get(GenerationKey::Home) {
                 engine.state.home.paging.is_loading = false;
                 if result.status == "ok" {
-                    engine.state.home.paging.items =
-                        result.value.get("items").cloned().unwrap_or_else(|| result.value.clone());
+                    engine.state.home.paging.items = result
+                        .value
+                        .get("items")
+                        .cloned()
+                        .unwrap_or_else(|| result.value.clone());
                     engine.state.home.paging.error = Value::Null;
                 } else {
                     engine.state.home.paging.error = normalize_error(result.error.clone());

@@ -168,7 +168,9 @@ pub(crate) fn playback_intro_lookup_content_id(id: &str) -> String {
     if let Some(imdb) = imdb_id(id) {
         return imdb;
     }
-    base_content_id(id).trim_start_matches(TMDB_ID_PREFIX).to_string()
+    base_content_id(id)
+        .trim_start_matches(TMDB_ID_PREFIX)
+        .to_string()
 }
 
 pub(crate) fn playback_stream_request_ids_json(
@@ -603,10 +605,8 @@ pub(crate) fn set_metadata_feed_group_enabled_json(
     let group = parse_string_list(group_keys_json);
     let mut output = Vec::<String>::new();
     for item in current {
-        if enabled || !group.contains(&item) {
-            if !output.contains(&item) {
-                output.push(item);
-            }
+        if (enabled || !group.contains(&item)) && !output.contains(&item) {
+            output.push(item);
         }
     }
     if enabled {
@@ -1242,7 +1242,8 @@ pub(crate) fn parse_video_id_json(id: &str) -> String {
     } else {
         map.insert("isEpisode".into(), false.into());
     }
-    serde_json::to_string(&serde_json::Value::Object(map)).unwrap_or_else(|_| r#"{"isEpisode":false}"#.to_string())
+    serde_json::to_string(&serde_json::Value::Object(map))
+        .unwrap_or_else(|_| r#"{"isEpisode":false}"#.to_string())
 }
 
 pub(crate) fn build_trakt_ids_json(video_id: &str) -> Option<String> {
@@ -1384,7 +1385,11 @@ mod tests {
 
     #[test]
     fn contains_spaced_episode_matches_word_form_and_skips_wrong_season_occurrence() {
-        assert!(contains_spaced_episode("Show Name Season 1 Episode 2 1080p", 1, 2));
+        assert!(contains_spaced_episode(
+            "Show Name Season 1 Episode 2 1080p",
+            1,
+            2
+        ));
         // First "Season 2" occurrence doesn't match the target season (1), so the
         // scan must continue past it to the second "Season ... Episode ..." pair.
         assert!(contains_spaced_episode(
@@ -1397,7 +1402,11 @@ mod tests {
         assert!(!contains_spaced_episode("Season 1 Episode 10", 1, 1));
         assert!(contains_spaced_episode("Season 1 Episode 10", 1, 10));
         // A season number that matches but with no "Episode" anywhere after it.
-        assert!(!contains_spaced_episode("Season 1 has no further structure", 1, 2));
+        assert!(!contains_spaced_episode(
+            "Season 1 has no further structure",
+            1,
+            2
+        ));
     }
 
     #[test]

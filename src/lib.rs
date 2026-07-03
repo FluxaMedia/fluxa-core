@@ -1,44 +1,86 @@
+// Non-native consumers intentionally compile partial API surfaces: desktop uses
+// Rust/Tauri calls plus core_invoke, WASM exposes a small JS bridge, and the
+// streaming engine uses only stream policy helpers. The Android/native build is
+// the exhaustive JNI surface, so keep dead-code checking strict there and avoid
+// warning noise for the partial compatibility builds.
+#![cfg_attr(not(feature = "native"), allow(dead_code))]
+
 #[cfg(feature = "uniffi-bindings")]
 uniffi::setup_scaffolding!();
 
+#[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
 mod addon_protocol;
+#[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
 mod addon_resource;
+#[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
 mod addon_store;
+#[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
 mod app_state;
+#[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
 mod calendar_plan;
+#[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
 mod cast_protocol;
+#[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
 mod constants;
 mod content_identity;
+#[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
 pub mod core_api;
+#[cfg(not(any(feature = "full-api", not(feature = "streaming-shared"))))]
+mod core_api;
+#[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
 pub mod core_contract;
+#[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
 mod data_policy;
+#[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
 mod discovery_plan;
 #[cfg(feature = "native")]
 mod dolby_vision_rpu;
+#[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
 mod external_sync;
+#[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
 mod headless_adapter_plan;
+#[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
 mod headless_engine;
+#[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
 mod home_ranking;
+#[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
 mod intro_segments;
+#[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
 mod library_state;
+#[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
 mod offline_download;
+#[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
 mod platform_plan;
+#[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
 mod player_flow;
+#[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
 mod player_policy;
+#[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
 mod player_scrobble;
+#[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
 mod profile_contract;
+#[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
 mod profile_prefs;
+#[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
 mod repository_flow;
+#[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
 mod search_plan;
 mod stream_policy;
+#[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
 mod tmdb_plan;
+#[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
 mod watchlist_plan;
 
+#[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
 pub mod env;
+#[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
 pub mod ffi;
+#[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
 pub mod runtime;
+#[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
 pub mod types;
 
+#[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
 pub mod bindings;
 
 pub use core_api::FluxaCore;
@@ -47,7 +89,10 @@ pub use core_api::FluxaCore;
 // pub(crate) for real consumers — this exists purely so libFuzzer can call
 // straight into them without going through ffi::core_invoke's catch_unwind,
 // which would otherwise swallow the exact panics fuzzing is trying to find.
-#[cfg(feature = "fuzzing")]
+#[cfg(all(
+    feature = "fuzzing",
+    any(feature = "full-api", not(feature = "streaming-shared"))
+))]
 pub mod fuzz_targets {
     pub use crate::addon_protocol::parse_manifest;
     pub use crate::content_identity::{
@@ -56,7 +101,7 @@ pub mod fuzz_targets {
     };
 }
 
-#[cfg(test)]
+#[cfg(all(test, any(feature = "full-api", not(feature = "streaming-shared"))))]
 mod tests {
     use crate::addon_protocol::{
         catalog_has_required_extra_except, catalog_requires_extra, catalog_supports_extra,
@@ -238,7 +283,10 @@ mod tests {
         .and_then(|json| serde_json::from_str::<Value>(&json).ok())
         .expect("torrent fallback info");
 
-        assert_eq!(fallback.get("selectedFileIdx").and_then(Value::as_i64), Some(2));
+        assert_eq!(
+            fallback.get("selectedFileIdx").and_then(Value::as_i64),
+            Some(2)
+        );
         assert_eq!(
             fallback.get("selectedReason").and_then(Value::as_str),
             Some("largest-video")

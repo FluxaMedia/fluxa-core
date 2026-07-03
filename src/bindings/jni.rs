@@ -1,3 +1,5 @@
+#![allow(clippy::missing_safety_doc)]
+
 use crate::addon_protocol::*;
 use crate::addon_resource::*;
 use crate::addon_store::*;
@@ -51,6 +53,23 @@ pub(crate) fn write_jstring(env: &mut JNIEnv<'_>, value: Option<String>) -> JStr
     env.new_string(value)
         .map(JString::into_raw)
         .unwrap_or_else(|_| ptr::null_mut())
+}
+
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_coreInvokeNative(
+    mut env: JNIEnv<'_>,
+    _class: JObject<'_>,
+    method: JString<'_>,
+    args_json: JString<'_>,
+) -> JStringReturn {
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let output = read_jstring(&mut env, &method).and_then(|method| {
+            let args_json = read_jstring(&mut env, &args_json)?;
+            Some(crate::ffi::core_invoke(&method, &args_json))
+        });
+        write_jstring(&mut env, output)
+    }))
+    .unwrap_or(ptr::null_mut())
 }
 
 macro_rules! string_fn {
@@ -177,13 +196,14 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_repos
     meta_detail_json: JString<'_>,
     season_number: JInt,
 ) -> JStringReturn {
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-    let output = read_jstring(&mut env, &meta_detail_json)
-        .map(|meta_detail_json| repository_season_videos_json(&meta_detail_json, season_number));
-    write_jstring(&mut env, output)
-            }))
-            .unwrap_or(ptr::null_mut())
-        }
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let output = read_jstring(&mut env, &meta_detail_json).map(|meta_detail_json| {
+            repository_season_videos_json(&meta_detail_json, season_number)
+        });
+        write_jstring(&mut env, output)
+    }))
+    .unwrap_or(ptr::null_mut())
+}
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_sanitizeProfileJsonNative(
@@ -193,18 +213,18 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_sanit
     mirrored_addons_json: JString<'_>,
     merge_mirrored_addons: JBoolean,
 ) -> JStringReturn {
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-    let output = read_jstring(&mut env, &profile_json).and_then(|profile_json| {
-        sanitize_profile_json(
-            &profile_json,
-            &read_jstring(&mut env, &mirrored_addons_json)?,
-            merge_mirrored_addons != 0,
-        )
-    });
-    write_jstring(&mut env, output)
-            }))
-            .unwrap_or(ptr::null_mut())
-        }
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let output = read_jstring(&mut env, &profile_json).and_then(|profile_json| {
+            sanitize_profile_json(
+                &profile_json,
+                &read_jstring(&mut env, &mirrored_addons_json)?,
+                merge_mirrored_addons != 0,
+            )
+        });
+        write_jstring(&mut env, output)
+    }))
+    .unwrap_or(ptr::null_mut())
+}
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_pluginIsSecureRemoteUrlNative(
@@ -212,18 +232,18 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_plugi
     _class: JObject<'_>,
     url: JString<'_>,
 ) -> JBoolean {
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-    if read_jstring(&mut env, &url)
-        .map(|url| is_secure_remote_url(&url))
-        .unwrap_or(false)
-    {
-        1
-    } else {
-        0
-    }
-            }))
-            .unwrap_or(0)
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        if read_jstring(&mut env, &url)
+            .map(|url| is_secure_remote_url(&url))
+            .unwrap_or(false)
+        {
+            1
+        } else {
+            0
         }
+    }))
+    .unwrap_or(0)
+}
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_pluginSameRepositoryUrlNative(
@@ -232,23 +252,23 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_plugi
     left: JString<'_>,
     right: JString<'_>,
 ) -> JBoolean {
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-    if read_jstring(&mut env, &left)
-        .and_then(|left| {
-            Some(same_plugin_repository_url(
-                &left,
-                &read_jstring(&mut env, &right)?,
-            ))
-        })
-        .unwrap_or(false)
-    {
-        1
-    } else {
-        0
-    }
-            }))
-            .unwrap_or(0)
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        if read_jstring(&mut env, &left)
+            .and_then(|left| {
+                Some(same_plugin_repository_url(
+                    &left,
+                    &read_jstring(&mut env, &right)?,
+                ))
+            })
+            .unwrap_or(false)
+        {
+            1
+        } else {
+            0
         }
+    }))
+    .unwrap_or(0)
+}
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_addonStreamsWithProviderJsonNative(
@@ -257,17 +277,17 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_addon
     streams_json: JString<'_>,
     addon_name: JString<'_>,
 ) -> JStringReturn {
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-    let output = read_jstring(&mut env, &streams_json).and_then(|streams_json| {
-        Some(addon_streams_with_provider_json(
-            &streams_json,
-            &read_jstring(&mut env, &addon_name)?,
-        ))
-    });
-    write_jstring(&mut env, output)
-            }))
-            .unwrap_or(ptr::null_mut())
-        }
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let output = read_jstring(&mut env, &streams_json).and_then(|streams_json| {
+            Some(addon_streams_with_provider_json(
+                &streams_json,
+                &read_jstring(&mut env, &addon_name)?,
+            ))
+        });
+        write_jstring(&mut env, output)
+    }))
+    .unwrap_or(ptr::null_mut())
+}
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_createAppCoreStateNative(
@@ -275,13 +295,13 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_creat
     _class: JObject<'_>,
     initial_json: JString<'_>,
 ) -> JLong {
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-    read_jstring(&mut env, &initial_json)
-        .map(|initial_json| create_app_core_state(&initial_json) as JLong)
-        .unwrap_or(0)
-            }))
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        read_jstring(&mut env, &initial_json)
+            .map(|initial_json| create_app_core_state(&initial_json) as JLong)
             .unwrap_or(0)
-        }
+    }))
+    .unwrap_or(0)
+}
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_destroyAppCoreStateNative(
@@ -289,15 +309,15 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_destr
     _class: JObject<'_>,
     handle: JLong,
 ) -> JBoolean {
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-    if handle > 0 && destroy_app_core_state(handle as u64) {
-        1
-    } else {
-        0
-    }
-            }))
-            .unwrap_or(0)
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        if handle > 0 && destroy_app_core_state(handle as u64) {
+            1
+        } else {
+            0
         }
+    }))
+    .unwrap_or(0)
+}
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_appCoreStateJsonNative(
@@ -305,16 +325,16 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_appCo
     _class: JObject<'_>,
     handle: JLong,
 ) -> JStringReturn {
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-    let output = if handle > 0 {
-        app_core_state_json(handle as u64)
-    } else {
-        None
-    };
-    write_jstring(&mut env, output)
-            }))
-            .unwrap_or(ptr::null_mut())
-        }
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let output = if handle > 0 {
+            app_core_state_json(handle as u64)
+        } else {
+            None
+        };
+        write_jstring(&mut env, output)
+    }))
+    .unwrap_or(ptr::null_mut())
+}
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_appCoreDispatchJsonNative(
@@ -323,17 +343,17 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_appCo
     handle: JLong,
     action_json: JString<'_>,
 ) -> JStringReturn {
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-    let output = if handle > 0 {
-        read_jstring(&mut env, &action_json)
-            .and_then(|action_json| app_core_dispatch_json(handle as u64, &action_json))
-    } else {
-        None
-    };
-    write_jstring(&mut env, output)
-            }))
-            .unwrap_or(ptr::null_mut())
-        }
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let output = if handle > 0 {
+            read_jstring(&mut env, &action_json)
+                .and_then(|action_json| app_core_dispatch_json(handle as u64, &action_json))
+        } else {
+            None
+        };
+        write_jstring(&mut env, output)
+    }))
+    .unwrap_or(ptr::null_mut())
+}
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_createHeadlessEngineNative(
@@ -341,13 +361,13 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_creat
     _class: JObject<'_>,
     initial_json: JString<'_>,
 ) -> JLong {
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-    read_jstring(&mut env, &initial_json)
-        .map(|initial_json| create_headless_engine(&initial_json) as JLong)
-        .unwrap_or(0)
-            }))
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        read_jstring(&mut env, &initial_json)
+            .map(|initial_json| create_headless_engine(&initial_json) as JLong)
             .unwrap_or(0)
-        }
+    }))
+    .unwrap_or(0)
+}
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_destroyHeadlessEngineNative(
@@ -355,15 +375,15 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_destr
     _class: JObject<'_>,
     handle: JLong,
 ) -> JBoolean {
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-    if handle > 0 && destroy_headless_engine(handle as u64) {
-        1
-    } else {
-        0
-    }
-            }))
-            .unwrap_or(0)
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        if handle > 0 && destroy_headless_engine(handle as u64) {
+            1
+        } else {
+            0
         }
+    }))
+    .unwrap_or(0)
+}
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_headlessEngineSnapshotJsonNative(
@@ -371,16 +391,16 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_headl
     _class: JObject<'_>,
     handle: JLong,
 ) -> JStringReturn {
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-    let output = if handle > 0 {
-        headless_engine_snapshot_json(handle as u64)
-    } else {
-        None
-    };
-    write_jstring(&mut env, output)
-            }))
-            .unwrap_or(ptr::null_mut())
-        }
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let output = if handle > 0 {
+            headless_engine_snapshot_json(handle as u64)
+        } else {
+            None
+        };
+        write_jstring(&mut env, output)
+    }))
+    .unwrap_or(ptr::null_mut())
+}
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_headlessEngineDispatchJsonNative(
@@ -389,17 +409,17 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_headl
     handle: JLong,
     action_json: JString<'_>,
 ) -> JStringReturn {
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-    let output = if handle > 0 {
-        read_jstring(&mut env, &action_json)
-            .and_then(|action_json| headless_engine_dispatch_json(handle as u64, &action_json))
-    } else {
-        None
-    };
-    write_jstring(&mut env, output)
-            }))
-            .unwrap_or(ptr::null_mut())
-        }
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let output = if handle > 0 {
+            read_jstring(&mut env, &action_json)
+                .and_then(|action_json| headless_engine_dispatch_json(handle as u64, &action_json))
+        } else {
+            None
+        };
+        write_jstring(&mut env, output)
+    }))
+    .unwrap_or(ptr::null_mut())
+}
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_headlessEngineCompleteEffectJsonNative(
@@ -408,18 +428,18 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_headl
     handle: JLong,
     result_json: JString<'_>,
 ) -> JStringReturn {
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-    let output = if handle > 0 {
-        read_jstring(&mut env, &result_json).and_then(|result_json| {
-            headless_engine_complete_effect_json(handle as u64, &result_json)
-        })
-    } else {
-        None
-    };
-    write_jstring(&mut env, output)
-            }))
-            .unwrap_or(ptr::null_mut())
-        }
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let output = if handle > 0 {
+            read_jstring(&mut env, &result_json).and_then(|result_json| {
+                headless_engine_complete_effect_json(handle as u64, &result_json)
+            })
+        } else {
+            None
+        };
+        write_jstring(&mut env, output)
+    }))
+    .unwrap_or(ptr::null_mut())
+}
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_coreCapabilitiesJsonNative(
@@ -427,22 +447,22 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_coreC
     _class: JObject<'_>,
     portable: JBoolean,
 ) -> JStringReturn {
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-    write_jstring(&mut env, Some(core_capabilities_json(portable != 0)))
-            }))
-            .unwrap_or(ptr::null_mut())
-        }
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        write_jstring(&mut env, Some(core_capabilities_json(portable != 0)))
+    }))
+    .unwrap_or(ptr::null_mut())
+}
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_headlessDirectPlaybackPolicyJsonNative(
     mut env: JNIEnv<'_>,
     _class: JObject<'_>,
 ) -> JStringReturn {
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-    write_jstring(&mut env, Some(direct_playback_policy_json()))
-            }))
-            .unwrap_or(ptr::null_mut())
-        }
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        write_jstring(&mut env, Some(direct_playback_policy_json()))
+    }))
+    .unwrap_or(ptr::null_mut())
+}
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_manifestCandidatesJsonNative(
@@ -450,13 +470,13 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_manif
     _class: JObject<'_>,
     input: JString<'_>,
 ) -> JStringReturn {
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-    let output = read_jstring(&mut env, &input)
-        .and_then(|value| serde_json::to_string(&manifest_candidates(&value)).ok());
-    write_jstring(&mut env, output)
-            }))
-            .unwrap_or(ptr::null_mut())
-        }
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let output = read_jstring(&mut env, &input)
+            .and_then(|value| serde_json::to_string(&manifest_candidates(&value)).ok());
+        write_jstring(&mut env, output)
+    }))
+    .unwrap_or(ptr::null_mut())
+}
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_manifestFetchPlanJsonNative(
@@ -464,12 +484,13 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_manif
     _class: JObject<'_>,
     input: JString<'_>,
 ) -> JStringReturn {
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-    let output = read_jstring(&mut env, &input).and_then(|value| manifest_fetch_plan_json(&value));
-    write_jstring(&mut env, output)
-            }))
-            .unwrap_or(ptr::null_mut())
-        }
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let output =
+            read_jstring(&mut env, &input).and_then(|value| manifest_fetch_plan_json(&value));
+        write_jstring(&mut env, output)
+    }))
+    .unwrap_or(ptr::null_mut())
+}
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_buildResourceUrlNative(
@@ -481,20 +502,20 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_build
     id: JString<'_>,
     extra_json: JString<'_>,
 ) -> JStringReturn {
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-    let output = read_jstring(&mut env, &transport_url).and_then(|transport_url| {
-        Some(build_resource_url(
-            &transport_url,
-            &read_jstring(&mut env, &resource)?,
-            &read_jstring(&mut env, &content_type)?,
-            &read_jstring(&mut env, &id)?,
-            read_jstring(&mut env, &extra_json).as_deref(),
-        ))
-    });
-    write_jstring(&mut env, output)
-            }))
-            .unwrap_or(ptr::null_mut())
-        }
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let output = read_jstring(&mut env, &transport_url).and_then(|transport_url| {
+            Some(build_resource_url(
+                &transport_url,
+                &read_jstring(&mut env, &resource)?,
+                &read_jstring(&mut env, &content_type)?,
+                &read_jstring(&mut env, &id)?,
+                read_jstring(&mut env, &extra_json).as_deref(),
+            ))
+        });
+        write_jstring(&mut env, output)
+    }))
+    .unwrap_or(ptr::null_mut())
+}
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_parseManifestJsonNative(
@@ -504,18 +525,18 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_parse
     transport_url: JString<'_>,
     unknown_name: JString<'_>,
 ) -> JStringReturn {
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-    let output = read_jstring(&mut env, &body).and_then(|body| {
-        parse_manifest(
-            &body,
-            &read_jstring(&mut env, &transport_url)?,
-            &read_jstring(&mut env, &unknown_name)?,
-        )
-    });
-    write_jstring(&mut env, output)
-            }))
-            .unwrap_or(ptr::null_mut())
-        }
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let output = read_jstring(&mut env, &body).and_then(|body| {
+            parse_manifest(
+                &body,
+                &read_jstring(&mut env, &transport_url)?,
+                &read_jstring(&mut env, &unknown_name)?,
+            )
+        });
+        write_jstring(&mut env, output)
+    }))
+    .unwrap_or(ptr::null_mut())
+}
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_resolveManifestAssetsJsonNative(
@@ -523,13 +544,13 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_resol
     _class: JObject<'_>,
     descriptor_json: JString<'_>,
 ) -> JStringReturn {
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-    let output = read_jstring(&mut env, &descriptor_json)
-        .and_then(|descriptor_json| resolve_manifest_assets_json(&descriptor_json));
-    write_jstring(&mut env, output)
-            }))
-            .unwrap_or(ptr::null_mut())
-        }
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let output = read_jstring(&mut env, &descriptor_json)
+            .and_then(|descriptor_json| resolve_manifest_assets_json(&descriptor_json));
+        write_jstring(&mut env, output)
+    }))
+    .unwrap_or(ptr::null_mut())
+}
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_mergeLiveManifestJsonNative(
@@ -539,20 +560,20 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_merge
     live_json: JString<'_>,
     unknown_name: JString<'_>,
 ) -> JStringReturn {
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-    let output = read_jstring(&mut env, &descriptor_json).and_then(|descriptor_json| {
-        merge_live_manifest_json(
-            &descriptor_json,
-            read_jstring(&mut env, &live_json)
-                .filter(|value| !value.trim().is_empty())
-                .as_deref(),
-            &read_jstring(&mut env, &unknown_name)?,
-        )
-    });
-    write_jstring(&mut env, output)
-            }))
-            .unwrap_or(ptr::null_mut())
-        }
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let output = read_jstring(&mut env, &descriptor_json).and_then(|descriptor_json| {
+            merge_live_manifest_json(
+                &descriptor_json,
+                read_jstring(&mut env, &live_json)
+                    .filter(|value| !value.trim().is_empty())
+                    .as_deref(),
+                &read_jstring(&mut env, &unknown_name)?,
+            )
+        });
+        write_jstring(&mut env, output)
+    }))
+    .unwrap_or(ptr::null_mut())
+}
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_supportsResourceNative(
@@ -563,29 +584,29 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_suppo
     content_type: JString<'_>,
     id: JString<'_>,
 ) -> JBoolean {
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-    let result = read_jstring(&mut env, &manifest_json)
-        .and_then(|manifest_json| {
-            Some(supports_resource(
-                &manifest_json,
-                &read_jstring(&mut env, &resource_name)?,
-                read_jstring(&mut env, &content_type)
-                    .filter(|value| !value.is_empty())
-                    .as_deref(),
-                read_jstring(&mut env, &id)
-                    .filter(|value| !value.is_empty())
-                    .as_deref(),
-            ))
-        })
-        .unwrap_or(false);
-    if result {
-        1
-    } else {
-        0
-    }
-            }))
-            .unwrap_or(0)
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let result = read_jstring(&mut env, &manifest_json)
+            .and_then(|manifest_json| {
+                Some(supports_resource(
+                    &manifest_json,
+                    &read_jstring(&mut env, &resource_name)?,
+                    read_jstring(&mut env, &content_type)
+                        .filter(|value| !value.is_empty())
+                        .as_deref(),
+                    read_jstring(&mut env, &id)
+                        .filter(|value| !value.is_empty())
+                        .as_deref(),
+                ))
+            })
+            .unwrap_or(false);
+        if result {
+            1
+        } else {
+            0
         }
+    }))
+    .unwrap_or(0)
+}
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_catalogSupportsExtraNative(
@@ -594,23 +615,23 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_catal
     catalog_json: JString<'_>,
     extra_name: JString<'_>,
 ) -> JBoolean {
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-    let result = read_jstring(&mut env, &catalog_json)
-        .and_then(|catalog_json| {
-            Some(catalog_supports_extra(
-                &catalog_json,
-                &read_jstring(&mut env, &extra_name)?,
-            ))
-        })
-        .unwrap_or(false);
-    if result {
-        1
-    } else {
-        0
-    }
-            }))
-            .unwrap_or(0)
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let result = read_jstring(&mut env, &catalog_json)
+            .and_then(|catalog_json| {
+                Some(catalog_supports_extra(
+                    &catalog_json,
+                    &read_jstring(&mut env, &extra_name)?,
+                ))
+            })
+            .unwrap_or(false);
+        if result {
+            1
+        } else {
+            0
         }
+    }))
+    .unwrap_or(0)
+}
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_catalogRequiresExtraNative(
@@ -619,23 +640,23 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_catal
     catalog_json: JString<'_>,
     extra_name: JString<'_>,
 ) -> JBoolean {
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-    let result = read_jstring(&mut env, &catalog_json)
-        .and_then(|catalog_json| {
-            Some(catalog_requires_extra(
-                &catalog_json,
-                &read_jstring(&mut env, &extra_name)?,
-            ))
-        })
-        .unwrap_or(false);
-    if result {
-        1
-    } else {
-        0
-    }
-            }))
-            .unwrap_or(0)
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let result = read_jstring(&mut env, &catalog_json)
+            .and_then(|catalog_json| {
+                Some(catalog_requires_extra(
+                    &catalog_json,
+                    &read_jstring(&mut env, &extra_name)?,
+                ))
+            })
+            .unwrap_or(false);
+        if result {
+            1
+        } else {
+            0
         }
+    }))
+    .unwrap_or(0)
+}
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_catalogHasRequiredExtraExceptNative(
@@ -644,23 +665,23 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_catal
     catalog_json: JString<'_>,
     allowed_names_json: JString<'_>,
 ) -> JBoolean {
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-    let result = read_jstring(&mut env, &catalog_json)
-        .and_then(|catalog_json| {
-            Some(catalog_has_required_extra_except(
-                &catalog_json,
-                &read_jstring(&mut env, &allowed_names_json)?,
-            ))
-        })
-        .unwrap_or(false);
-    if result {
-        1
-    } else {
-        0
-    }
-            }))
-            .unwrap_or(0)
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let result = read_jstring(&mut env, &catalog_json)
+            .and_then(|catalog_json| {
+                Some(catalog_has_required_extra_except(
+                    &catalog_json,
+                    &read_jstring(&mut env, &allowed_names_json)?,
+                ))
+            })
+            .unwrap_or(false);
+        if result {
+            1
+        } else {
+            0
         }
+    }))
+    .unwrap_or(0)
+}
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_parseEpisodeLocatorJsonNative(
@@ -668,20 +689,20 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_parse
     _class: JObject<'_>,
     input: JString<'_>,
 ) -> JStringReturn {
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-    let output = read_jstring(&mut env, &input).and_then(|input| {
-        let (base_id, season, episode) = parse_episode_locator(&input)?;
-        serde_json::to_string(&json!({
-            "baseId": base_id,
-            "season": season,
-            "episode": episode
-        }))
-        .ok()
-    });
-    write_jstring(&mut env, output)
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let output = read_jstring(&mut env, &input).and_then(|input| {
+            let (base_id, season, episode) = parse_episode_locator(&input)?;
+            serde_json::to_string(&json!({
+                "baseId": base_id,
+                "season": season,
+                "episode": episode
             }))
-            .unwrap_or(ptr::null_mut())
-        }
+            .ok()
+        });
+        write_jstring(&mut env, output)
+    }))
+    .unwrap_or(ptr::null_mut())
+}
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_streamRequestIdsJsonNative(
@@ -693,27 +714,27 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_strea
     current_series_lookup_id: JString<'_>,
     canonical_base_id: JString<'_>,
 ) -> JStringReturn {
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-    let output = read_jstring(&mut env, &content_type).and_then(|content_type| {
-        serde_json::to_string(&stream_request_ids(
-            &content_type,
-            &read_jstring(&mut env, &id)?,
-            read_jstring(&mut env, &detail_id)
-                .filter(|value| !value.is_empty())
-                .as_deref(),
-            read_jstring(&mut env, &current_series_lookup_id)
-                .filter(|value| !value.is_empty())
-                .as_deref(),
-            read_jstring(&mut env, &canonical_base_id)
-                .filter(|value| !value.is_empty())
-                .as_deref(),
-        ))
-        .ok()
-    });
-    write_jstring(&mut env, output)
-            }))
-            .unwrap_or(ptr::null_mut())
-        }
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let output = read_jstring(&mut env, &content_type).and_then(|content_type| {
+            serde_json::to_string(&stream_request_ids(
+                &content_type,
+                &read_jstring(&mut env, &id)?,
+                read_jstring(&mut env, &detail_id)
+                    .filter(|value| !value.is_empty())
+                    .as_deref(),
+                read_jstring(&mut env, &current_series_lookup_id)
+                    .filter(|value| !value.is_empty())
+                    .as_deref(),
+                read_jstring(&mut env, &canonical_base_id)
+                    .filter(|value| !value.is_empty())
+                    .as_deref(),
+            ))
+            .ok()
+        });
+        write_jstring(&mut env, output)
+    }))
+    .unwrap_or(ptr::null_mut())
+}
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_playbackStreamRequestIdsJsonNative(
@@ -723,20 +744,20 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_playb
     id: JString<'_>,
     detail_id: JString<'_>,
 ) -> JStringReturn {
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-    let output = read_jstring(&mut env, &content_type).and_then(|content_type| {
-        playback_stream_request_ids_json(
-            &content_type,
-            &read_jstring(&mut env, &id)?,
-            read_jstring(&mut env, &detail_id)
-                .filter(|value| !value.is_empty())
-                .as_deref(),
-        )
-    });
-    write_jstring(&mut env, output)
-            }))
-            .unwrap_or(ptr::null_mut())
-        }
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let output = read_jstring(&mut env, &content_type).and_then(|content_type| {
+            playback_stream_request_ids_json(
+                &content_type,
+                &read_jstring(&mut env, &id)?,
+                read_jstring(&mut env, &detail_id)
+                    .filter(|value| !value.is_empty())
+                    .as_deref(),
+            )
+        });
+        write_jstring(&mut env, output)
+    }))
+    .unwrap_or(ptr::null_mut())
+}
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_streamDiscoveryEpisodeContextJsonNative(
@@ -747,21 +768,21 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_strea
     detail_json: JString<'_>,
     season_episodes_json: JString<'_>,
 ) -> JStringReturn {
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-    let output = read_jstring(&mut env, &content_type).and_then(|content_type| {
-        stream_discovery_episode_context_json(
-            &content_type,
-            &read_jstring(&mut env, &request_id)?,
-            read_jstring(&mut env, &detail_json)
-                .filter(|value| !value.is_empty())
-                .as_deref(),
-            &read_jstring(&mut env, &season_episodes_json)?,
-        )
-    });
-    write_jstring(&mut env, output)
-            }))
-            .unwrap_or(ptr::null_mut())
-        }
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let output = read_jstring(&mut env, &content_type).and_then(|content_type| {
+            stream_discovery_episode_context_json(
+                &content_type,
+                &read_jstring(&mut env, &request_id)?,
+                read_jstring(&mut env, &detail_json)
+                    .filter(|value| !value.is_empty())
+                    .as_deref(),
+                &read_jstring(&mut env, &season_episodes_json)?,
+            )
+        });
+        write_jstring(&mut env, output)
+    }))
+    .unwrap_or(ptr::null_mut())
+}
 
 string_fn!(
     Java_com_fluxa_app_core_rust_FluxaCoreNative_playbackIntroLookupContentIdNative,
@@ -776,20 +797,20 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_direc
     detail_json: JString<'_>,
     today_iso: JString<'_>,
 ) -> JStringReturn {
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-    let output = read_jstring(&mut env, &meta_json).and_then(|meta_json| {
-        direct_playback_plan_json(
-            &meta_json,
-            read_jstring(&mut env, &detail_json)
-                .filter(|value| !value.is_empty())
-                .as_deref(),
-            &read_jstring(&mut env, &today_iso)?,
-        )
-    });
-    write_jstring(&mut env, output)
-            }))
-            .unwrap_or(ptr::null_mut())
-        }
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let output = read_jstring(&mut env, &meta_json).and_then(|meta_json| {
+            direct_playback_plan_json(
+                &meta_json,
+                read_jstring(&mut env, &detail_json)
+                    .filter(|value| !value.is_empty())
+                    .as_deref(),
+                &read_jstring(&mut env, &today_iso)?,
+            )
+        });
+        write_jstring(&mut env, output)
+    }))
+    .unwrap_or(ptr::null_mut())
+}
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_streamPlaybackInfoJsonNative(
@@ -797,13 +818,13 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_strea
     _class: JObject<'_>,
     stream_json: JString<'_>,
 ) -> JStringReturn {
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-    let output = read_jstring(&mut env, &stream_json)
-        .and_then(|stream_json| stream_playback_info_json(&stream_json));
-    write_jstring(&mut env, output)
-            }))
-            .unwrap_or(ptr::null_mut())
-        }
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let output = read_jstring(&mut env, &stream_json)
+            .and_then(|stream_json| stream_playback_info_json(&stream_json));
+        write_jstring(&mut env, output)
+    }))
+    .unwrap_or(ptr::null_mut())
+}
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_streamRequestHeadersJsonNative(
@@ -811,13 +832,13 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_strea
     _class: JObject<'_>,
     headers_json: JString<'_>,
 ) -> JStringReturn {
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-    let output = read_jstring(&mut env, &headers_json)
-        .and_then(|headers_json| stream_request_headers_json(&headers_json));
-    write_jstring(&mut env, output)
-            }))
-            .unwrap_or(ptr::null_mut())
-        }
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let output = read_jstring(&mut env, &headers_json)
+            .and_then(|headers_json| stream_request_headers_json(&headers_json));
+        write_jstring(&mut env, output)
+    }))
+    .unwrap_or(ptr::null_mut())
+}
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_streamRequestRefererNative(
@@ -825,13 +846,13 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_strea
     _class: JObject<'_>,
     url: JString<'_>,
 ) -> JStringReturn {
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-    let output =
-        read_jstring(&mut env, &url).map(|url| stream_request_referer(&url).unwrap_or_default());
-    write_jstring(&mut env, output)
-            }))
-            .unwrap_or(ptr::null_mut())
-        }
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let output = read_jstring(&mut env, &url)
+            .map(|url| stream_request_referer(&url).unwrap_or_default());
+        write_jstring(&mut env, output)
+    }))
+    .unwrap_or(ptr::null_mut())
+}
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_episodeTextMatchesNative(
@@ -841,18 +862,18 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_episo
     season: JInt,
     episode: JInt,
 ) -> JBoolean {
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-    let result = read_jstring(&mut env, &text)
-        .map(|text| text_matches_episode(&text, season, episode))
-        .unwrap_or(false);
-    if result {
-        1
-    } else {
-        0
-    }
-            }))
-            .unwrap_or(0)
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let result = read_jstring(&mut env, &text)
+            .map(|text| text_matches_episode(&text, season, episode))
+            .unwrap_or(false);
+        if result {
+            1
+        } else {
+            0
         }
+    }))
+    .unwrap_or(0)
+}
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_streamMatchesEpisodeNative(
@@ -865,29 +886,29 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_strea
     filename: JString<'_>,
     effective_filename: JString<'_>,
 ) -> JBoolean {
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-    let result = read_jstring(&mut env, &video_id)
-        .map(|video_id| {
-            stream_matches_episode(
-                &video_id,
-                &[
-                    read_jstring(&mut env, &title).unwrap_or_default(),
-                    read_jstring(&mut env, &name).unwrap_or_default(),
-                    read_jstring(&mut env, &description).unwrap_or_default(),
-                    read_jstring(&mut env, &filename).unwrap_or_default(),
-                    read_jstring(&mut env, &effective_filename).unwrap_or_default(),
-                ],
-            )
-        })
-        .unwrap_or(false);
-    if result {
-        1
-    } else {
-        0
-    }
-            }))
-            .unwrap_or(0)
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let result = read_jstring(&mut env, &video_id)
+            .map(|video_id| {
+                stream_matches_episode(
+                    &video_id,
+                    &[
+                        read_jstring(&mut env, &title).unwrap_or_default(),
+                        read_jstring(&mut env, &name).unwrap_or_default(),
+                        read_jstring(&mut env, &description).unwrap_or_default(),
+                        read_jstring(&mut env, &filename).unwrap_or_default(),
+                        read_jstring(&mut env, &effective_filename).unwrap_or_default(),
+                    ],
+                )
+            })
+            .unwrap_or(false);
+        if result {
+            1
+        } else {
+            0
         }
+    }))
+    .unwrap_or(0)
+}
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_selectStreamIndexNative(
@@ -902,32 +923,32 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_selec
     regex_pattern: JString<'_>,
     preferred_binge_group: JString<'_>,
 ) -> JInt {
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-    read_jstring(&mut env, &streams_json)
-        .and_then(|streams_json| {
-            Some(select_stream_index(
-                &streams_json,
-                &read_jstring(&mut env, &current_video_id).unwrap_or_default(),
-                initial_stream_index,
-                read_jstring(&mut env, &saved_url)
-                    .filter(|value| !value.is_empty())
-                    .as_deref(),
-                read_jstring(&mut env, &saved_title)
-                    .filter(|value| !value.is_empty())
-                    .as_deref(),
-                &read_jstring(&mut env, &source_selection_mode)?,
-                read_jstring(&mut env, &regex_pattern)
-                    .filter(|value| !value.is_empty())
-                    .as_deref(),
-                read_jstring(&mut env, &preferred_binge_group)
-                    .filter(|value| !value.is_empty())
-                    .as_deref(),
-            ))
-        })
-        .unwrap_or(-1)
-            }))
-            .unwrap_or(0)
-        }
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        read_jstring(&mut env, &streams_json)
+            .and_then(|streams_json| {
+                Some(select_stream_index(
+                    &streams_json,
+                    &read_jstring(&mut env, &current_video_id).unwrap_or_default(),
+                    initial_stream_index,
+                    read_jstring(&mut env, &saved_url)
+                        .filter(|value| !value.is_empty())
+                        .as_deref(),
+                    read_jstring(&mut env, &saved_title)
+                        .filter(|value| !value.is_empty())
+                        .as_deref(),
+                    &read_jstring(&mut env, &source_selection_mode)?,
+                    read_jstring(&mut env, &regex_pattern)
+                        .filter(|value| !value.is_empty())
+                        .as_deref(),
+                    read_jstring(&mut env, &preferred_binge_group)
+                        .filter(|value| !value.is_empty())
+                        .as_deref(),
+                ))
+            })
+            .unwrap_or(-1)
+    }))
+    .unwrap_or(0)
+}
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_mergeContinueWatchingDuplicatesJsonNative(
@@ -935,13 +956,13 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_merge
     _class: JObject<'_>,
     items_json: JString<'_>,
 ) -> JStringReturn {
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-    let output = read_jstring(&mut env, &items_json)
-        .and_then(|items_json| merge_continue_watching_duplicates_json(&items_json));
-    write_jstring(&mut env, output)
-            }))
-            .unwrap_or(ptr::null_mut())
-        }
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let output = read_jstring(&mut env, &items_json)
+            .and_then(|items_json| merge_continue_watching_duplicates_json(&items_json));
+        write_jstring(&mut env, output)
+    }))
+    .unwrap_or(ptr::null_mut())
+}
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_filterDiscoverResultsJsonNative(
@@ -953,23 +974,23 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_filte
     has_rating: JBoolean,
     region: JString<'_>,
 ) -> JStringReturn {
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-    let output = read_jstring(&mut env, &items_json).and_then(|items_json| {
-        filter_discover_results_json(
-            &items_json,
-            read_jstring(&mut env, &year)
-                .filter(|value| !value.trim().is_empty())
-                .as_deref(),
-            if has_rating != 0 { Some(rating) } else { None },
-            read_jstring(&mut env, &region)
-                .filter(|value| !value.trim().is_empty())
-                .as_deref(),
-        )
-    });
-    write_jstring(&mut env, output)
-            }))
-            .unwrap_or(ptr::null_mut())
-        }
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let output = read_jstring(&mut env, &items_json).and_then(|items_json| {
+            filter_discover_results_json(
+                &items_json,
+                read_jstring(&mut env, &year)
+                    .filter(|value| !value.trim().is_empty())
+                    .as_deref(),
+                if has_rating != 0 { Some(rating) } else { None },
+                read_jstring(&mut env, &region)
+                    .filter(|value| !value.trim().is_empty())
+                    .as_deref(),
+            )
+        });
+        write_jstring(&mut env, output)
+    }))
+    .unwrap_or(ptr::null_mut())
+}
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_resolvePreferredAudioLanguageNative(
@@ -979,22 +1000,22 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_resol
     preferred_audio_language: JString<'_>,
     original_language: JString<'_>,
 ) -> JStringReturn {
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-    let output = Some(resolve_preferred_audio_language(
-        read_jstring(&mut env, &last_audio_language)
-            .filter(|value| !value.is_empty())
-            .as_deref(),
-        read_jstring(&mut env, &preferred_audio_language)
-            .filter(|value| !value.is_empty())
-            .as_deref(),
-        read_jstring(&mut env, &original_language)
-            .filter(|value| !value.is_empty())
-            .as_deref(),
-    ));
-    write_jstring(&mut env, output)
-            }))
-            .unwrap_or(ptr::null_mut())
-        }
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let output = Some(resolve_preferred_audio_language(
+            read_jstring(&mut env, &last_audio_language)
+                .filter(|value| !value.is_empty())
+                .as_deref(),
+            read_jstring(&mut env, &preferred_audio_language)
+                .filter(|value| !value.is_empty())
+                .as_deref(),
+            read_jstring(&mut env, &original_language)
+                .filter(|value| !value.is_empty())
+                .as_deref(),
+        ));
+        write_jstring(&mut env, output)
+    }))
+    .unwrap_or(ptr::null_mut())
+}
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_subtitleLanguageMatchesNative(
@@ -1004,26 +1025,26 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_subti
     language: JString<'_>,
     preferred_language: JString<'_>,
 ) -> JBoolean {
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-    let result = read_jstring(&mut env, &label)
-        .and_then(|label| {
-            Some(subtitle_language_matches(
-                &label,
-                read_jstring(&mut env, &language)
-                    .filter(|value| !value.is_empty())
-                    .as_deref(),
-                &read_jstring(&mut env, &preferred_language)?,
-            ))
-        })
-        .unwrap_or(false);
-    if result {
-        1
-    } else {
-        0
-    }
-            }))
-            .unwrap_or(0)
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let result = read_jstring(&mut env, &label)
+            .and_then(|label| {
+                Some(subtitle_language_matches(
+                    &label,
+                    read_jstring(&mut env, &language)
+                        .filter(|value| !value.is_empty())
+                        .as_deref(),
+                    &read_jstring(&mut env, &preferred_language)?,
+                ))
+            })
+            .unwrap_or(false);
+        if result {
+            1
+        } else {
+            0
         }
+    }))
+    .unwrap_or(0)
+}
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_findPreferredSubtitleIndexNative(
@@ -1034,27 +1055,26 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_findP
     preferred_subtitle_language: JString<'_>,
     secondary_subtitle_language: JString<'_>,
 ) -> JInt {
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-    read_jstring(&mut env, &tracks_json)
-        .map(|tracks_json| {
-            find_preferred_subtitle_index(
-                &tracks_json,
-                read_jstring(&mut env, &last_subtitle_language)
-                    .filter(|value| !value.is_empty())
-                    .as_deref(),
-                read_jstring(&mut env, &preferred_subtitle_language)
-                    .filter(|value| !value.is_empty())
-                    .as_deref(),
-                read_jstring(&mut env, &secondary_subtitle_language)
-                    .filter(|value| !value.is_empty())
-                    .as_deref(),
-            )
-        })
-        .unwrap_or(-1)
-            }))
-            .unwrap_or(0)
-        }
-
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        read_jstring(&mut env, &tracks_json)
+            .map(|tracks_json| {
+                find_preferred_subtitle_index(
+                    &tracks_json,
+                    read_jstring(&mut env, &last_subtitle_language)
+                        .filter(|value| !value.is_empty())
+                        .as_deref(),
+                    read_jstring(&mut env, &preferred_subtitle_language)
+                        .filter(|value| !value.is_empty())
+                        .as_deref(),
+                    read_jstring(&mut env, &secondary_subtitle_language)
+                        .filter(|value| !value.is_empty())
+                        .as_deref(),
+                )
+            })
+            .unwrap_or(-1)
+    }))
+    .unwrap_or(0)
+}
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_parseAddonResourceResultJsonNative(
@@ -1065,19 +1085,19 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_parse
     status_code: JInt,
     body: JString<'_>,
 ) -> JStringReturn {
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-    let output = read_jstring(&mut env, &resource).and_then(|resource| {
-        Some(parse_addon_resource_result_json(
-            &resource,
-            &read_jstring(&mut env, &url)?,
-            status_code,
-            read_jstring(&mut env, &body).as_deref(),
-        ))
-    });
-    write_jstring(&mut env, output)
-            }))
-            .unwrap_or(ptr::null_mut())
-        }
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let output = read_jstring(&mut env, &resource).and_then(|resource| {
+            Some(parse_addon_resource_result_json(
+                &resource,
+                &read_jstring(&mut env, &url)?,
+                status_code,
+                read_jstring(&mut env, &body).as_deref(),
+            ))
+        });
+        write_jstring(&mut env, output)
+    }))
+    .unwrap_or(ptr::null_mut())
+}
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_normalizeAddonSubtitlesJsonNative(
@@ -1086,17 +1106,17 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_norma
     subtitles_json: JString<'_>,
     resource_url: JString<'_>,
 ) -> JStringReturn {
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-    let output = read_jstring(&mut env, &subtitles_json).and_then(|subtitles_json| {
-        Some(normalize_addon_subtitles_json(
-            &subtitles_json,
-            &read_jstring(&mut env, &resource_url)?,
-        ))
-    });
-    write_jstring(&mut env, output)
-            }))
-            .unwrap_or(ptr::null_mut())
-        }
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let output = read_jstring(&mut env, &subtitles_json).and_then(|subtitles_json| {
+            Some(normalize_addon_subtitles_json(
+                &subtitles_json,
+                &read_jstring(&mut env, &resource_url)?,
+            ))
+        });
+        write_jstring(&mut env, output)
+    }))
+    .unwrap_or(ptr::null_mut())
+}
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_torrentRuntimeInfoJsonNative(
@@ -1104,13 +1124,13 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_torre
     _class: JObject<'_>,
     request_json: JString<'_>,
 ) -> JStringReturn {
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-    let output = read_jstring(&mut env, &request_json)
-        .and_then(|request_json| torrent_runtime_info_json(&request_json));
-    write_jstring(&mut env, output)
-            }))
-            .unwrap_or(ptr::null_mut())
-        }
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let output = read_jstring(&mut env, &request_json)
+            .and_then(|request_json| torrent_runtime_info_json(&request_json));
+        write_jstring(&mut env, output)
+    }))
+    .unwrap_or(ptr::null_mut())
+}
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_torrentStatusInfoJsonNative(
@@ -1118,13 +1138,13 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_torre
     _class: JObject<'_>,
     status_json: JString<'_>,
 ) -> JStringReturn {
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-    let output = read_jstring(&mut env, &status_json)
-        .and_then(|status_json| torrent_status_info_json(&status_json));
-    write_jstring(&mut env, output)
-            }))
-            .unwrap_or(ptr::null_mut())
-        }
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let output = read_jstring(&mut env, &status_json)
+            .and_then(|status_json| torrent_status_info_json(&status_json));
+        write_jstring(&mut env, output)
+    }))
+    .unwrap_or(ptr::null_mut())
+}
 
 string_fn!(
     Java_com_fluxa_app_core_rust_FluxaCoreNative_stableFeedPartNative,
@@ -1152,18 +1172,18 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_trakt
     _class: JObject<'_>,
     api_key: JString<'_>,
 ) -> JBoolean {
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-    let result = read_jstring(&mut env, &api_key)
-        .map(|api_key| trakt_has_client(&api_key))
-        .unwrap_or(false);
-    if result {
-        1
-    } else {
-        0
-    }
-            }))
-            .unwrap_or(0)
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let result = read_jstring(&mut env, &api_key)
+            .map(|api_key| trakt_has_client(&api_key))
+            .unwrap_or(false);
+        if result {
+            1
+        } else {
+            0
         }
+    }))
+    .unwrap_or(0)
+}
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_traktPlaybackUrlNative(
@@ -1171,16 +1191,16 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_trakt
     _class: JObject<'_>,
     content_type: JString<'_>,
 ) -> JStringReturn {
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-    let output = Some(trakt_playback_url(
-        read_jstring(&mut env, &content_type)
-            .filter(|value| !value.trim().is_empty())
-            .as_deref(),
-    ));
-    write_jstring(&mut env, output)
-            }))
-            .unwrap_or(ptr::null_mut())
-        }
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let output = Some(trakt_playback_url(
+            read_jstring(&mut env, &content_type)
+                .filter(|value| !value.trim().is_empty())
+                .as_deref(),
+        ));
+        write_jstring(&mut env, output)
+    }))
+    .unwrap_or(ptr::null_mut())
+}
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_traktTokenExpiresAtNative(
@@ -1189,11 +1209,11 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_trakt
     created_at_seconds: JLong,
     expires_in_seconds: JLong,
 ) -> JLong {
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-    trakt_token_expires_at(created_at_seconds, expires_in_seconds)
-            }))
-            .unwrap_or(0)
-        }
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        trakt_token_expires_at(created_at_seconds, expires_in_seconds)
+    }))
+    .unwrap_or(0)
+}
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_traktContentIdFromIdsNative(
@@ -1201,13 +1221,13 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_trakt
     _class: JObject<'_>,
     ids_json: JString<'_>,
 ) -> JStringReturn {
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-    let output = read_jstring(&mut env, &ids_json)
-        .and_then(|ids_json| trakt_content_id_from_ids_json(&ids_json));
-    write_jstring(&mut env, output)
-            }))
-            .unwrap_or(ptr::null_mut())
-        }
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let output = read_jstring(&mut env, &ids_json)
+            .and_then(|ids_json| trakt_content_id_from_ids_json(&ids_json));
+        write_jstring(&mut env, output)
+    }))
+    .unwrap_or(ptr::null_mut())
+}
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_traktIdsFromContentIdJsonNative(
@@ -1215,13 +1235,13 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_trakt
     _class: JObject<'_>,
     raw_id: JString<'_>,
 ) -> JStringReturn {
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-    let output =
-        read_jstring(&mut env, &raw_id).and_then(|raw_id| trakt_ids_from_content_id_json(&raw_id));
-    write_jstring(&mut env, output)
-            }))
-            .unwrap_or(ptr::null_mut())
-        }
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let output = read_jstring(&mut env, &raw_id)
+            .and_then(|raw_id| trakt_ids_from_content_id_json(&raw_id));
+        write_jstring(&mut env, output)
+    }))
+    .unwrap_or(ptr::null_mut())
+}
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_traktEpisodeLocatorJsonNative(
@@ -1229,13 +1249,13 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_trakt
     _class: JObject<'_>,
     video_id: JString<'_>,
 ) -> JStringReturn {
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-    let output = read_jstring(&mut env, &video_id)
-        .and_then(|video_id| trakt_episode_locator_json(&video_id));
-    write_jstring(&mut env, output)
-            }))
-            .unwrap_or(ptr::null_mut())
-        }
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let output = read_jstring(&mut env, &video_id)
+            .and_then(|video_id| trakt_episode_locator_json(&video_id));
+        write_jstring(&mut env, output)
+    }))
+    .unwrap_or(ptr::null_mut())
+}
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_traktShowIdFromEpisodeIdNative(
@@ -1243,13 +1263,13 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_trakt
     _class: JObject<'_>,
     video_id: JString<'_>,
 ) -> JStringReturn {
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-    let output =
-        read_jstring(&mut env, &video_id).map(|video_id| trakt_show_id_from_episode_id(&video_id));
-    write_jstring(&mut env, output)
-            }))
-            .unwrap_or(ptr::null_mut())
-        }
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let output = read_jstring(&mut env, &video_id)
+            .map(|video_id| trakt_show_id_from_episode_id(&video_id));
+        write_jstring(&mut env, output)
+    }))
+    .unwrap_or(ptr::null_mut())
+}
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_traktScrobbleMediaIdNative(
@@ -1259,20 +1279,20 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_trakt
     video_id: JString<'_>,
     media_type: JString<'_>,
 ) -> JStringReturn {
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-    let output = read_jstring(&mut env, &parent_id).and_then(|parent_id| {
-        Some(trakt_scrobble_media_id(
-            &parent_id,
-            read_jstring(&mut env, &video_id)
-                .filter(|value| !value.is_empty())
-                .as_deref(),
-            &read_jstring(&mut env, &media_type)?,
-        ))
-    });
-    write_jstring(&mut env, output)
-            }))
-            .unwrap_or(ptr::null_mut())
-        }
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let output = read_jstring(&mut env, &parent_id).and_then(|parent_id| {
+            Some(trakt_scrobble_media_id(
+                &parent_id,
+                read_jstring(&mut env, &video_id)
+                    .filter(|value| !value.is_empty())
+                    .as_deref(),
+                &read_jstring(&mut env, &media_type)?,
+            ))
+        });
+        write_jstring(&mut env, output)
+    }))
+    .unwrap_or(ptr::null_mut())
+}
 
 string_fn!(
     Java_com_fluxa_app_core_rust_FluxaCoreNative_traktOAuthErrorCodeNative,
@@ -1286,14 +1306,14 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_trakt
     meta_json: JString<'_>,
     episodes_json: JString<'_>,
 ) -> JStringReturn {
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-    let output = read_jstring(&mut env, &meta_json).and_then(|meta_json| {
-        trakt_history_request_json(&meta_json, &read_jstring(&mut env, &episodes_json)?)
-    });
-    write_jstring(&mut env, output)
-            }))
-            .unwrap_or(ptr::null_mut())
-        }
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let output = read_jstring(&mut env, &meta_json).and_then(|meta_json| {
+            trakt_history_request_json(&meta_json, &read_jstring(&mut env, &episodes_json)?)
+        });
+        write_jstring(&mut env, output)
+    }))
+    .unwrap_or(ptr::null_mut())
+}
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_simklScrobbleBodyJsonNative(
@@ -1306,21 +1326,21 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_simkl
     time_pos_sec: JDouble,
     duration_sec: JDouble,
 ) -> JStringReturn {
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-    let output = read_jstring(&mut env, &ids_json).and_then(|ids_json| {
-        simkl_scrobble_body_json(
-            &ids_json,
-            is_episode != 0,
-            season,
-            ep_number,
-            time_pos_sec,
-            duration_sec,
-        )
-    });
-    write_jstring(&mut env, output)
-            }))
-            .unwrap_or(ptr::null_mut())
-        }
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let output = read_jstring(&mut env, &ids_json).and_then(|ids_json| {
+            simkl_scrobble_body_json(
+                &ids_json,
+                is_episode != 0,
+                season,
+                ep_number,
+                time_pos_sec,
+                duration_sec,
+            )
+        });
+        write_jstring(&mut env, output)
+    }))
+    .unwrap_or(ptr::null_mut())
+}
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_simklMatchEpisodeJsonNative(
@@ -1329,14 +1349,14 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_simkl
     episodes_json: JString<'_>,
     target_json: JString<'_>,
 ) -> JStringReturn {
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-    let output = read_jstring(&mut env, &episodes_json).and_then(|episodes_json| {
-        simkl_match_episode_json(&episodes_json, &read_jstring(&mut env, &target_json)?)
-    });
-    write_jstring(&mut env, output)
-            }))
-            .unwrap_or(ptr::null_mut())
-        }
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let output = read_jstring(&mut env, &episodes_json).and_then(|episodes_json| {
+            simkl_match_episode_json(&episodes_json, &read_jstring(&mut env, &target_json)?)
+        });
+        write_jstring(&mut env, output)
+    }))
+    .unwrap_or(ptr::null_mut())
+}
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_simklWatchingToItemsJsonNative(
@@ -1345,14 +1365,14 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_simkl
     shows_json: JString<'_>,
     movies_json: JString<'_>,
 ) -> JStringReturn {
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-    let output = read_jstring(&mut env, &shows_json).and_then(|shows_json| {
-        simkl_watching_to_items_json(&shows_json, &read_jstring(&mut env, &movies_json)?)
-    });
-    write_jstring(&mut env, output)
-            }))
-            .unwrap_or(ptr::null_mut())
-        }
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let output = read_jstring(&mut env, &shows_json).and_then(|shows_json| {
+            simkl_watching_to_items_json(&shows_json, &read_jstring(&mut env, &movies_json)?)
+        });
+        write_jstring(&mut env, output)
+    }))
+    .unwrap_or(ptr::null_mut())
+}
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_simklWatchlistToItemsJsonNative(
@@ -1361,14 +1381,14 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_simkl
     shows_json: JString<'_>,
     movies_json: JString<'_>,
 ) -> JStringReturn {
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-    let output = read_jstring(&mut env, &shows_json).and_then(|shows_json| {
-        simkl_watchlist_to_items_json(&shows_json, &read_jstring(&mut env, &movies_json)?)
-    });
-    write_jstring(&mut env, output)
-            }))
-            .unwrap_or(ptr::null_mut())
-        }
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let output = read_jstring(&mut env, &shows_json).and_then(|shows_json| {
+            simkl_watchlist_to_items_json(&shows_json, &read_jstring(&mut env, &movies_json)?)
+        });
+        write_jstring(&mut env, output)
+    }))
+    .unwrap_or(ptr::null_mut())
+}
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_simklWatchedToIdsJsonNative(
@@ -1377,14 +1397,14 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_simkl
     shows_json: JString<'_>,
     movies_json: JString<'_>,
 ) -> JStringReturn {
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-    let output = read_jstring(&mut env, &shows_json).and_then(|shows_json| {
-        simkl_watched_to_ids_json(&shows_json, &read_jstring(&mut env, &movies_json)?)
-    });
-    write_jstring(&mut env, output)
-            }))
-            .unwrap_or(ptr::null_mut())
-        }
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let output = read_jstring(&mut env, &shows_json).and_then(|shows_json| {
+            simkl_watched_to_ids_json(&shows_json, &read_jstring(&mut env, &movies_json)?)
+        });
+        write_jstring(&mut env, output)
+    }))
+    .unwrap_or(ptr::null_mut())
+}
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_playbackProgressItemJsonNative(
@@ -1395,19 +1415,19 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_playb
     duration: JLong,
     now_utc: JString<'_>,
 ) -> JStringReturn {
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-    let output = read_jstring(&mut env, &meta_json).and_then(|meta_json| {
-        playback_progress_item_json(
-            &meta_json,
-            time_offset,
-            duration,
-            &read_jstring(&mut env, &now_utc)?,
-        )
-    });
-    write_jstring(&mut env, output)
-            }))
-            .unwrap_or(ptr::null_mut())
-        }
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let output = read_jstring(&mut env, &meta_json).and_then(|meta_json| {
+            playback_progress_item_json(
+                &meta_json,
+                time_offset,
+                duration,
+                &read_jstring(&mut env, &now_utc)?,
+            )
+        });
+        write_jstring(&mut env, output)
+    }))
+    .unwrap_or(ptr::null_mut())
+}
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_clearPlaybackProgressItemJsonNative(
@@ -1415,13 +1435,13 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_clear
     _class: JObject<'_>,
     meta_json: JString<'_>,
 ) -> JStringReturn {
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-    let output = read_jstring(&mut env, &meta_json)
-        .and_then(|meta_json| clear_playback_progress_item_json(&meta_json));
-    write_jstring(&mut env, output)
-            }))
-            .unwrap_or(ptr::null_mut())
-        }
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let output = read_jstring(&mut env, &meta_json)
+            .and_then(|meta_json| clear_playback_progress_item_json(&meta_json));
+        write_jstring(&mut env, output)
+    }))
+    .unwrap_or(ptr::null_mut())
+}
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_watchedStateItemsJsonNative(
@@ -1432,21 +1452,21 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_watch
     watched: JBoolean,
     watched_at: JString<'_>,
 ) -> JStringReturn {
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-    let output = read_jstring(&mut env, &meta_json).and_then(|meta_json| {
-        watched_state_items_json(
-            &meta_json,
-            &read_jstring(&mut env, &episodes_json)?,
-            watched != 0,
-            read_jstring(&mut env, &watched_at)
-                .filter(|value| !value.is_empty())
-                .as_deref(),
-        )
-    });
-    write_jstring(&mut env, output)
-            }))
-            .unwrap_or(ptr::null_mut())
-        }
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let output = read_jstring(&mut env, &meta_json).and_then(|meta_json| {
+            watched_state_items_json(
+                &meta_json,
+                &read_jstring(&mut env, &episodes_json)?,
+                watched != 0,
+                read_jstring(&mut env, &watched_at)
+                    .filter(|value| !value.is_empty())
+                    .as_deref(),
+            )
+        });
+        write_jstring(&mut env, output)
+    }))
+    .unwrap_or(ptr::null_mut())
+}
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_libraryContinueWatchingItemsJsonNative(
@@ -1454,13 +1474,13 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_libra
     _class: JObject<'_>,
     items_json: JString<'_>,
 ) -> JStringReturn {
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-    let output = read_jstring(&mut env, &items_json)
-        .and_then(|items_json| library_continue_watching_items_json(&items_json));
-    write_jstring(&mut env, output)
-            }))
-            .unwrap_or(ptr::null_mut())
-        }
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let output = read_jstring(&mut env, &items_json)
+            .and_then(|items_json| library_continue_watching_items_json(&items_json));
+        write_jstring(&mut env, output)
+    }))
+    .unwrap_or(ptr::null_mut())
+}
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_filterHomeContinueWatchingJsonNative(
@@ -1469,17 +1489,17 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_filte
     items_json: JString<'_>,
     trakt_watched_json: JString<'_>,
 ) -> JStringReturn {
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-    let output = read_jstring(&mut env, &items_json).and_then(|items_json| {
-        filter_home_continue_watching_json(
-            &items_json,
-            &read_jstring(&mut env, &trakt_watched_json).unwrap_or_default(),
-        )
-    });
-    write_jstring(&mut env, output)
-            }))
-            .unwrap_or(ptr::null_mut())
-        }
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let output = read_jstring(&mut env, &items_json).and_then(|items_json| {
+            filter_home_continue_watching_json(
+                &items_json,
+                &read_jstring(&mut env, &trakt_watched_json).unwrap_or_default(),
+            )
+        });
+        write_jstring(&mut env, output)
+    }))
+    .unwrap_or(ptr::null_mut())
+}
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_watchedVideoIdsJsonNative(
@@ -1488,14 +1508,14 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_watch
     items_json: JString<'_>,
     imdb_id: JString<'_>,
 ) -> JStringReturn {
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-    let output = read_jstring(&mut env, &items_json).and_then(|items_json| {
-        watched_video_ids_json(&items_json, &read_jstring(&mut env, &imdb_id)?)
-    });
-    write_jstring(&mut env, output)
-            }))
-            .unwrap_or(ptr::null_mut())
-        }
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let output = read_jstring(&mut env, &items_json).and_then(|items_json| {
+            watched_video_ids_json(&items_json, &read_jstring(&mut env, &imdb_id)?)
+        });
+        write_jstring(&mut env, output)
+    }))
+    .unwrap_or(ptr::null_mut())
+}
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_parseExtraArgsJsonNative(
@@ -1503,12 +1523,12 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_parse
     _class: JObject<'_>,
     extra: JString<'_>,
 ) -> JStringReturn {
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-    let output = read_jstring(&mut env, &extra).and_then(|extra| parse_extra_args_json(&extra));
-    write_jstring(&mut env, output)
-            }))
-            .unwrap_or(ptr::null_mut())
-        }
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let output = read_jstring(&mut env, &extra).and_then(|extra| parse_extra_args_json(&extra));
+        write_jstring(&mut env, output)
+    }))
+    .unwrap_or(ptr::null_mut())
+}
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_providerSearchTermsJsonNative(
@@ -1516,13 +1536,13 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_provi
     _class: JObject<'_>,
     provider: JString<'_>,
 ) -> JStringReturn {
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-    let output = read_jstring(&mut env, &provider)
-        .and_then(|provider| serde_json::to_string(&provider_search_terms(&provider)).ok());
-    write_jstring(&mut env, output)
-            }))
-            .unwrap_or(ptr::null_mut())
-        }
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let output = read_jstring(&mut env, &provider)
+            .and_then(|provider| serde_json::to_string(&provider_search_terms(&provider)).ok());
+        write_jstring(&mut env, output)
+    }))
+    .unwrap_or(ptr::null_mut())
+}
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_effectiveMetadataFeedSelectionJsonNative(
@@ -1531,17 +1551,17 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_effec
     selected_keys_json: JString<'_>,
     available_keys_json: JString<'_>,
 ) -> JStringReturn {
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-    let output = read_jstring(&mut env, &selected_keys_json).and_then(|selected_keys_json| {
-        effective_metadata_feed_selection_json(
-            &selected_keys_json,
-            &read_jstring(&mut env, &available_keys_json)?,
-        )
-    });
-    write_jstring(&mut env, output)
-            }))
-            .unwrap_or(ptr::null_mut())
-        }
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let output = read_jstring(&mut env, &selected_keys_json).and_then(|selected_keys_json| {
+            effective_metadata_feed_selection_json(
+                &selected_keys_json,
+                &read_jstring(&mut env, &available_keys_json)?,
+            )
+        });
+        write_jstring(&mut env, output)
+    }))
+    .unwrap_or(ptr::null_mut())
+}
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_toggleMetadataFeedJsonNative(
@@ -1551,18 +1571,18 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_toggl
     available_keys_json: JString<'_>,
     key: JString<'_>,
 ) -> JStringReturn {
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-    let output = read_jstring(&mut env, &selected_keys_json).and_then(|selected_keys_json| {
-        toggle_metadata_feed_json(
-            &selected_keys_json,
-            &read_jstring(&mut env, &available_keys_json)?,
-            &read_jstring(&mut env, &key)?,
-        )
-    });
-    write_jstring(&mut env, output)
-            }))
-            .unwrap_or(ptr::null_mut())
-        }
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let output = read_jstring(&mut env, &selected_keys_json).and_then(|selected_keys_json| {
+            toggle_metadata_feed_json(
+                &selected_keys_json,
+                &read_jstring(&mut env, &available_keys_json)?,
+                &read_jstring(&mut env, &key)?,
+            )
+        });
+        write_jstring(&mut env, output)
+    }))
+    .unwrap_or(ptr::null_mut())
+}
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_toggleMetadataFeedLimitedJsonNative(
@@ -1573,19 +1593,19 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_toggl
     key: JString<'_>,
     max_enabled: JInt,
 ) -> JStringReturn {
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-    let output = read_jstring(&mut env, &selected_keys_json).and_then(|selected_keys_json| {
-        toggle_metadata_feed_limited_json(
-            &selected_keys_json,
-            &read_jstring(&mut env, &available_keys_json)?,
-            &read_jstring(&mut env, &key)?,
-            max_enabled,
-        )
-    });
-    write_jstring(&mut env, output)
-            }))
-            .unwrap_or(ptr::null_mut())
-        }
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let output = read_jstring(&mut env, &selected_keys_json).and_then(|selected_keys_json| {
+            toggle_metadata_feed_limited_json(
+                &selected_keys_json,
+                &read_jstring(&mut env, &available_keys_json)?,
+                &read_jstring(&mut env, &key)?,
+                max_enabled,
+            )
+        });
+        write_jstring(&mut env, output)
+    }))
+    .unwrap_or(ptr::null_mut())
+}
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_setMetadataFeedGroupEnabledJsonNative(
@@ -1596,19 +1616,19 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_setMe
     group_keys_json: JString<'_>,
     enabled: JBoolean,
 ) -> JStringReturn {
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-    let output = read_jstring(&mut env, &selected_keys_json).and_then(|selected_keys_json| {
-        set_metadata_feed_group_enabled_json(
-            &selected_keys_json,
-            &read_jstring(&mut env, &available_keys_json)?,
-            &read_jstring(&mut env, &group_keys_json)?,
-            enabled != 0,
-        )
-    });
-    write_jstring(&mut env, output)
-            }))
-            .unwrap_or(ptr::null_mut())
-        }
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let output = read_jstring(&mut env, &selected_keys_json).and_then(|selected_keys_json| {
+            set_metadata_feed_group_enabled_json(
+                &selected_keys_json,
+                &read_jstring(&mut env, &available_keys_json)?,
+                &read_jstring(&mut env, &group_keys_json)?,
+                enabled != 0,
+            )
+        });
+        write_jstring(&mut env, output)
+    }))
+    .unwrap_or(ptr::null_mut())
+}
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_orderedMetadataFeedKeysJsonNative(
@@ -1617,14 +1637,14 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_order
     option_keys_json: JString<'_>,
     order_json: JString<'_>,
 ) -> JStringReturn {
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-    let output = read_jstring(&mut env, &option_keys_json).and_then(|option_keys_json| {
-        ordered_metadata_feed_keys(&option_keys_json, &read_jstring(&mut env, &order_json)?)
-    });
-    write_jstring(&mut env, output)
-            }))
-            .unwrap_or(ptr::null_mut())
-        }
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let output = read_jstring(&mut env, &option_keys_json).and_then(|option_keys_json| {
+            ordered_metadata_feed_keys(&option_keys_json, &read_jstring(&mut env, &order_json)?)
+        });
+        write_jstring(&mut env, output)
+    }))
+    .unwrap_or(ptr::null_mut())
+}
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_moveMetadataFeedOrderJsonNative(
@@ -1635,19 +1655,19 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_moveM
     key: JString<'_>,
     delta: JInt,
 ) -> JStringReturn {
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-    let output = read_jstring(&mut env, &option_keys_json).and_then(|option_keys_json| {
-        move_metadata_feed_order_json(
-            &option_keys_json,
-            &read_jstring(&mut env, &current_order_json)?,
-            &read_jstring(&mut env, &key)?,
-            delta,
-        )
-    });
-    write_jstring(&mut env, output)
-            }))
-            .unwrap_or(ptr::null_mut())
-        }
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let output = read_jstring(&mut env, &option_keys_json).and_then(|option_keys_json| {
+            move_metadata_feed_order_json(
+                &option_keys_json,
+                &read_jstring(&mut env, &current_order_json)?,
+                &read_jstring(&mut env, &key)?,
+                delta,
+            )
+        });
+        write_jstring(&mut env, output)
+    }))
+    .unwrap_or(ptr::null_mut())
+}
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_contentTraktKeyNative(
@@ -1655,13 +1675,13 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_conte
     _class: JObject<'_>,
     meta_json: JString<'_>,
 ) -> JStringReturn {
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-    let output =
-        read_jstring(&mut env, &meta_json).and_then(|meta_json| content_trakt_key(&meta_json));
-    write_jstring(&mut env, output)
-            }))
-            .unwrap_or(ptr::null_mut())
-        }
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let output =
+            read_jstring(&mut env, &meta_json).and_then(|meta_json| content_trakt_key(&meta_json));
+        write_jstring(&mut env, output)
+    }))
+    .unwrap_or(ptr::null_mut())
+}
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_contentTraktKeysBatchJsonNative(
@@ -1669,13 +1689,13 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_conte
     _class: JObject<'_>,
     metas_json: JString<'_>,
 ) -> JStringReturn {
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-    let output = read_jstring(&mut env, &metas_json)
-        .and_then(|metas_json| content_trakt_keys_batch(&metas_json));
-    write_jstring(&mut env, output)
-            }))
-            .unwrap_or(ptr::null_mut())
-        }
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let output = read_jstring(&mut env, &metas_json)
+            .and_then(|metas_json| content_trakt_keys_batch(&metas_json));
+        write_jstring(&mut env, output)
+    }))
+    .unwrap_or(ptr::null_mut())
+}
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_contentWatchedKeysBatchJsonNative(
@@ -1683,13 +1703,13 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_conte
     _class: JObject<'_>,
     metas_json: JString<'_>,
 ) -> JStringReturn {
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-    let output = read_jstring(&mut env, &metas_json)
-        .and_then(|metas_json| content_watched_keys_batch(&metas_json));
-    write_jstring(&mut env, output)
-            }))
-            .unwrap_or(ptr::null_mut())
-        }
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let output = read_jstring(&mut env, &metas_json)
+            .and_then(|metas_json| content_watched_keys_batch(&metas_json));
+        write_jstring(&mut env, output)
+    }))
+    .unwrap_or(ptr::null_mut())
+}
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_contentMergeKeysJsonNative(
@@ -1697,13 +1717,13 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_conte
     _class: JObject<'_>,
     meta_json: JString<'_>,
 ) -> JStringReturn {
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-    let output = read_jstring(&mut env, &meta_json)
-        .and_then(|meta_json| content_keys_json(&meta_json, false));
-    write_jstring(&mut env, output)
-            }))
-            .unwrap_or(ptr::null_mut())
-        }
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let output = read_jstring(&mut env, &meta_json)
+            .and_then(|meta_json| content_keys_json(&meta_json, false));
+        write_jstring(&mut env, output)
+    }))
+    .unwrap_or(ptr::null_mut())
+}
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_contentWatchedKeysJsonNative(
@@ -1711,13 +1731,13 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_conte
     _class: JObject<'_>,
     meta_json: JString<'_>,
 ) -> JStringReturn {
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-    let output = read_jstring(&mut env, &meta_json)
-        .and_then(|meta_json| content_keys_json(&meta_json, true));
-    write_jstring(&mut env, output)
-            }))
-            .unwrap_or(ptr::null_mut())
-        }
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let output = read_jstring(&mut env, &meta_json)
+            .and_then(|meta_json| content_keys_json(&meta_json, true));
+        write_jstring(&mut env, output)
+    }))
+    .unwrap_or(ptr::null_mut())
+}
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_episodeFilenameCandidateNative(
@@ -1726,14 +1746,14 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_episo
     stream_json: JString<'_>,
     video_id: JString<'_>,
 ) -> JStringReturn {
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-    let output = read_jstring(&mut env, &stream_json).and_then(|stream_json| {
-        episode_filename_candidate(&stream_json, &read_jstring(&mut env, &video_id)?)
-    });
-    write_jstring(&mut env, output)
-            }))
-            .unwrap_or(ptr::null_mut())
-        }
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let output = read_jstring(&mut env, &stream_json).and_then(|stream_json| {
+            episode_filename_candidate(&stream_json, &read_jstring(&mut env, &video_id)?)
+        });
+        write_jstring(&mut env, output)
+    }))
+    .unwrap_or(ptr::null_mut())
+}
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_streamDiscoveryCacheKeyNative(
@@ -1741,13 +1761,13 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_strea
     _class: JObject<'_>,
     request_json: JString<'_>,
 ) -> JStringReturn {
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-    let output = read_jstring(&mut env, &request_json)
-        .and_then(|request_json| stream_discovery_cache_key(&request_json));
-    write_jstring(&mut env, output)
-            }))
-            .unwrap_or(ptr::null_mut())
-        }
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let output = read_jstring(&mut env, &request_json)
+            .and_then(|request_json| stream_discovery_cache_key(&request_json));
+        write_jstring(&mut env, output)
+    }))
+    .unwrap_or(ptr::null_mut())
+}
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_discoverCatalogCacheKeyNative(
@@ -1755,13 +1775,13 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_disco
     _class: JObject<'_>,
     request_json: JString<'_>,
 ) -> JStringReturn {
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-    let output = read_jstring(&mut env, &request_json)
-        .and_then(|request_json| discover_catalog_cache_key(&request_json));
-    write_jstring(&mut env, output)
-            }))
-            .unwrap_or(ptr::null_mut())
-        }
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let output = read_jstring(&mut env, &request_json)
+            .and_then(|request_json| discover_catalog_cache_key(&request_json));
+        write_jstring(&mut env, output)
+    }))
+    .unwrap_or(ptr::null_mut())
+}
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_streamDiscoveryPlanJsonNative(
@@ -1769,13 +1789,13 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_strea
     _class: JObject<'_>,
     request_json: JString<'_>,
 ) -> JStringReturn {
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-    let output = read_jstring(&mut env, &request_json)
-        .and_then(|request_json| stream_discovery_plan_json(&request_json));
-    write_jstring(&mut env, output)
-            }))
-            .unwrap_or(ptr::null_mut())
-        }
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let output = read_jstring(&mut env, &request_json)
+            .and_then(|request_json| stream_discovery_plan_json(&request_json));
+        write_jstring(&mut env, output)
+    }))
+    .unwrap_or(ptr::null_mut())
+}
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_streamDiscoveryExecutionPolicyJsonNative(
@@ -1783,13 +1803,13 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_strea
     _class: JObject<'_>,
     request_json: JString<'_>,
 ) -> JStringReturn {
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-    let output = read_jstring(&mut env, &request_json)
-        .and_then(|request_json| stream_discovery_execution_policy_json(&request_json));
-    write_jstring(&mut env, output)
-            }))
-            .unwrap_or(ptr::null_mut())
-        }
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let output = read_jstring(&mut env, &request_json)
+            .and_then(|request_json| stream_discovery_execution_policy_json(&request_json));
+        write_jstring(&mut env, output)
+    }))
+    .unwrap_or(ptr::null_mut())
+}
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_streamDiscoveryCachePrefixNative(
@@ -1799,18 +1819,18 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_strea
     id: JString<'_>,
     language: JString<'_>,
 ) -> JStringReturn {
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-    let output = read_jstring(&mut env, &content_type).and_then(|content_type| {
-        Some(stream_discovery_cache_prefix(
-            &content_type,
-            &read_jstring(&mut env, &id)?,
-            &read_jstring(&mut env, &language)?,
-        ))
-    });
-    write_jstring(&mut env, output)
-            }))
-            .unwrap_or(ptr::null_mut())
-        }
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let output = read_jstring(&mut env, &content_type).and_then(|content_type| {
+            Some(stream_discovery_cache_prefix(
+                &content_type,
+                &read_jstring(&mut env, &id)?,
+                &read_jstring(&mut env, &language)?,
+            ))
+        });
+        write_jstring(&mut env, output)
+    }))
+    .unwrap_or(ptr::null_mut())
+}
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_curateHomeItemsJsonNative(
@@ -1818,13 +1838,13 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_curat
     _class: JObject<'_>,
     category_json: JString<'_>,
 ) -> JStringReturn {
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-    let output = read_jstring(&mut env, &category_json)
-        .and_then(|category_json| curate_home_items_json(&category_json));
-    write_jstring(&mut env, output)
-            }))
-            .unwrap_or(ptr::null_mut())
-        }
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let output = read_jstring(&mut env, &category_json)
+            .and_then(|category_json| curate_home_items_json(&category_json));
+        write_jstring(&mut env, output)
+    }))
+    .unwrap_or(ptr::null_mut())
+}
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_homeOverlapRatioNative(
@@ -1833,15 +1853,15 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_homeO
     first_json: JString<'_>,
     second_json: JString<'_>,
 ) -> JFloat {
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-    read_jstring(&mut env, &first_json)
-        .and_then(|first_json| {
-            home_overlap_ratio_json(&first_json, &read_jstring(&mut env, &second_json)?)
-        })
-        .unwrap_or(0.0)
-            }))
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        read_jstring(&mut env, &first_json)
+            .and_then(|first_json| {
+                home_overlap_ratio_json(&first_json, &read_jstring(&mut env, &second_json)?)
+            })
             .unwrap_or(0.0)
-        }
+    }))
+    .unwrap_or(0.0)
+}
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_homePersonalizationScoreNative(
@@ -1852,20 +1872,20 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_homeP
     preferred_types_json: JString<'_>,
     priority_labels_json: JString<'_>,
 ) -> JInt {
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-    read_jstring(&mut env, &category_json)
-        .and_then(|category_json| {
-            home_personalization_score_json(
-                &category_json,
-                &read_jstring(&mut env, &preferred_genres_json)?,
-                &read_jstring(&mut env, &preferred_types_json)?,
-                &read_jstring(&mut env, &priority_labels_json)?,
-            )
-        })
-        .unwrap_or(0)
-            }))
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        read_jstring(&mut env, &category_json)
+            .and_then(|category_json| {
+                home_personalization_score_json(
+                    &category_json,
+                    &read_jstring(&mut env, &preferred_genres_json)?,
+                    &read_jstring(&mut env, &preferred_types_json)?,
+                    &read_jstring(&mut env, &priority_labels_json)?,
+                )
+            })
             .unwrap_or(0)
-        }
+    }))
+    .unwrap_or(0)
+}
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_prioritizeHomeRowsJsonNative(
@@ -1877,20 +1897,20 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_prior
     preferred_types_json: JString<'_>,
     priority_labels_json: JString<'_>,
 ) -> JStringReturn {
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-    let output = read_jstring(&mut env, &categories_json).and_then(|categories_json| {
-        home_prioritize_rows_json(
-            &categories_json,
-            &read_jstring(&mut env, &preferred_order_labels_json)?,
-            &read_jstring(&mut env, &preferred_genres_json)?,
-            &read_jstring(&mut env, &preferred_types_json)?,
-            &read_jstring(&mut env, &priority_labels_json)?,
-        )
-    });
-    write_jstring(&mut env, output)
-            }))
-            .unwrap_or(ptr::null_mut())
-        }
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let output = read_jstring(&mut env, &categories_json).and_then(|categories_json| {
+            home_prioritize_rows_json(
+                &categories_json,
+                &read_jstring(&mut env, &preferred_order_labels_json)?,
+                &read_jstring(&mut env, &preferred_genres_json)?,
+                &read_jstring(&mut env, &preferred_types_json)?,
+                &read_jstring(&mut env, &priority_labels_json)?,
+            )
+        });
+        write_jstring(&mut env, output)
+    }))
+    .unwrap_or(ptr::null_mut())
+}
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_optimizeHomeRowsJsonNative(
@@ -1898,13 +1918,13 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_optim
     _class: JObject<'_>,
     request_json: JString<'_>,
 ) -> JStringReturn {
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-    let output = read_jstring(&mut env, &request_json)
-        .and_then(|request_json| optimize_home_rows_json(&request_json));
-    write_jstring(&mut env, output)
-            }))
-            .unwrap_or(ptr::null_mut())
-        }
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let output = read_jstring(&mut env, &request_json)
+            .and_then(|request_json| optimize_home_rows_json(&request_json));
+        write_jstring(&mut env, output)
+    }))
+    .unwrap_or(ptr::null_mut())
+}
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_playerProgressPercentNative(
@@ -1913,11 +1933,11 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_playe
     position_ms: JLong,
     duration_ms: JLong,
 ) -> f32 {
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-    progress_percent(position_ms, duration_ms)
-            }))
-            .unwrap_or(0.0)
-        }
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        progress_percent(position_ms, duration_ms)
+    }))
+    .unwrap_or(0.0)
+}
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_playerShouldSendScrobbleStartNative(
@@ -1928,21 +1948,21 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_playe
     has_scrobbled_start: JBoolean,
     progress: f32,
 ) -> JBoolean {
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-    let token = read_jstring(&mut env, &token);
-    if should_send_start(
-        token.as_deref(),
-        is_playing != 0,
-        has_scrobbled_start != 0,
-        progress,
-    ) {
-        1
-    } else {
-        0
-    }
-            }))
-            .unwrap_or(0)
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let token = read_jstring(&mut env, &token);
+        if should_send_start(
+            token.as_deref(),
+            is_playing != 0,
+            has_scrobbled_start != 0,
+            progress,
+        ) {
+            1
+        } else {
+            0
         }
+    }))
+    .unwrap_or(0)
+}
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_playerShouldMarkScrobbleStoppedNative(
@@ -1951,15 +1971,15 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_playe
     has_scrobbled_stop: JBoolean,
     progress: f32,
 ) -> JBoolean {
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-    if should_mark_stopped(has_scrobbled_stop != 0, progress) {
-        1
-    } else {
-        0
-    }
-            }))
-            .unwrap_or(0)
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        if should_mark_stopped(has_scrobbled_stop != 0, progress) {
+            1
+        } else {
+            0
         }
+    }))
+    .unwrap_or(0)
+}
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_playerShouldQueueScrobblePauseNative(
@@ -1970,21 +1990,21 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_playe
     has_scrobbled_start: JBoolean,
     has_scrobbled_stop: JBoolean,
 ) -> JBoolean {
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-    let token = read_jstring(&mut env, &token);
-    if should_queue_pause(
-        token.as_deref(),
-        was_play_when_ready != 0,
-        has_scrobbled_start != 0,
-        has_scrobbled_stop != 0,
-    ) {
-        1
-    } else {
-        0
-    }
-            }))
-            .unwrap_or(0)
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let token = read_jstring(&mut env, &token);
+        if should_queue_pause(
+            token.as_deref(),
+            was_play_when_ready != 0,
+            has_scrobbled_start != 0,
+            has_scrobbled_stop != 0,
+        ) {
+            1
+        } else {
+            0
         }
+    }))
+    .unwrap_or(0)
+}
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_playerShouldEnqueueDurableScrobbleNative(
@@ -1994,17 +2014,17 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_playe
     token: JString<'_>,
     progress: f32,
 ) -> JBoolean {
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-    let action = read_jstring(&mut env, &action).unwrap_or_default();
-    let token = read_jstring(&mut env, &token);
-    if should_enqueue_durable(&action, token.as_deref(), progress) {
-        1
-    } else {
-        0
-    }
-            }))
-            .unwrap_or(0)
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let action = read_jstring(&mut env, &action).unwrap_or_default();
+        let token = read_jstring(&mut env, &token);
+        if should_enqueue_durable(&action, token.as_deref(), progress) {
+            1
+        } else {
+            0
         }
+    }))
+    .unwrap_or(0)
+}
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_playerShouldSavePeriodicProgressNative(
@@ -2014,15 +2034,15 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_playe
     now_ms: JLong,
     last_saved_at_ms: JLong,
 ) -> JBoolean {
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-    if should_save_periodic_progress(is_playing != 0, now_ms, last_saved_at_ms) {
-        1
-    } else {
-        0
-    }
-            }))
-            .unwrap_or(0)
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        if should_save_periodic_progress(is_playing != 0, now_ms, last_saved_at_ms) {
+            1
+        } else {
+            0
         }
+    }))
+    .unwrap_or(0)
+}
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_playerShouldSaveOnDisposeNative(
@@ -2030,15 +2050,15 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_playe
     _class: JObject<'_>,
     position_ms: JLong,
 ) -> JBoolean {
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-    if should_save_on_dispose(position_ms) {
-        1
-    } else {
-        0
-    }
-            }))
-            .unwrap_or(0)
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        if should_save_on_dispose(position_ms) {
+            1
+        } else {
+            0
         }
+    }))
+    .unwrap_or(0)
+}
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_safePlayerBufferCacheMbNative(
@@ -2047,11 +2067,11 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_safeP
     value: JInt,
     has_value: JBoolean,
 ) -> JInt {
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-    safe_player_buffer_cache_mb(if has_value != 0 { Some(value) } else { None })
-            }))
-            .unwrap_or(0)
-        }
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        safe_player_buffer_cache_mb(if has_value != 0 { Some(value) } else { None })
+    }))
+    .unwrap_or(0)
+}
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_safeDolbyVisionFallbackModeNative(
@@ -2063,26 +2083,26 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_safeD
     legacy_dv7_to_dv8_fallback: JBoolean,
     has_legacy_dv7_to_dv8_fallback: JBoolean,
 ) -> JStringReturn {
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-    let mode = read_jstring(&mut env, &mode);
-    let output = safe_dolby_vision_fallback_mode(
-        mode.as_deref().filter(|value| !value.is_empty()),
-        if has_legacy_dv7_fallback != 0 {
-            Some(legacy_dv7_fallback != 0)
-        } else {
-            None
-        },
-        if has_legacy_dv7_to_dv8_fallback != 0 {
-            Some(legacy_dv7_to_dv8_fallback != 0)
-        } else {
-            None
-        },
-    )
-    .to_string();
-    write_jstring(&mut env, Some(output))
-            }))
-            .unwrap_or(ptr::null_mut())
-        }
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let mode = read_jstring(&mut env, &mode);
+        let output = safe_dolby_vision_fallback_mode(
+            mode.as_deref().filter(|value| !value.is_empty()),
+            if has_legacy_dv7_fallback != 0 {
+                Some(legacy_dv7_fallback != 0)
+            } else {
+                None
+            },
+            if has_legacy_dv7_to_dv8_fallback != 0 {
+                Some(legacy_dv7_to_dv8_fallback != 0)
+            } else {
+                None
+            },
+        )
+        .to_string();
+        write_jstring(&mut env, Some(output))
+    }))
+    .unwrap_or(ptr::null_mut())
+}
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_safeStreamSourceSelectionModeNative(
@@ -2090,15 +2110,15 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_safeS
     _class: JObject<'_>,
     mode: JString<'_>,
 ) -> JStringReturn {
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-    let mode = read_jstring(&mut env, &mode);
-    let output =
-        safe_stream_source_selection_mode(mode.as_deref().filter(|value| !value.is_empty()))
-            .to_string();
-    write_jstring(&mut env, Some(output))
-            }))
-            .unwrap_or(ptr::null_mut())
-        }
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let mode = read_jstring(&mut env, &mode);
+        let output =
+            safe_stream_source_selection_mode(mode.as_deref().filter(|value| !value.is_empty()))
+                .to_string();
+        write_jstring(&mut env, Some(output))
+    }))
+    .unwrap_or(ptr::null_mut())
+}
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_playerFlowDispatchJsonNative(
@@ -2107,14 +2127,14 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_playe
     state_json: JString<'_>,
     action_json: JString<'_>,
 ) -> JStringReturn {
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-    let output = read_jstring(&mut env, &state_json).and_then(|state_json| {
-        player_flow_dispatch_json(&state_json, &read_jstring(&mut env, &action_json)?)
-    });
-    write_jstring(&mut env, output)
-            }))
-            .unwrap_or(ptr::null_mut())
-        }
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let output = read_jstring(&mut env, &state_json).and_then(|state_json| {
+            player_flow_dispatch_json(&state_json, &read_jstring(&mut env, &action_json)?)
+        });
+        write_jstring(&mut env, output)
+    }))
+    .unwrap_or(ptr::null_mut())
+}
 
 string_fn!(
     Java_com_fluxa_app_core_rust_FluxaCoreNative_calendarContentPlanJsonNative,
@@ -2232,14 +2252,14 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_build
     enriched_json: JString<'_>,
     candidates_json: JString<'_>,
 ) -> JStringReturn {
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-    let output = read_jstring(&mut env, &enriched_json).and_then(|enriched_json| {
-        build_billboard_pool_json(&enriched_json, &read_jstring(&mut env, &candidates_json)?)
-    });
-    write_jstring(&mut env, output)
-            }))
-            .unwrap_or(ptr::null_mut())
-        }
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let output = read_jstring(&mut env, &enriched_json).and_then(|enriched_json| {
+            build_billboard_pool_json(&enriched_json, &read_jstring(&mut env, &candidates_json)?)
+        });
+        write_jstring(&mut env, output)
+    }))
+    .unwrap_or(ptr::null_mut())
+}
 
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_normalizeHomeCatalogItemsJsonNative(
@@ -2250,18 +2270,18 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_norma
     genre: JString<'_>,
     today_iso: JString<'_>,
 ) -> JStringReturn {
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-    let output = read_jstring(&mut env, &items_json).and_then(|items_json| {
-        normalize_home_catalog_items_json(
-            &items_json,
-            &read_jstring(&mut env, &catalog_id)?,
-            read_jstring(&mut env, &genre)
-                .filter(|v| !v.is_empty())
-                .as_deref(),
-            &read_jstring(&mut env, &today_iso)?,
-        )
-    });
-    write_jstring(&mut env, output)
-            }))
-            .unwrap_or(ptr::null_mut())
-        }
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let output = read_jstring(&mut env, &items_json).and_then(|items_json| {
+            normalize_home_catalog_items_json(
+                &items_json,
+                &read_jstring(&mut env, &catalog_id)?,
+                read_jstring(&mut env, &genre)
+                    .filter(|v| !v.is_empty())
+                    .as_deref(),
+                &read_jstring(&mut env, &today_iso)?,
+            )
+        });
+        write_jstring(&mut env, output)
+    }))
+    .unwrap_or(ptr::null_mut())
+}

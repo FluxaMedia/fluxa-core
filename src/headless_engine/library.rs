@@ -125,14 +125,21 @@ pub(super) fn set_active_profile_id(engine: &mut HeadlessEngine, id: &str) {
     engine.state.library.active_profile_id = id.to_string();
 }
 
-pub(super) fn dispatch_profile_activated(engine: &mut HeadlessEngine, profile: Value) -> Vec<EffectEnvelope> {
+pub(super) fn dispatch_profile_activated(
+    engine: &mut HeadlessEngine,
+    profile: Value,
+) -> Vec<EffectEnvelope> {
     profile::activate(engine, profile);
     vec![]
 }
 
-pub(super) fn dispatch_hydrate(engine: &mut HeadlessEngine, profile_id: Option<String>) -> Vec<EffectEnvelope> {
+pub(super) fn dispatch_hydrate(
+    engine: &mut HeadlessEngine,
+    profile_id: Option<String>,
+) -> Vec<EffectEnvelope> {
     let generation = engine.bump_generation(GenerationKey::Library);
-    let resolved_profile_id = profile_id.unwrap_or_else(|| active_profile_id(&engine.state, &Value::Null));
+    let resolved_profile_id =
+        profile_id.unwrap_or_else(|| active_profile_id(&engine.state, &Value::Null));
     engine.state.library.active_profile_id = resolved_profile_id.clone();
     engine.state.library.is_loading = true;
     engine.state.library.error = Value::Null;
@@ -140,47 +147,85 @@ pub(super) fn dispatch_hydrate(engine: &mut HeadlessEngine, profile_id: Option<S
     vec![engine.effect(
         EffectKind::ReadLibraryState,
         generation,
-        ReadLibraryStatePayload { profile_id: resolved_profile_id },
+        ReadLibraryStatePayload {
+            profile_id: resolved_profile_id,
+        },
     )]
 }
 
-pub(super) fn dispatch_toggle_watchlist(engine: &mut HeadlessEngine, item: Value) -> Vec<EffectEnvelope> {
+pub(super) fn dispatch_toggle_watchlist(
+    engine: &mut HeadlessEngine,
+    item: Value,
+) -> Vec<EffectEnvelope> {
     let generation = engine.bump_generation(GenerationKey::Library);
     let profile_id = active_profile_id(&engine.state, &Value::Null);
-    let command = ToggleWatchlistCommand { kind: "toggleWatchlist", item };
+    let command = ToggleWatchlistCommand {
+        kind: "toggleWatchlist",
+        item,
+    };
     let command_value = serde_json::to_value(&command).unwrap_or(Value::Null);
     engine.state.library.last_command = command_value.clone();
     vec![engine.effect(
         EffectKind::WriteLibraryCommand,
         generation,
-        WriteLibraryCommandPayload { profile_id, command: command_value },
+        WriteLibraryCommandPayload {
+            profile_id,
+            command: command_value,
+        },
     )]
 }
 
-pub(super) fn dispatch_toggle_status(engine: &mut HeadlessEngine, list: String, item: Value) -> Vec<EffectEnvelope> {
+pub(super) fn dispatch_toggle_status(
+    engine: &mut HeadlessEngine,
+    list: String,
+    item: Value,
+) -> Vec<EffectEnvelope> {
     let generation = engine.bump_generation(GenerationKey::Library);
     let profile_id = active_profile_id(&engine.state, &Value::Null);
-    let command = ToggleLibraryStatusCommand { kind: "toggleLibraryStatus", list, item };
+    let command = ToggleLibraryStatusCommand {
+        kind: "toggleLibraryStatus",
+        list,
+        item,
+    };
     let command_value = serde_json::to_value(&command).unwrap_or(Value::Null);
     engine.state.library.last_command = command_value.clone();
     vec![engine.effect(
         EffectKind::WriteLibraryCommand,
         generation,
-        WriteLibraryCommandPayload { profile_id, command: command_value },
+        WriteLibraryCommandPayload {
+            profile_id,
+            command: command_value,
+        },
     )]
 }
 
-pub(super) fn dispatch_set_feedback(engine: &mut HeadlessEngine, id: String, value: Option<bool>, meta: Value) -> Vec<EffectEnvelope> {
+pub(super) fn dispatch_set_feedback(
+    engine: &mut HeadlessEngine,
+    id: String,
+    value: Option<bool>,
+    meta: Value,
+) -> Vec<EffectEnvelope> {
     let generation = engine.bump_generation(GenerationKey::Library);
-    vec![engine.effect(EffectKind::WriteFeedback, generation, WriteFeedbackPayload { id, value, meta })]
+    vec![engine.effect(
+        EffectKind::WriteFeedback,
+        generation,
+        WriteFeedbackPayload { id, value, meta },
+    )]
 }
 
-pub(super) fn dispatch_clear_progress(engine: &mut HeadlessEngine, profile: Option<Value>, meta: Value) -> Vec<EffectEnvelope> {
+pub(super) fn dispatch_clear_progress(
+    engine: &mut HeadlessEngine,
+    profile: Option<Value>,
+    meta: Value,
+) -> Vec<EffectEnvelope> {
     let generation = engine.bump_generation(GenerationKey::Library);
     vec![engine.effect(
         EffectKind::ClearPlaybackProgress,
         generation,
-        ClearPlaybackProgressPayload { profile: profile.unwrap_or(Value::Null), meta },
+        ClearPlaybackProgressPayload {
+            profile: profile.unwrap_or(Value::Null),
+            meta,
+        },
     )]
 }
 
@@ -220,7 +265,8 @@ pub(super) fn dispatch_save_progress(
         last_audio_language,
         last_subtitle_language,
     };
-    engine.state.library.pending_playback_progress = serde_json::to_value(&progress).unwrap_or(Value::Null);
+    engine.state.library.pending_playback_progress =
+        serde_json::to_value(&progress).unwrap_or(Value::Null);
     vec![engine.effect(
         EffectKind::WritePlaybackProgress,
         generation,
@@ -245,15 +291,15 @@ pub(super) fn dispatch_mark_watched(
     let generation = engine.bump_generation(GenerationKey::Library);
     let profile_id = active_profile_id(&engine.state, &Value::Null);
     let watched_value = watched.unwrap_or(true);
-    let clean_video_ids: Vec<String> = video_ids.into_iter().filter(|value| !value.trim().is_empty()).fold(
-        Vec::new(),
-        |mut acc, value| {
+    let clean_video_ids: Vec<String> = video_ids
+        .into_iter()
+        .filter(|value| !value.trim().is_empty())
+        .fold(Vec::new(), |mut acc, value| {
             if !acc.contains(&value) {
                 acc.push(value);
             }
             acc
-        },
-    );
+        });
     let command = MarkWatchedCommand {
         kind: "markWatched",
         series_id,
@@ -265,7 +311,10 @@ pub(super) fn dispatch_mark_watched(
     let mut effects = vec![engine.effect(
         EffectKind::WriteLibraryCommand,
         generation,
-        WriteLibraryCommandPayload { profile_id, command: command_value },
+        WriteLibraryCommandPayload {
+            profile_id,
+            command: command_value,
+        },
     )];
     if should_sync_watched_state(profile.as_ref(), meta.as_ref()) {
         effects.push(engine.effect(
@@ -293,18 +342,36 @@ pub(super) fn complete(
             if generation == engine.state.runtime.get(GenerationKey::Library) {
                 engine.state.library.is_loading = false;
                 if result.status == "ok" {
-                    engine.state.library.watchlist =
-                        result.value.get("watchlist").cloned().unwrap_or_else(|| serde_json::json!([]));
-                    engine.state.library.continue_watching =
-                        result.value.get("continueWatching").cloned().unwrap_or_else(|| serde_json::json!([]));
-                    engine.state.library.liked =
-                        result.value.get("liked").cloned().unwrap_or_else(|| serde_json::json!([]));
-                    engine.state.library.watched =
-                        result.value.get("watched").cloned().unwrap_or_else(|| serde_json::json!({}));
-                    engine.state.library.dropped =
-                        result.value.get("dropped").cloned().unwrap_or_else(|| serde_json::json!([]));
-                    engine.state.library.completed =
-                        result.value.get("completed").cloned().unwrap_or_else(|| serde_json::json!([]));
+                    engine.state.library.watchlist = result
+                        .value
+                        .get("watchlist")
+                        .cloned()
+                        .unwrap_or_else(|| serde_json::json!([]));
+                    engine.state.library.continue_watching = result
+                        .value
+                        .get("continueWatching")
+                        .cloned()
+                        .unwrap_or_else(|| serde_json::json!([]));
+                    engine.state.library.liked = result
+                        .value
+                        .get("liked")
+                        .cloned()
+                        .unwrap_or_else(|| serde_json::json!([]));
+                    engine.state.library.watched = result
+                        .value
+                        .get("watched")
+                        .cloned()
+                        .unwrap_or_else(|| serde_json::json!({}));
+                    engine.state.library.dropped = result
+                        .value
+                        .get("dropped")
+                        .cloned()
+                        .unwrap_or_else(|| serde_json::json!([]));
+                    engine.state.library.completed = result
+                        .value
+                        .get("completed")
+                        .cloned()
+                        .unwrap_or_else(|| serde_json::json!([]));
                     engine.state.library.error = Value::Null;
                 } else {
                     engine.state.library.error = normalize_error(result.error.clone());
@@ -316,10 +383,22 @@ pub(super) fn complete(
                 if result.status == "ok" {
                     engine.state.library.last_write = result.value.clone();
                     engine.state.library.last_write_error = Value::Null;
-                    if let Some(value) = engine.state.library.last_write.get("isInWatchlist").cloned() {
+                    if let Some(value) = engine
+                        .state
+                        .library
+                        .last_write
+                        .get("isInWatchlist")
+                        .cloned()
+                    {
                         detail::set_is_in_watchlist(engine, value);
                     }
-                    if let Some(value) = engine.state.library.last_write.get("localWatchedVideoIds").cloned() {
+                    if let Some(value) = engine
+                        .state
+                        .library
+                        .last_write
+                        .get("localWatchedVideoIds")
+                        .cloned()
+                    {
                         detail::set_local_watched_video_ids(engine, value);
                     }
                 } else {
@@ -330,7 +409,10 @@ pub(super) fn complete(
         "writeFeedback" => {
             if generation == engine.state.runtime.get(GenerationKey::Library) {
                 if result.status == "ok" {
-                    detail::set_feedback(engine, result.value.get("feedback").cloned().unwrap_or(Value::Null));
+                    detail::set_feedback(
+                        engine,
+                        result.value.get("feedback").cloned().unwrap_or(Value::Null),
+                    );
                     engine.state.library.last_write_error = Value::Null;
                 } else {
                     engine.state.library.last_write_error = normalize_error(result.error.clone());
@@ -344,7 +426,8 @@ pub(super) fn complete(
                     engine.state.library.last_write_error = Value::Null;
                     // Remove the dropped item from home.continueWatching so stale state
                     // doesn't reappear when the user navigates back to the home screen.
-                    if let Some(dropped_id) = result.value.get("droppedId").and_then(Value::as_str) {
+                    if let Some(dropped_id) = result.value.get("droppedId").and_then(Value::as_str)
+                    {
                         home::remove_from_continue_watching(engine, dropped_id);
                     }
                 } else {
@@ -355,7 +438,8 @@ pub(super) fn complete(
         "writePlaybackProgress" => {
             if generation == engine.state.runtime.get(GenerationKey::Library) {
                 if result.status == "ok" {
-                    engine.state.library.saved_playback_progress = engine.state.library.pending_playback_progress.clone();
+                    engine.state.library.saved_playback_progress =
+                        engine.state.library.pending_playback_progress.clone();
                     engine.state.library.pending_playback_progress = Value::Null;
                     engine.state.library.last_write_error = Value::Null;
                 } else {
@@ -369,7 +453,8 @@ pub(super) fn complete(
                     engine.state.library.last_watched_sync = result.value.clone();
                     engine.state.library.last_watched_sync_error = Value::Null;
                 } else {
-                    engine.state.library.last_watched_sync_error = normalize_error(result.error.clone());
+                    engine.state.library.last_watched_sync_error =
+                        normalize_error(result.error.clone());
                 }
             }
         }

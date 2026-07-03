@@ -1,3 +1,22 @@
+[workspace]
+members = ["fluxa-streaming-engine"]
+exclude = ["fuzz"]
+resolver = "2"
+
+[workspace.dependencies]
+dolby_vision = { version = "3.3.2", default-features = false }
+fluxa_core = { path = ".", default-features = false }
+jni = { version = "0.21" }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = "debuginfo"
+panic = "unwind"
+
 [package]
 name = "fluxa_core"
 version = "0.1.0"
@@ -14,37 +33,27 @@ required-features = ["uniffi-cli"]
 [features]
 default = ["native"]
 native = [
+    "full-api",
     "dep:jni",
     "dep:dolby_vision",
     "uniffi-bindings",
 ]
-uniffi-bindings = ["dep:uniffi"]
+desktop = ["full-api"]
+full-api = []
+streaming-shared = []
+uniffi-bindings = ["dep:uniffi", "full-api"]
 uniffi-cli = ["uniffi-bindings", "uniffi/cli"]
-wasm = ["dep:wasm-bindgen", "chrono/wasmbind"]
+wasm = ["full-api", "dep:wasm-bindgen", "chrono/wasmbind"]
 fuzzing = []
 
 [dependencies]
 base64 = "0.22"
 chrono = { version = "0.4.45", features = ["serde"] }
-dolby_vision = { git = "https://github.com/quietvoid/dovi_tool.git", rev = "ccf640939377ee19035bbf871040bf79d437fb6b", package = "dolby_vision", default-features = false, optional = true }
-jni = { version = "0.21", optional = true }
+dolby_vision = { workspace = true, optional = true }
+jni = { workspace = true, optional = true }
 regex = "1"
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
+serde = { workspace = true }
+serde_json = { workspace = true }
 uniffi = { version = "0.31.1", optional = true }
 wasm-bindgen = { version = "0.2", optional = true }
-# std::time::Instant panics on wasm32-unknown-unknown (no OS clock without JS
-# interop) — web-time is a drop-in replacement: std re-export on every other
-# target, performance.now() under the hood on wasm.
 web-time = "1"
-
-[profile.release]
-opt-level = 3
-lto = true
-codegen-units = 1
-strip = "debuginfo"
-# Must stay "unwind" — bindings/jni.rs and ffi.rs::core_invoke catch_unwind at
-# the FFI boundary so a panic in business logic becomes a safe error/null
-# return instead of aborting the whole host process. "abort" would silently
-# defeat that (and UniFFI's own built-in panic-to-exception handling too).
-panic = "unwind"

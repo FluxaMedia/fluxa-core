@@ -21,16 +21,28 @@ struct WriteSettingsPayload {
     value: Value,
 }
 
-pub(super) fn dispatch(engine: &mut HeadlessEngine, key: String, value: Value) -> Vec<EffectEnvelope> {
+pub(super) fn dispatch(
+    engine: &mut HeadlessEngine,
+    key: String,
+    value: Value,
+) -> Vec<EffectEnvelope> {
     let generation = engine.bump_generation(GenerationKey::Settings);
     if !engine.state.settings.values.is_object() {
         engine.state.settings.values = serde_json::json!({});
     }
     engine.state.settings.values[key.as_str()] = value.clone();
-    vec![engine.effect(EffectKind::WriteSettings, generation, WriteSettingsPayload { key, value })]
+    vec![engine.effect(
+        EffectKind::WriteSettings,
+        generation,
+        WriteSettingsPayload { key, value },
+    )]
 }
 
-pub(super) fn complete(engine: &mut HeadlessEngine, generation: u64, result: &EffectResultInput) -> Vec<EffectEnvelope> {
+pub(super) fn complete(
+    engine: &mut HeadlessEngine,
+    generation: u64,
+    result: &EffectResultInput,
+) -> Vec<EffectEnvelope> {
     if generation == engine.state.runtime.get(GenerationKey::Settings) {
         if result.status != "ok" {
             engine.state.settings.last_write_error = normalize_error(result.error.clone());

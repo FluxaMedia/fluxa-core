@@ -546,7 +546,12 @@ pub(crate) fn subtitle_language_matches(
     let normalized_preference = normalize_language_preference(preferred_language);
     let word_regex =
         regex::Regex::new(&format!(r"\b{}\b", regex::escape(&normalized_preference))).ok();
-    subtitle_language_matches_precompiled(label, language, &normalized_preference, word_regex.as_ref())
+    subtitle_language_matches_precompiled(
+        label,
+        language,
+        &normalized_preference,
+        word_regex.as_ref(),
+    )
 }
 
 fn subtitle_language_matches_precompiled(
@@ -586,20 +591,28 @@ fn find_preferred_subtitle_index_in_tracks(
         .or_else(|| preferred_subtitle_language.filter(|value| *value != "none"));
     if let Some(preferred) = primary {
         let norm = normalize_language_preference(preferred);
-        let word_regex =
-            regex::Regex::new(&format!(r"\b{}\b", regex::escape(&norm))).ok();
+        let word_regex = regex::Regex::new(&format!(r"\b{}\b", regex::escape(&norm))).ok();
         if let Some(index) = tracks.iter().position(|track| {
-            subtitle_language_matches_precompiled(&track.label, track.language.as_deref(), &norm, word_regex.as_ref())
+            subtitle_language_matches_precompiled(
+                &track.label,
+                track.language.as_deref(),
+                &norm,
+                word_regex.as_ref(),
+            )
         }) {
             return index as i32;
         }
     }
     if let Some(secondary) = secondary_subtitle_language.filter(|value| *value != "none") {
         let norm = normalize_language_preference(secondary);
-        let word_regex =
-            regex::Regex::new(&format!(r"\b{}\b", regex::escape(&norm))).ok();
+        let word_regex = regex::Regex::new(&format!(r"\b{}\b", regex::escape(&norm))).ok();
         if let Some(index) = tracks.iter().position(|track| {
-            subtitle_language_matches_precompiled(&track.label, track.language.as_deref(), &norm, word_regex.as_ref())
+            subtitle_language_matches_precompiled(
+                &track.label,
+                track.language.as_deref(),
+                &norm,
+                word_regex.as_ref(),
+            )
         }) {
             return index as i32;
         }
@@ -739,12 +752,30 @@ fn stream_selection_item_from_value(v: &Value) -> StreamSelectionItem {
     StreamSelectionItem {
         name: v.get("name").and_then(Value::as_str).map(str::to_string),
         title: v.get("title").and_then(Value::as_str).map(str::to_string),
-        description: v.get("description").and_then(Value::as_str).map(str::to_string),
-        addon_name: v.get("addonName").and_then(Value::as_str).map(str::to_string),
-        playable_url: v.get("playableUrl").and_then(Value::as_str).map(str::to_string),
-        binge_group: v.get("bingeGroup").and_then(Value::as_str).map(str::to_string),
-        filename: v.get("filename").and_then(Value::as_str).map(str::to_string),
-        effective_filename: v.get("effectiveFilename").and_then(Value::as_str).map(str::to_string),
+        description: v
+            .get("description")
+            .and_then(Value::as_str)
+            .map(str::to_string),
+        addon_name: v
+            .get("addonName")
+            .and_then(Value::as_str)
+            .map(str::to_string),
+        playable_url: v
+            .get("playableUrl")
+            .and_then(Value::as_str)
+            .map(str::to_string),
+        binge_group: v
+            .get("bingeGroup")
+            .and_then(Value::as_str)
+            .map(str::to_string),
+        filename: v
+            .get("filename")
+            .and_then(Value::as_str)
+            .map(str::to_string),
+        effective_filename: v
+            .get("effectiveFilename")
+            .and_then(Value::as_str)
+            .map(str::to_string),
     }
 }
 
@@ -803,6 +834,7 @@ pub(crate) fn manual_stream_index(
         .unwrap_or(-1)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn select_stream_index_inner(
     streams: &[StreamSelectionItem],
     current_video_id: &str,
@@ -828,14 +860,28 @@ fn select_stream_index_inner(
     match source_selection_mode {
         STREAM_SOURCE_MODE_REGEX => {
             let Some(pattern) = regex_pattern.filter(|value| !value.trim().is_empty()) else {
-                return manual_stream_index(streams, current_video_id, initial_stream_index, saved_url, saved_title);
+                return manual_stream_index(
+                    streams,
+                    current_video_id,
+                    initial_stream_index,
+                    saved_url,
+                    saved_title,
+                );
             };
             let regex = match regex::RegexBuilder::new(pattern)
                 .case_insensitive(true)
                 .build()
             {
                 Ok(regex) => regex,
-                Err(_) => return manual_stream_index(streams, current_video_id, initial_stream_index, saved_url, saved_title),
+                Err(_) => {
+                    return manual_stream_index(
+                        streams,
+                        current_video_id,
+                        initial_stream_index,
+                        saved_url,
+                        saved_title,
+                    )
+                }
             };
             if let Some(index) = index_of_first_playable(streams, current_video_id, |stream| {
                 regex.is_match(&stream.selection_text())
@@ -851,9 +897,16 @@ fn select_stream_index_inner(
         _ => {}
     }
 
-    manual_stream_index(streams, current_video_id, initial_stream_index, saved_url, saved_title)
+    manual_stream_index(
+        streams,
+        current_video_id,
+        initial_stream_index,
+        saved_url,
+        saved_title,
+    )
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn select_stream_index(
     streams_json: &str,
     current_video_id: &str,
@@ -867,9 +920,19 @@ pub(crate) fn select_stream_index(
     let Ok(streams) = serde_json::from_str::<Vec<StreamSelectionItem>>(streams_json) else {
         return -1;
     };
-    select_stream_index_inner(&streams, current_video_id, initial_stream_index, saved_url, saved_title, source_selection_mode, regex_pattern, preferred_binge_group)
+    select_stream_index_inner(
+        &streams,
+        current_video_id,
+        initial_stream_index,
+        saved_url,
+        saved_title,
+        source_selection_mode,
+        regex_pattern,
+        preferred_binge_group,
+    )
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn select_stream_index_values(
     streams: &[Value],
     current_video_id: &str,
@@ -880,8 +943,20 @@ pub(crate) fn select_stream_index_values(
     regex_pattern: Option<&str>,
     preferred_binge_group: Option<&str>,
 ) -> i32 {
-    let items: Vec<StreamSelectionItem> = streams.iter().map(stream_selection_item_from_value).collect();
-    select_stream_index_inner(&items, current_video_id, initial_stream_index, saved_url, saved_title, source_selection_mode, regex_pattern, preferred_binge_group)
+    let items: Vec<StreamSelectionItem> = streams
+        .iter()
+        .map(stream_selection_item_from_value)
+        .collect();
+    select_stream_index_inner(
+        &items,
+        current_video_id,
+        initial_stream_index,
+        saved_url,
+        saved_title,
+        source_selection_mode,
+        regex_pattern,
+        preferred_binge_group,
+    )
 }
 
 #[cfg(test)]
@@ -968,9 +1043,21 @@ mod tests {
     #[test]
     fn resolve_torrent_file_index_prefers_requested_then_filename_then_largest_video() {
         let stats = vec![
-            TorrentFileStat { id: 1, path: "Show.S01E01.mkv".to_string(), length: 100 },
-            TorrentFileStat { id: 2, path: "Show.S01E02.mkv".to_string(), length: 300 },
-            TorrentFileStat { id: 3, path: "sample.txt".to_string(), length: 999_999 },
+            TorrentFileStat {
+                id: 1,
+                path: "Show.S01E01.mkv".to_string(),
+                length: 100,
+            },
+            TorrentFileStat {
+                id: 2,
+                path: "Show.S01E02.mkv".to_string(),
+                length: 300,
+            },
+            TorrentFileStat {
+                id: 3,
+                path: "sample.txt".to_string(),
+                length: 999_999,
+            },
         ];
 
         // Addon-provided fileIdx wins outright, even though it doesn't match any stat.
@@ -992,7 +1079,10 @@ mod tests {
             (Some(2), Some("largest-video".to_string()))
         );
 
-        assert_eq!(resolve_torrent_file_index("title", None, None, &[]), (None, None));
+        assert_eq!(
+            resolve_torrent_file_index("title", None, None, &[]),
+            (None, None)
+        );
     }
 
     #[test]

@@ -102,7 +102,10 @@ pub(crate) fn player_backend_selection_json(request_json: &str) -> Option<String
         .unwrap_or(false);
 
     let is_dv_stream = stream.get("dv").and_then(Value::as_bool).unwrap_or(false)
-        || stream.get("dolbyVision").and_then(Value::as_bool).unwrap_or(false);
+        || stream
+            .get("dolbyVision")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
     let is_hdr_stream = stream.get("hdr").and_then(Value::as_bool).unwrap_or(false);
     let needs_mpv_for_hdr = (is_dv_stream && !request.device_has_dolby_vision_decoder)
         || (is_hdr_stream && !request.device_has_hdr_display);
@@ -149,7 +152,11 @@ pub(crate) fn torrent_fallback_file_policy_json(request_json: &str) -> Option<St
             if rejected == Some(id) {
                 return None;
             }
-            let path = stat.get("path").and_then(Value::as_str).unwrap_or("").to_lowercase();
+            let path = stat
+                .get("path")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_lowercase();
             let is_video = video_exts.iter().any(|ext| path.ends_with(ext));
             if !is_video {
                 return None;
@@ -212,17 +219,9 @@ pub(crate) fn player_buffer_targets_json(request_json: &str) -> Option<String> {
         _ => 1.0,
     };
 
-    let base_forward_ms = request
-        .forward_buffer_seconds
-        .unwrap_or(120)
-        .clamp(10, 600) as f64
-        * 1000.0
-        * data_factor;
-    let base_back_ms = request
-        .back_buffer_seconds
-        .unwrap_or(30)
-        .clamp(5, 120) as f64
-        * 1000.0;
+    let base_forward_ms =
+        request.forward_buffer_seconds.unwrap_or(120).clamp(10, 600) as f64 * 1000.0 * data_factor;
+    let base_back_ms = request.back_buffer_seconds.unwrap_or(30).clamp(5, 120) as f64 * 1000.0;
 
     // Torrent streams need smaller buffers to avoid filling the local proxy
     let (forward_ms, back_ms) = if request.is_torrent {
@@ -425,23 +424,14 @@ pub(crate) fn dv_proxy_plan_json(request_json: &str) -> Option<String> {
         return plan_rich("none", "user_disabled", "unknown", "none", "high", &[]);
     }
 
-    // HLS / DASH manifests are rewritten by the OkHttp interceptor — no proxy needed.
     let url_lower = req.url.to_lowercase();
-    if url_lower.ends_with(".m3u8")
-        || url_lower.contains(".m3u8?")
-        || url_lower.ends_with(".mpd")
-        || url_lower.contains(".mpd?")
-    {
-        return plan_rich("none", "manifest_handled", "unknown", "none", "high", &[]);
-    }
+    let is_hls = url_lower.ends_with(".m3u8") || url_lower.contains(".m3u8?");
+    let is_dash = url_lower.ends_with(".mpd") || url_lower.contains(".mpd?");
 
     if !is_dolby_vision_stream(&req.stream, &req.url) {
         return plan_rich("none", "not_dv", "unknown", "none", "high", &[]);
     }
 
-    // Native passthrough: decoder + display always wins regardless of mode.
-    // Exception for convert_dv81: decoder without display should still convert P7 → P8.1
-    // so the decoder applies dynamic RPU tone mapping rather than static HDR10.
     let native_passthrough = req.device_has_dv_decoder
         && (req.device_has_dv_display || req.fallback_mode != "convert_dv81");
     if native_passthrough {
@@ -450,6 +440,20 @@ pub(crate) fn dv_proxy_plan_json(request_json: &str) -> Option<String> {
 
     let profile = detect_dv_profile(&req.stream);
     let container = detect_container(&req.url);
+
+    if is_hls || is_dash {
+        if is_hls && matches!(profile, DvProfile::P7) && req.fallback_mode == "convert_dv81" && req.device_has_dv_decoder {
+            return plan_rich(
+                "hls_rpu_convert",
+                "p7_hls_segment_rpu_convert",
+                profile.label(),
+                "DV8",
+                "medium",
+                &[],
+            );
+        }
+        return plan_rich("none", "manifest_handled", profile.label(), "none", "high", &[]);
+    }
 
     // Hard safety gates: profiles with no HDR base layer cannot be safely
     // rewritten — stripping DVCC would expose a DV-only bitstream to an
@@ -525,14 +529,26 @@ pub(crate) fn dv_proxy_plan_json(request_json: &str) -> Option<String> {
                     "HDR10",
                     "medium",
                     "rpu_convert_rejected_not_annexb",
-                    vec!["rpu_convert_requires_annexb_hevc", "container_is_not_raw_hevc_fallback_to_dvcc_strip", "header_only_patch", "does_not_transcode", "does_not_remove_rpu_nals"],
+                    vec![
+                        "rpu_convert_requires_annexb_hevc",
+                        "container_is_not_raw_hevc_fallback_to_dvcc_strip",
+                        "header_only_patch",
+                        "does_not_transcode",
+                        "does_not_remove_rpu_nals",
+                    ],
                 ),
                 _ => (
                     "dvcc_strip",
                     "HDR10",
                     "medium",
                     "p7_dvcc_strip_hdr10_base",
-                    vec!["does_not_convert_bitstream", "rpu_nals_remain_in_stream_ignored", "header_only_patch", "does_not_transcode", "does_not_remove_rpu_nals"],
+                    vec![
+                        "does_not_convert_bitstream",
+                        "rpu_nals_remain_in_stream_ignored",
+                        "header_only_patch",
+                        "does_not_transcode",
+                        "does_not_remove_rpu_nals",
+                    ],
                 ),
             },
             DvProfile::P8Hdr10 => (
@@ -540,39 +556,70 @@ pub(crate) fn dv_proxy_plan_json(request_json: &str) -> Option<String> {
                 "HDR10",
                 "low",
                 "p8_1_hdr10_compat_base",
-                vec!["single_layer_hdr10_base_fully_compatible", "header_only_patch", "does_not_transcode", "does_not_remove_rpu_nals"],
+                vec![
+                    "single_layer_hdr10_base_fully_compatible",
+                    "header_only_patch",
+                    "does_not_transcode",
+                    "does_not_remove_rpu_nals",
+                ],
             ),
             DvProfile::P8Hlg => (
                 "dvcc_strip",
                 "HLG",
                 "medium",
                 "p8_4_hlg_compat_base",
-                vec!["hlg_base_not_hdr10_color_rendering_may_differ", "header_only_patch", "does_not_transcode", "does_not_remove_rpu_nals"],
+                vec![
+                    "hlg_base_not_hdr10_color_rendering_may_differ",
+                    "header_only_patch",
+                    "does_not_transcode",
+                    "does_not_remove_rpu_nals",
+                ],
             ),
             DvProfile::P8Unknown => (
                 "dvcc_strip",
                 "HDR10_assumed",
                 "medium",
                 "p8_compat_id_unknown_hdr10_assumed",
-                vec!["compat_id_unknown_hdr10_base_assumed", "header_only_patch", "does_not_transcode", "does_not_remove_rpu_nals"],
+                vec![
+                    "compat_id_unknown_hdr10_base_assumed",
+                    "header_only_patch",
+                    "does_not_transcode",
+                    "does_not_remove_rpu_nals",
+                ],
             ),
             DvProfile::P10Hdr10 => (
                 "dvcc_strip",
                 "HDR10",
                 "medium",
                 "p10_compat_id_1_hdr10_base",
-                vec!["does_not_convert_bitstream", "header_only_patch", "does_not_transcode", "does_not_remove_rpu_nals"],
+                vec![
+                    "does_not_convert_bitstream",
+                    "header_only_patch",
+                    "does_not_transcode",
+                    "does_not_remove_rpu_nals",
+                ],
             ),
             _ => (
                 "dvcc_strip",
                 "HDR10_assumed",
                 "medium",
                 "unknown_profile_dvcc_strip_fallback",
-                vec!["header_only_patch", "does_not_transcode", "does_not_remove_rpu_nals"],
+                vec![
+                    "header_only_patch",
+                    "does_not_transcode",
+                    "does_not_remove_rpu_nals",
+                ],
             ),
         };
 
-    plan_rich(action, reason, profile.label(), compat, safety, &limitations)
+    plan_rich(
+        action,
+        reason,
+        profile.label(),
+        compat,
+        safety,
+        &limitations,
+    )
 }
 
 fn plan_rich(
@@ -618,7 +665,10 @@ fn detect_dv_profile(stream: &Value) -> DvProfile {
 
     // 3. Codec token embedded in freetext fields (e.g., "dvhe.07.06 BDRemux").
     let name = stream.get("name").and_then(Value::as_str).unwrap_or("");
-    let desc = stream.get("description").and_then(Value::as_str).unwrap_or("");
+    let desc = stream
+        .get("description")
+        .and_then(Value::as_str)
+        .unwrap_or("");
     let filename = stream
         .get("effectiveFilename")
         .or_else(|| stream.get("filename"))
@@ -660,7 +710,8 @@ fn parse_dv_codec_string(text: &str) -> Option<DvProfile> {
             let mut parts = after.splitn(3, '.');
             // Take only the leading digits from each field (e.g. "08" from "08.01 Remux").
             let profile: i64 = leading_digits(parts.next()?)?.parse().ok()?;
-            let compat: Option<i64> = parts.next()
+            let compat: Option<i64> = parts
+                .next()
                 .and_then(leading_digits)
                 .and_then(|s| s.parse().ok());
             return Some(profile_from_nums(profile, compat));
@@ -671,7 +722,11 @@ fn parse_dv_codec_string(text: &str) -> Option<DvProfile> {
 
 fn leading_digits(s: &str) -> Option<&str> {
     let end = s.find(|c: char| !c.is_ascii_digit()).unwrap_or(s.len());
-    if end == 0 { None } else { Some(&s[..end]) }
+    if end == 0 {
+        None
+    } else {
+        Some(&s[..end])
+    }
 }
 
 /// Recognise short profile tokens ("P8.1", "P7", "P8") in freetext.
@@ -680,11 +735,11 @@ fn parse_dv_profile_text(text: &str) -> Option<DvProfile> {
     let patterns: &[(&str, DvProfile)] = &[
         ("P8.1", DvProfile::P8Hdr10),
         ("P8.4", DvProfile::P8Hlg),
-        ("P7",   DvProfile::P7),
-        ("P8",   DvProfile::P8Unknown),
-        ("P10",  DvProfile::P10Other),
-        ("P5",   DvProfile::P5),
-        ("P4",   DvProfile::P4),
+        ("P7", DvProfile::P7),
+        ("P8", DvProfile::P8Unknown),
+        ("P10", DvProfile::P10Other),
+        ("P5", DvProfile::P5),
+        ("P4", DvProfile::P4),
     ];
     for (pat, profile) in patterns {
         if contains_word(text, pat) {
@@ -717,14 +772,20 @@ fn contains_word(text: &str, word: &str) -> bool {
 /// Returns true when the stream or URL is identifiable as Dolby Vision content.
 fn is_dolby_vision_stream(stream: &Value, url: &str) -> bool {
     if stream.get("dv").and_then(Value::as_bool).unwrap_or(false)
-        || stream.get("dolbyVision").and_then(Value::as_bool).unwrap_or(false)
+        || stream
+            .get("dolbyVision")
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
         || stream.get("dvProfile").and_then(Value::as_i64).is_some()
     {
         return true;
     }
 
     let name = stream.get("name").and_then(Value::as_str).unwrap_or("");
-    let desc = stream.get("description").and_then(Value::as_str).unwrap_or("");
+    let desc = stream
+        .get("description")
+        .and_then(Value::as_str)
+        .unwrap_or("");
     let filename = stream
         .get("effectiveFilename")
         .or_else(|| stream.get("filename"))
@@ -807,7 +868,10 @@ fn episode_path_matches_id(path: &str, video_id: &str) -> bool {
 pub(crate) fn can_prefetch_next_episode_json(prefs_json: &str, stream_json: &str) -> bool {
     let prefs: Value = serde_json::from_str(prefs_json).unwrap_or(Value::Null);
     let stream: Value = serde_json::from_str(stream_json).unwrap_or(Value::Null);
-    let try_binge = prefs.get("tryBingeGroup").and_then(Value::as_bool).unwrap_or(false);
+    let try_binge = prefs
+        .get("tryBingeGroup")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
     let mode = prefs
         .get("streamSourceSelectionMode")
         .and_then(Value::as_str)
@@ -816,7 +880,7 @@ pub(crate) fn can_prefetch_next_episode_json(prefs_json: &str, stream_json: &str
         .get("behaviorHints")
         .and_then(|h| h.get("bingeGroup"))
         .and_then(Value::as_str)
-        .map_or(false, |s| !s.is_empty());
+        .is_some_and(|s| !s.is_empty());
     (try_binge && has_binge_group) || mode != "manual"
 }
 
@@ -829,13 +893,24 @@ pub(crate) fn select_next_episode_stream_json(
     prefs_json: &str,
 ) -> Option<String> {
     let streams: Vec<Value> = serde_json::from_str(streams_json).ok()?;
-    if streams.is_empty() { return None; }
+    if streams.is_empty() {
+        return None;
+    }
     let current: Value = serde_json::from_str(current_stream_json).ok()?;
     let prefs: Value = serde_json::from_str(prefs_json).unwrap_or(Value::Null);
 
-    let try_binge = prefs.get("tryBingeGroup").and_then(Value::as_bool).unwrap_or(false);
-    let mode = prefs.get("streamSourceSelectionMode").and_then(Value::as_str).unwrap_or("manual");
-    let regex_pat = prefs.get("streamSourceRegexPattern").and_then(Value::as_str).unwrap_or("");
+    let try_binge = prefs
+        .get("tryBingeGroup")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let mode = prefs
+        .get("streamSourceSelectionMode")
+        .and_then(Value::as_str)
+        .unwrap_or("manual");
+    let regex_pat = prefs
+        .get("streamSourceRegexPattern")
+        .and_then(Value::as_str)
+        .unwrap_or("");
     let cur_binge = current
         .get("behaviorHints")
         .and_then(|h| h.get("bingeGroup"))
@@ -857,14 +932,24 @@ pub(crate) fn select_next_episode_stream_json(
     }
 
     if mode == "regex" && !regex_pat.is_empty() {
-        if let Ok(re) = regex::RegexBuilder::new(regex_pat).case_insensitive(true).build() {
+        if let Ok(re) = regex::RegexBuilder::new(regex_pat)
+            .case_insensitive(true)
+            .build()
+        {
             let stream_text = |s: &Value| -> String {
-                [s.get("name"), s.get("title"), s.get("description"), s.get("url"), s.get("playableUrl"), s.get("infoHash")]
-                    .into_iter()
-                    .flatten()
-                    .filter_map(Value::as_str)
-                    .collect::<Vec<_>>()
-                    .join(" ")
+                [
+                    s.get("name"),
+                    s.get("title"),
+                    s.get("description"),
+                    s.get("url"),
+                    s.get("playableUrl"),
+                    s.get("infoHash"),
+                ]
+                .into_iter()
+                .flatten()
+                .filter_map(Value::as_str)
+                .collect::<Vec<_>>()
+                .join(" ")
             };
             if let Some(matched) = streams.iter().find(|s| re.is_match(&stream_text(s))) {
                 return serde_json::to_string(matched).ok();
@@ -883,10 +968,8 @@ mod tests {
     #[test]
     fn backend_selection_defaults_to_exoplayer() {
         let result: Value = serde_json::from_str(
-            &player_backend_selection_json(
-                r#"{"stream":{"url":"http://example.com/video.mp4"}}"#,
-            )
-            .unwrap(),
+            &player_backend_selection_json(r#"{"stream":{"url":"http://example.com/video.mp4"}}"#)
+                .unwrap(),
         )
         .unwrap();
         assert_eq!(result["backend"], "exoplayer");
@@ -940,7 +1023,10 @@ mod tests {
             .unwrap(),
         )
         .unwrap();
-        assert!(torrent_result["forwardBufferMs"].as_i64().unwrap() < direct_result["forwardBufferMs"].as_i64().unwrap());
+        assert!(
+            torrent_result["forwardBufferMs"].as_i64().unwrap()
+                < direct_result["forwardBufferMs"].as_i64().unwrap()
+        );
     }
 
     #[test]
@@ -971,42 +1057,54 @@ mod tests {
 
     #[test]
     fn dv_proxy_off_mode_returns_none() {
-        let p = plan(r#"{"stream":{"name":"4K DV HDR","dvProfile":7},"url":"https://cdn.example/movie.mkv","fallbackMode":"off"}"#);
+        let p = plan(
+            r#"{"stream":{"name":"4K DV HDR","dvProfile":7},"url":"https://cdn.example/movie.mkv","fallbackMode":"off"}"#,
+        );
         assert_eq!(p["action"], "none");
         assert_eq!(p["reason"], "user_disabled");
     }
 
     #[test]
     fn dv_proxy_hls_url_defers_to_manifest_rewrite() {
-        let p = plan(r#"{"stream":{"name":"4K DV","dvProfile":7},"url":"https://cdn.example/index.m3u8","fallbackMode":"auto"}"#);
+        let p = plan(
+            r#"{"stream":{"name":"4K DV","dvProfile":7},"url":"https://cdn.example/index.m3u8","fallbackMode":"auto"}"#,
+        );
         assert_eq!(p["action"], "none");
         assert_eq!(p["reason"], "manifest_handled");
     }
 
     #[test]
     fn dv_proxy_dash_url_defers_to_manifest_rewrite() {
-        let p = plan(r#"{"stream":{"name":"4K DV","dvProfile":7},"url":"https://cdn.example/stream.mpd","fallbackMode":"auto"}"#);
+        let p = plan(
+            r#"{"stream":{"name":"4K DV","dvProfile":7},"url":"https://cdn.example/stream.mpd","fallbackMode":"auto"}"#,
+        );
         assert_eq!(p["action"], "none");
         assert_eq!(p["reason"], "manifest_handled");
     }
 
     #[test]
     fn dv_proxy_non_dv_stream_returns_none() {
-        let p = plan(r#"{"stream":{"name":"1080p HDR AVC"},"url":"https://cdn.example/movie.mkv","fallbackMode":"auto"}"#);
+        let p = plan(
+            r#"{"stream":{"name":"1080p HDR AVC"},"url":"https://cdn.example/movie.mkv","fallbackMode":"auto"}"#,
+        );
         assert_eq!(p["action"], "none");
         assert_eq!(p["reason"], "not_dv");
     }
 
     #[test]
     fn dv_proxy_hw_dv_decoder_skips_proxy() {
-        let p = plan(r#"{"stream":{"name":"4K DV","dvProfile":7},"url":"https://cdn.example/movie.mkv","fallbackMode":"auto","deviceHasDvDecoder":true}"#);
+        let p = plan(
+            r#"{"stream":{"name":"4K DV","dvProfile":7},"url":"https://cdn.example/movie.mkv","fallbackMode":"auto","deviceHasDvDecoder":true}"#,
+        );
         assert_eq!(p["action"], "none");
         assert_eq!(p["reason"], "hw_dv_decoder");
     }
 
     #[test]
     fn dv_proxy_p5_no_dv_decoder_returns_none() {
-        let p = plan(r#"{"stream":{"dvProfile":5},"url":"https://cdn.example/movie.mkv","fallbackMode":"auto","deviceHasDvDecoder":false}"#);
+        let p = plan(
+            r#"{"stream":{"dvProfile":5},"url":"https://cdn.example/movie.mkv","fallbackMode":"auto","deviceHasDvDecoder":false}"#,
+        );
         assert_eq!(p["action"], "none");
         assert_eq!(p["reason"], "no_hdr_base_layer");
         assert_eq!(p["profile"], "P5");
@@ -1014,7 +1112,9 @@ mod tests {
 
     #[test]
     fn dv_proxy_p4_no_dv_decoder_returns_none() {
-        let p = plan(r#"{"stream":{"dvProfile":4},"url":"https://cdn.example/movie.mkv","fallbackMode":"auto","deviceHasDvDecoder":false}"#);
+        let p = plan(
+            r#"{"stream":{"dvProfile":4},"url":"https://cdn.example/movie.mkv","fallbackMode":"auto","deviceHasDvDecoder":false}"#,
+        );
         assert_eq!(p["action"], "none");
         assert_eq!(p["reason"], "no_hdr_base_layer");
         assert_eq!(p["profile"], "P4");
@@ -1022,28 +1122,36 @@ mod tests {
 
     #[test]
     fn dv_proxy_p10_compat_0_returns_none() {
-        let p = plan(r#"{"stream":{"dvProfile":10,"dvCompatId":0},"url":"https://cdn.example/movie.mkv","fallbackMode":"auto","deviceHasDvDecoder":false}"#);
+        let p = plan(
+            r#"{"stream":{"dvProfile":10,"dvCompatId":0},"url":"https://cdn.example/movie.mkv","fallbackMode":"auto","deviceHasDvDecoder":false}"#,
+        );
         assert_eq!(p["action"], "none");
         assert_eq!(p["reason"], "p10_compat_id_no_hdr_base");
     }
 
     #[test]
     fn dv_proxy_p10_compat_2_returns_none() {
-        let p = plan(r#"{"stream":{"dvProfile":10,"dvCompatId":2},"url":"https://cdn.example/movie.mkv","fallbackMode":"auto","deviceHasDvDecoder":false}"#);
+        let p = plan(
+            r#"{"stream":{"dvProfile":10,"dvCompatId":2},"url":"https://cdn.example/movie.mkv","fallbackMode":"auto","deviceHasDvDecoder":false}"#,
+        );
         assert_eq!(p["action"], "none");
     }
 
     #[test]
     fn dv_proxy_unknown_profile_returns_none() {
         // DV detected but no profile info → safe default is none.
-        let p = plan(r#"{"stream":{"name":"Dolby Vision"},"url":"https://cdn.example/movie.mkv","fallbackMode":"auto","deviceHasDvDecoder":false}"#);
+        let p = plan(
+            r#"{"stream":{"name":"Dolby Vision"},"url":"https://cdn.example/movie.mkv","fallbackMode":"auto","deviceHasDvDecoder":false}"#,
+        );
         assert_eq!(p["action"], "none");
         assert_eq!(p["reason"], "unknown_profile_no_safe_fallback");
     }
 
     #[test]
     fn dv_proxy_p7_mkv_auto_gives_dvcc_strip_medium_safety() {
-        let p = plan(r#"{"stream":{"dvProfile":7},"url":"https://cdn.example/movie.mkv","fallbackMode":"auto","deviceHasDvDecoder":false,"deviceHasDvDisplay":false}"#);
+        let p = plan(
+            r#"{"stream":{"dvProfile":7},"url":"https://cdn.example/movie.mkv","fallbackMode":"auto","deviceHasDvDecoder":false,"deviceHasDvDisplay":false}"#,
+        );
         assert_eq!(p["action"], "dvcc_strip");
         assert_eq!(p["profile"], "P7");
         assert_eq!(p["compatibility"], "HDR10");
@@ -1052,7 +1160,9 @@ mod tests {
 
     #[test]
     fn dv_proxy_p8_1_gives_dvcc_strip_low_safety() {
-        let p = plan(r#"{"stream":{"dvProfile":8,"dvCompatId":1},"url":"https://cdn.example/movie.mkv","fallbackMode":"auto","deviceHasDvDecoder":false}"#);
+        let p = plan(
+            r#"{"stream":{"dvProfile":8,"dvCompatId":1},"url":"https://cdn.example/movie.mkv","fallbackMode":"auto","deviceHasDvDecoder":false}"#,
+        );
         assert_eq!(p["action"], "dvcc_strip");
         assert_eq!(p["profile"], "P8.1");
         assert_eq!(p["compatibility"], "HDR10");
@@ -1061,7 +1171,9 @@ mod tests {
 
     #[test]
     fn dv_proxy_p8_4_fallback_is_hlg_not_hdr10() {
-        let p = plan(r#"{"stream":{"dvProfile":8,"dvCompatId":4},"url":"https://cdn.example/movie.mkv","fallbackMode":"auto","deviceHasDvDecoder":false}"#);
+        let p = plan(
+            r#"{"stream":{"dvProfile":8,"dvCompatId":4},"url":"https://cdn.example/movie.mkv","fallbackMode":"auto","deviceHasDvDecoder":false}"#,
+        );
         assert_eq!(p["action"], "dvcc_strip");
         assert_eq!(p["profile"], "P8.4");
         assert_eq!(p["compatibility"], "HLG");
@@ -1071,7 +1183,9 @@ mod tests {
     #[test]
     fn dv_proxy_p8_unknown_compat_strips_with_assumed_hdr10() {
         // "DV P8" in name → P8Unknown → strip, medium safety, HDR10_assumed
-        let p = plan(r#"{"stream":{"name":"DV P8"},"url":"https://debrid.example/file.mkv","fallbackMode":"hdr10","deviceHasDvDecoder":false}"#);
+        let p = plan(
+            r#"{"stream":{"name":"DV P8"},"url":"https://debrid.example/file.mkv","fallbackMode":"hdr10","deviceHasDvDecoder":false}"#,
+        );
         assert_eq!(p["action"], "dvcc_strip");
         assert_eq!(p["profile"], "P8");
         assert_eq!(p["compatibility"], "HDR10_assumed");
@@ -1080,7 +1194,9 @@ mod tests {
 
     #[test]
     fn dv_proxy_p10_compat_1_gives_dvcc_strip() {
-        let p = plan(r#"{"stream":{"dvProfile":10,"dvCompatId":1},"url":"https://cdn.example/movie.mkv","fallbackMode":"auto","deviceHasDvDecoder":false}"#);
+        let p = plan(
+            r#"{"stream":{"dvProfile":10,"dvCompatId":1},"url":"https://cdn.example/movie.mkv","fallbackMode":"auto","deviceHasDvDecoder":false}"#,
+        );
         assert_eq!(p["action"], "dvcc_strip");
         assert_eq!(p["profile"], "P10_compat1");
         assert_eq!(p["compatibility"], "HDR10");
@@ -1088,7 +1204,9 @@ mod tests {
 
     #[test]
     fn dv_proxy_p7_raw_hevc_dv8_mode_gives_rpu_convert() {
-        let p = plan(r#"{"stream":{"dvProfile":7},"url":"https://cdn.example/stream.hevc","fallbackMode":"dv8","deviceHasDvDecoder":false}"#);
+        let p = plan(
+            r#"{"stream":{"dvProfile":7},"url":"https://cdn.example/stream.hevc","fallbackMode":"dv8","deviceHasDvDecoder":false}"#,
+        );
         assert_eq!(p["action"], "rpu_convert");
         assert_eq!(p["rpuMode"], 2);
         assert_eq!(p["profile"], "P7");
@@ -1096,7 +1214,9 @@ mod tests {
 
     #[test]
     fn dv_proxy_p7_raw_hevc_auto_dv_display_gives_rpu_convert() {
-        let p = plan(r#"{"stream":{"dvProfile":7},"url":"https://cdn.example/stream.hevc","fallbackMode":"auto","deviceHasDvDecoder":false,"deviceHasDvDisplay":true}"#);
+        let p = plan(
+            r#"{"stream":{"dvProfile":7},"url":"https://cdn.example/stream.hevc","fallbackMode":"auto","deviceHasDvDecoder":false,"deviceHasDvDisplay":true}"#,
+        );
         assert_eq!(p["action"], "rpu_convert");
     }
 
@@ -1105,14 +1225,18 @@ mod tests {
         // dv8 mode + MKV without a DV decoder → falls back to dvcc_strip because
         // rpu_convert needs a DV decoder in the convert_dv81 path, and dv8 mode
         // is annexb-only (rejects non-raw-HEVC containers).
-        let p = plan(r#"{"stream":{"dvProfile":7},"url":"https://cdn.example/movie.mkv","fallbackMode":"dv8","deviceHasDvDecoder":false}"#);
+        let p = plan(
+            r#"{"stream":{"dvProfile":7},"url":"https://cdn.example/movie.mkv","fallbackMode":"dv8","deviceHasDvDecoder":false}"#,
+        );
         assert_eq!(p["action"], "dvcc_strip");
         assert_eq!(p["reason"], "rpu_convert_rejected_not_annexb");
     }
 
     #[test]
     fn dv_proxy_rpu_convert_rejected_for_mp4_falls_back_to_dvcc_strip() {
-        let p = plan(r#"{"stream":{"dvProfile":7},"url":"https://cdn.example/movie.mp4","fallbackMode":"dv8","deviceHasDvDecoder":false}"#);
+        let p = plan(
+            r#"{"stream":{"dvProfile":7},"url":"https://cdn.example/movie.mp4","fallbackMode":"dv8","deviceHasDvDecoder":false}"#,
+        );
         assert_eq!(p["action"], "dvcc_strip");
         assert_eq!(p["reason"], "rpu_convert_rejected_not_annexb");
     }
@@ -1120,7 +1244,9 @@ mod tests {
     #[test]
     fn dv_detection_dolby_vision_p8_text_gives_action() {
         // "P8" token → P8Unknown → dvcc_strip
-        let p = plan(r#"{"stream":{"name":"Dolby Vision P8"},"url":"https://cdn.example/f.mkv","fallbackMode":"auto"}"#);
+        let p = plan(
+            r#"{"stream":{"name":"Dolby Vision P8"},"url":"https://cdn.example/f.mkv","fallbackMode":"auto"}"#,
+        );
         assert_ne!(p["action"], "none");
         assert_eq!(p["profile"], "P8");
     }
@@ -1128,7 +1254,9 @@ mod tests {
     #[test]
     fn dv_detection_dovi_without_profile_gives_none() {
         // DV detected ("dovi") but no profile info → unknown → none.
-        let p = plan(r#"{"stream":{"name":"4K DoVi 5.1"},"url":"https://cdn.example/f.mkv","fallbackMode":"auto"}"#);
+        let p = plan(
+            r#"{"stream":{"name":"4K DoVi 5.1"},"url":"https://cdn.example/f.mkv","fallbackMode":"auto"}"#,
+        );
         assert_eq!(p["action"], "none");
         assert_eq!(p["reason"], "unknown_profile_no_safe_fallback");
     }
@@ -1136,21 +1264,27 @@ mod tests {
     #[test]
     fn dv_detection_standalone_dv_without_profile_gives_none() {
         // "[DV]" detected but no profile info → none.
-        let p = plan(r#"{"stream":{"name":"[4K] [DV] [HDR10+]"},"url":"https://cdn.example/f.mkv","fallbackMode":"auto"}"#);
+        let p = plan(
+            r#"{"stream":{"name":"[4K] [DV] [HDR10+]"},"url":"https://cdn.example/f.mkv","fallbackMode":"auto"}"#,
+        );
         assert_eq!(p["action"], "none");
         assert_eq!(p["reason"], "unknown_profile_no_safe_fallback");
     }
 
     #[test]
     fn dv_detection_dvhe_fourcc_in_name_gives_profile_p7() {
-        let p = plan(r#"{"stream":{"name":"dvhe.07.06 BDRemux"},"url":"https://cdn.example/f.mkv","fallbackMode":"auto"}"#);
+        let p = plan(
+            r#"{"stream":{"name":"dvhe.07.06 BDRemux"},"url":"https://cdn.example/f.mkv","fallbackMode":"auto"}"#,
+        );
         assert_ne!(p["action"], "none");
         assert_eq!(p["profile"], "P7");
     }
 
     #[test]
     fn dv_detection_dvhe_08_01_in_name_gives_p8_1() {
-        let p = plan(r#"{"stream":{"name":"dvhe.08.01 Remux"},"url":"https://cdn.example/f.mkv","fallbackMode":"auto"}"#);
+        let p = plan(
+            r#"{"stream":{"name":"dvhe.08.01 Remux"},"url":"https://cdn.example/f.mkv","fallbackMode":"auto"}"#,
+        );
         assert_eq!(p["action"], "dvcc_strip");
         assert_eq!(p["profile"], "P8.1");
         assert_eq!(p["safety"], "low");
@@ -1158,20 +1292,26 @@ mod tests {
 
     #[test]
     fn dv_detection_no_false_positive_from_dvd() {
-        let p = plan(r#"{"stream":{"name":"DVD Rip 1080p"},"url":"https://cdn.example/f.mkv","fallbackMode":"auto"}"#);
+        let p = plan(
+            r#"{"stream":{"name":"DVD Rip 1080p"},"url":"https://cdn.example/f.mkv","fallbackMode":"auto"}"#,
+        );
         assert_eq!(p["action"], "none");
         assert_eq!(p["reason"], "not_dv");
     }
 
     #[test]
     fn dv_detection_no_false_positive_from_hdvd() {
-        let p = plan(r#"{"stream":{"name":"HDVD Edition"},"url":"https://cdn.example/f.mkv","fallbackMode":"auto"}"#);
+        let p = plan(
+            r#"{"stream":{"name":"HDVD Edition"},"url":"https://cdn.example/f.mkv","fallbackMode":"auto"}"#,
+        );
         assert_eq!(p["action"], "none");
     }
 
     #[test]
     fn dv_detection_explicit_boolean_flag_with_profile() {
-        let p = plan(r#"{"stream":{"dv":true,"dvProfile":8,"dvCompatId":1,"name":"4K HDR"},"url":"https://cdn.example/f.mkv","fallbackMode":"auto"}"#);
+        let p = plan(
+            r#"{"stream":{"dv":true,"dvProfile":8,"dvCompatId":1,"name":"4K HDR"},"url":"https://cdn.example/f.mkv","fallbackMode":"auto"}"#,
+        );
         assert_ne!(p["action"], "none");
         assert_eq!(p["profile"], "P8.1");
     }
@@ -1179,14 +1319,18 @@ mod tests {
     #[test]
     fn dv_detection_filename_without_profile_gives_none() {
         // DV keyword in filename but no profile → safe default is none.
-        let p = plan(r#"{"stream":{"name":"4K HDR","effectiveFilename":"Movie.2023.UHD.DV.HEVC.mkv"},"url":"https://cdn.example/f.mkv","fallbackMode":"auto"}"#);
+        let p = plan(
+            r#"{"stream":{"name":"4K HDR","effectiveFilename":"Movie.2023.UHD.DV.HEVC.mkv"},"url":"https://cdn.example/f.mkv","fallbackMode":"auto"}"#,
+        );
         assert_eq!(p["action"], "none");
         assert_eq!(p["reason"], "unknown_profile_no_safe_fallback");
     }
 
     #[test]
     fn dv_detection_dvhe_codec_in_filename_gives_profile() {
-        let p = plan(r#"{"stream":{"effectiveFilename":"Movie.dvhe.07.06.mkv"},"url":"https://cdn.example/f.mkv","fallbackMode":"auto"}"#);
+        let p = plan(
+            r#"{"stream":{"effectiveFilename":"Movie.dvhe.07.06.mkv"},"url":"https://cdn.example/f.mkv","fallbackMode":"auto"}"#,
+        );
         assert_ne!(p["action"], "none");
         assert_eq!(p["profile"], "P7");
     }
@@ -1197,7 +1341,8 @@ mod tests {
     fn sample_p5_dvonly_no_fallback() {
         // P5 is HEVC single-layer with no HDR base. Stripping DVCC would expose
         // a DV-only bitstream to an HDR10 decoder → broken colour. Never rewrite.
-        let p = plan(r#"{
+        let p = plan(
+            r#"{
             "stream": {
                 "name": "AETHER | 4K | Dolby Vision | DD+ Atmos",
                 "description": "📺 4K | 🎬 dvhe.05.06 | 🔊 DD+ Atmos",
@@ -1206,19 +1351,23 @@ mod tests {
             "url": "https://debrid.example/movie.mkv",
             "fallbackMode": "auto",
             "deviceHasDvDecoder": false
-        }"#);
+        }"#,
+        );
         assert_eq!(p["action"], "none");
         assert_eq!(p["reason"], "no_hdr_base_layer");
         assert_eq!(p["profile"], "P5");
         let limitations = p["limitations"].as_array().unwrap();
-        assert!(limitations.iter().any(|l| l.as_str().unwrap().contains("p4_p5")));
+        assert!(limitations
+            .iter()
+            .any(|l| l.as_str().unwrap().contains("p4_p5")));
     }
 
     #[test]
     fn sample_p7_dual_layer_hdr10_fallback() {
         // P7 BL+EL: stripping DVCC reveals the HDR10 base layer. Medium risk —
         // RPU NALs remain in-stream but HEVC decoders ignore them.
-        let p = plan(r#"{
+        let p = plan(
+            r#"{
             "stream": {
                 "name": "FLUX | 4K | dvhe.07.06 | Atmos",
                 "description": "HDR10 + Dolby Vision P7 BL+EL remux",
@@ -1228,20 +1377,24 @@ mod tests {
             "fallbackMode": "auto",
             "deviceHasDvDecoder": false,
             "deviceHasDvDisplay": false
-        }"#);
+        }"#,
+        );
         assert_eq!(p["action"], "dvcc_strip");
         assert_eq!(p["profile"], "P7");
         assert_eq!(p["compatibility"], "HDR10");
         assert_eq!(p["safety"], "medium");
         let limitations = p["limitations"].as_array().unwrap();
-        assert!(limitations.iter().any(|l| l.as_str().unwrap().contains("does_not_convert_bitstream")));
+        assert!(limitations
+            .iter()
+            .any(|l| l.as_str().unwrap().contains("does_not_convert_bitstream")));
     }
 
     #[test]
     fn sample_p8_1_single_layer_low_risk_fallback() {
         // P8.1 has an HDR10-compatible base layer encoded into the single HEVC stream.
         // Stripping DVCC gives clean HDR10 output. Lowest-risk rewrite.
-        let p = plan(r#"{
+        let p = plan(
+            r#"{
             "stream": {
                 "name": "HDMUX | 4K | dvhe.08.01 | TrueHD Atmos",
                 "dvProfile": 8,
@@ -1250,7 +1403,8 @@ mod tests {
             "url": "https://debrid.example/Movie.2023.2160p.DV.HEVC.mkv",
             "fallbackMode": "auto",
             "deviceHasDvDecoder": false
-        }"#);
+        }"#,
+        );
         assert_eq!(p["action"], "dvcc_strip");
         assert_eq!(p["profile"], "P8.1");
         assert_eq!(p["compatibility"], "HDR10");
@@ -1261,7 +1415,8 @@ mod tests {
     fn sample_p8_4_hlg_base_not_hdr10() {
         // P8.4 has an HLG base layer, not HDR10. Rewriting it as HDR10 would
         // produce incorrect colour. The compatibility field must reflect HLG.
-        let p = plan(r#"{
+        let p = plan(
+            r#"{
             "stream": {
                 "name": "BBC iPlayer | 4K | Dolby Vision HLG | AAC",
                 "dvProfile": 8,
@@ -1270,12 +1425,15 @@ mod tests {
             "url": "https://cdn.example/show_ep01.mkv",
             "fallbackMode": "auto",
             "deviceHasDvDecoder": false
-        }"#);
+        }"#,
+        );
         assert_eq!(p["action"], "dvcc_strip");
         assert_eq!(p["profile"], "P8.4");
         assert_eq!(p["compatibility"], "HLG");
-        assert_ne!(p["compatibility"], "HDR10",
-            "P8.4 has HLG base, must not be labelled HDR10");
+        assert_ne!(
+            p["compatibility"], "HDR10",
+            "P8.4 has HLG base, must not be labelled HDR10"
+        );
         assert_eq!(p["safety"], "medium");
     }
 
@@ -1283,7 +1441,8 @@ mod tests {
     fn sample_unknown_profile_from_addon_with_only_dv_keyword() {
         // Many addons only set a "Dolby Vision" label without specifying the
         // profile. Without profile info the only safe action is none.
-        let p = plan(r#"{
+        let p = plan(
+            r#"{
             "stream": {
                 "name": "4K | Dolby Vision | DD+ Atmos",
                 "description": "UHD Remux"
@@ -1291,18 +1450,22 @@ mod tests {
             "url": "https://debrid.example/movie.mkv",
             "fallbackMode": "auto",
             "deviceHasDvDecoder": false
-        }"#);
+        }"#,
+        );
         assert_eq!(p["action"], "none");
         assert_eq!(p["reason"], "unknown_profile_no_safe_fallback");
         let limitations = p["limitations"].as_array().unwrap();
-        assert!(limitations.iter().any(|l| l.as_str().unwrap().contains("set_dvProfile_field")));
+        assert!(limitations
+            .iter()
+            .any(|l| l.as_str().unwrap().contains("set_dvProfile_field")));
     }
 
     #[test]
     fn sample_p7_rpu_convert_on_raw_hevc_dv8_mode() {
         // Raw Annex-B HEVC + P7 + dv8 mode → live RPU conversion. The only
         // case where rpu_convert is emitted instead of dvcc_strip.
-        let p = plan(r#"{
+        let p = plan(
+            r#"{
             "stream": {
                 "name": "RAW HEVC | 4K | dvhe.07.06",
                 "dvProfile": 7
@@ -1310,7 +1473,8 @@ mod tests {
             "url": "https://cdn.example/stream.hevc",
             "fallbackMode": "dv8",
             "deviceHasDvDecoder": false
-        }"#);
+        }"#,
+        );
         assert_eq!(p["action"], "rpu_convert");
         assert_eq!(p["profile"], "P7");
         assert_eq!(p["compatibility"], "DV8");
@@ -1320,21 +1484,27 @@ mod tests {
     #[test]
     fn convert_dv81_p7_mkv_decoder_no_display_returns_rpu_convert() {
         // Decoder present, no DV display: MKV now supported via EBML RPU rewriter.
-        let p = plan(r#"{"stream":{"dvProfile":7},"url":"https://cdn.example/movie.mkv","fallbackMode":"convert_dv81","deviceHasDvDecoder":true,"deviceHasDvDisplay":false}"#);
+        let p = plan(
+            r#"{"stream":{"dvProfile":7},"url":"https://cdn.example/movie.mkv","fallbackMode":"convert_dv81","deviceHasDvDecoder":true,"deviceHasDvDisplay":false}"#,
+        );
         assert_eq!(p["action"], "rpu_convert");
         assert_eq!(p["reason"], "p7_rpu_convert_to_dv81");
     }
 
     #[test]
     fn convert_dv81_p7_mp4_decoder_no_display_returns_rpu_convert() {
-        let p = plan(r#"{"stream":{"dvProfile":7},"url":"https://cdn.example/movie.mp4","fallbackMode":"convert_dv81","deviceHasDvDecoder":true,"deviceHasDvDisplay":false}"#);
+        let p = plan(
+            r#"{"stream":{"dvProfile":7},"url":"https://cdn.example/movie.mp4","fallbackMode":"convert_dv81","deviceHasDvDecoder":true,"deviceHasDvDisplay":false}"#,
+        );
         assert_eq!(p["action"], "rpu_convert");
         assert_eq!(p["reason"], "p7_rpu_convert_to_dv81");
     }
 
     #[test]
     fn convert_dv81_p7_raw_hevc_decoder_no_display_returns_rpu_convert() {
-        let p = plan(r#"{"stream":{"dvProfile":7},"url":"https://cdn.example/movie.hevc","fallbackMode":"convert_dv81","deviceHasDvDecoder":true,"deviceHasDvDisplay":false}"#);
+        let p = plan(
+            r#"{"stream":{"dvProfile":7},"url":"https://cdn.example/movie.hevc","fallbackMode":"convert_dv81","deviceHasDvDecoder":true,"deviceHasDvDisplay":false}"#,
+        );
         assert_eq!(p["action"], "rpu_convert");
         assert_eq!(p["reason"], "p7_rpu_convert_to_dv81");
     }
@@ -1342,7 +1512,9 @@ mod tests {
     #[test]
     fn convert_dv81_decoder_and_display_returns_native_passthrough() {
         // Full DV device → native, no proxy needed.
-        let p = plan(r#"{"stream":{"dvProfile":7},"url":"https://cdn.example/movie.mp4","fallbackMode":"convert_dv81","deviceHasDvDecoder":true,"deviceHasDvDisplay":true}"#);
+        let p = plan(
+            r#"{"stream":{"dvProfile":7},"url":"https://cdn.example/movie.mp4","fallbackMode":"convert_dv81","deviceHasDvDecoder":true,"deviceHasDvDisplay":true}"#,
+        );
         assert_eq!(p["action"], "none");
         assert_eq!(p["reason"], "hw_dv_decoder");
     }
@@ -1350,13 +1522,17 @@ mod tests {
     #[test]
     fn convert_dv81_no_decoder_falls_back_to_dvcc_strip() {
         // No DV decoder → same as Auto: strip to HDR10.
-        let p = plan(r#"{"stream":{"dvProfile":7},"url":"https://cdn.example/movie.mp4","fallbackMode":"convert_dv81","deviceHasDvDecoder":false,"deviceHasDvDisplay":false}"#);
+        let p = plan(
+            r#"{"stream":{"dvProfile":7},"url":"https://cdn.example/movie.mp4","fallbackMode":"convert_dv81","deviceHasDvDecoder":false,"deviceHasDvDisplay":false}"#,
+        );
         assert_eq!(p["action"], "dvcc_strip");
     }
 
     #[test]
     fn convert_dv81_hls_still_deferred_to_manifest_rewrite() {
-        let p = plan(r#"{"stream":{"dvProfile":7},"url":"https://cdn.example/index.m3u8","fallbackMode":"convert_dv81","deviceHasDvDecoder":true,"deviceHasDvDisplay":false}"#);
+        let p = plan(
+            r#"{"stream":{"dvProfile":7},"url":"https://cdn.example/index.m3u8","fallbackMode":"convert_dv81","deviceHasDvDecoder":true,"deviceHasDvDisplay":false}"#,
+        );
         assert_eq!(p["action"], "none");
         assert_eq!(p["reason"], "manifest_handled");
     }
@@ -1365,7 +1541,8 @@ mod tests {
     fn sample_hls_stream_always_deferred_to_manifest_rewrite() {
         // HLS streams are handled by the OkHttp interceptor regardless of profile.
         // The proxy must never be activated for .m3u8 URLs.
-        let p = plan(r#"{
+        let p = plan(
+            r#"{
             "stream": {
                 "name": "Apple TV+ | 4K | dvhe.08.01",
                 "dvProfile": 8,
@@ -1374,7 +1551,8 @@ mod tests {
             "url": "https://cdn.example/master.m3u8",
             "fallbackMode": "auto",
             "deviceHasDvDecoder": false
-        }"#);
+        }"#,
+        );
         assert_eq!(p["action"], "none");
         assert_eq!(p["reason"], "manifest_handled");
     }

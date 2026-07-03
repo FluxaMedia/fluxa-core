@@ -1,7 +1,7 @@
 use crate::addon_protocol;
 use serde_json::{json, Value};
 
-fn resource_payload<'a>(resource: &str, root: &'a Value) -> Option<Value> {
+fn resource_payload(resource: &str, root: &Value) -> Option<Value> {
     match resource {
         "stream" | "streams" => root.get("streams").cloned(),
         "catalog" | "metas" => root.get("metas").cloned(),

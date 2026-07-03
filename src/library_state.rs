@@ -174,7 +174,10 @@ pub(crate) fn filter_home_continue_watching_json(
         .iter()
         .filter(|item| {
             let item_type = item.get("type").and_then(Value::as_str).unwrap_or("");
-            let last_video_id = item.get("lastVideoId").and_then(Value::as_str).unwrap_or("");
+            let last_video_id = item
+                .get("lastVideoId")
+                .and_then(Value::as_str)
+                .unwrap_or("");
             let time_offset = item.get("timeOffset").and_then(Value::as_i64).unwrap_or(0);
             let duration = item.get("duration").and_then(Value::as_i64).unwrap_or(0);
             let is_series = matches!(item_type, "series" | "tv" | "anime");
@@ -185,10 +188,11 @@ pub(crate) fn filter_home_continue_watching_json(
                 return false;
             }
             let watched_keys = crate::content_identity::content_watched_keys_value(item);
-            if item_type == "movie" && !movie_keys.is_empty() {
-                if watched_keys.iter().any(|k| movie_keys.contains(k.as_str())) {
-                    return false;
-                }
+            if item_type == "movie"
+                && !movie_keys.is_empty()
+                && watched_keys.iter().any(|k| movie_keys.contains(k.as_str()))
+            {
+                return false;
             }
             if is_series && !episode_keys.is_empty() && !last_video_id.is_empty() {
                 if let Some((_, season, episode)) =
@@ -234,13 +238,25 @@ pub(crate) fn normalize_library_document_json(json: &str) -> String {
     if !lib.get("history").map(Value::is_array).unwrap_or(false) {
         lib.insert("history".to_string(), json!([]));
     }
-    if !lib.get("continueWatching").map(Value::is_array).unwrap_or(false) {
+    if !lib
+        .get("continueWatching")
+        .map(Value::is_array)
+        .unwrap_or(false)
+    {
         lib.insert("continueWatching".to_string(), json!([]));
     }
-    if !lib.get("progress").map(|v| v.is_object() && !v.is_array()).unwrap_or(false) {
+    if !lib
+        .get("progress")
+        .map(|v| v.is_object() && !v.is_array())
+        .unwrap_or(false)
+    {
         lib.insert("progress".to_string(), json!({}));
     }
-    if !lib.get("watched").map(|v| v.is_object() && !v.is_array()).unwrap_or(false) {
+    if !lib
+        .get("watched")
+        .map(|v| v.is_object() && !v.is_array())
+        .unwrap_or(false)
+    {
         lib.insert("watched".to_string(), json!({}));
     }
     if !lib.get("dropped").map(Value::is_array).unwrap_or(false) {
@@ -258,11 +274,16 @@ pub(crate) fn is_up_next_continue_watching_item_json(item_json: &str) -> bool {
 }
 
 fn is_up_next_item(item: &Value) -> bool {
-    let offset = item.get("timeOffset").and_then(Value::as_f64).unwrap_or(0.0);
+    let offset = item
+        .get("timeOffset")
+        .and_then(Value::as_f64)
+        .unwrap_or(0.0);
     let duration = item.get("duration").and_then(Value::as_f64).unwrap_or(0.0);
-    if duration <= 0.0 { return offset <= 1.0; }
+    if duration <= 0.0 {
+        return offset <= 1.0;
+    }
     let progress = offset / duration;
-    progress < 0.005 || progress >= 0.995
+    !(0.005..0.995).contains(&progress)
 }
 
 pub(crate) fn build_continue_watching_from_progress_json(progress_json: &str) -> Option<String> {
@@ -296,6 +317,8 @@ pub(crate) fn build_continue_watching_from_progress_json(progress_json: &str) ->
                 "lastStreamUrl": entry.get("lastStreamUrl").cloned().unwrap_or(Value::Null),
                 "lastStreamTitle": entry.get("lastStreamTitle").cloned().unwrap_or(Value::Null),
                 "lastStream": entry.get("lastStream").cloned().unwrap_or(Value::Null),
+                "continueWatchingBadge": entry.get("continueWatchingBadge").cloned().unwrap_or(Value::Null),
+                "continueWatchingEpisodeResolved": entry.get("continueWatchingEpisodeResolved").cloned().unwrap_or(Value::Null),
                 "savedAt": entry.get("savedAt").cloned().unwrap_or(Value::Null),
             }))
         })
@@ -316,11 +339,17 @@ pub(crate) fn compute_continue_watching_badges_json(
 ) -> Option<String> {
     let mut by_id: std::collections::HashMap<String, Value> = {
         let items: Vec<Value> = serde_json::from_str(candidates_json).unwrap_or_default();
-        items.into_iter().filter_map(|item| {
-            let id = item.get("id").or_else(|| item.get("_id"))
-                .and_then(Value::as_str).map(str::to_string)?;
-            Some((id, item))
-        }).collect()
+        items
+            .into_iter()
+            .filter_map(|item| {
+                let id = item
+                    .get("id")
+                    .or_else(|| item.get("_id"))
+                    .and_then(Value::as_str)
+                    .map(str::to_string)?;
+                Some((id, item))
+            })
+            .collect()
     };
     let videos_by_series: serde_json::Map<String, Value> =
         serde_json::from_str(videos_by_series_json).unwrap_or_default();
@@ -336,25 +365,43 @@ pub(crate) fn compute_continue_watching_badges_json(
 
     let mut finished_series: Vec<String> = Vec::new();
     for (series_id, candidate) in by_id.iter_mut() {
-        let next = match next_episode_for_candidate(series_id, candidate, &videos_by_series, &cw_list_ids) {
-            NextEpisodeOutcome::Skip => continue,
-            NextEpisodeOutcome::MarkFinished => {
-                finished_series.push(series_id.clone());
-                continue;
-            }
-            NextEpisodeOutcome::Found(next) => next,
-        };
+        let next =
+            match next_episode_for_candidate(series_id, candidate, &videos_by_series, &cw_list_ids)
+            {
+                NextEpisodeOutcome::Skip => continue,
+                NextEpisodeOutcome::MarkFinished => {
+                    finished_series.push(series_id.clone());
+                    continue;
+                }
+                NextEpisodeOutcome::Found(next) => next,
+            };
         apply_next_episode_badge(series_id, candidate, &next, now_ms);
     }
 
-    for id in &finished_series { by_id.remove(id); }
+    for id in &finished_series {
+        by_id.remove(id);
+    }
     let mut result: Vec<Value> = by_id.into_values().collect();
     result.sort_by(|a, b| {
         let a_new = a.get("continueWatchingBadge").and_then(Value::as_str) == Some("newEpisode");
         let b_new = b.get("continueWatchingBadge").and_then(Value::as_str) == Some("newEpisode");
-        if a_new != b_new { return if a_new { std::cmp::Ordering::Less } else { std::cmp::Ordering::Greater }; }
-        let a_time = a.get("savedAt").or_else(|| a.get("newEpisodeReleasedAt")).and_then(Value::as_str).unwrap_or("");
-        let b_time = b.get("savedAt").or_else(|| b.get("newEpisodeReleasedAt")).and_then(Value::as_str).unwrap_or("");
+        if a_new != b_new {
+            return if a_new {
+                std::cmp::Ordering::Less
+            } else {
+                std::cmp::Ordering::Greater
+            };
+        }
+        let a_time = a
+            .get("savedAt")
+            .or_else(|| a.get("newEpisodeReleasedAt"))
+            .and_then(Value::as_str)
+            .unwrap_or("");
+        let b_time = b
+            .get("savedAt")
+            .or_else(|| b.get("newEpisodeReleasedAt"))
+            .and_then(Value::as_str)
+            .unwrap_or("");
         b_time.cmp(a_time)
     });
     serde_json::to_string(&result).ok()
@@ -368,7 +415,10 @@ fn seed_candidates_from_last_watched(
     last_watched: &serde_json::Map<String, Value>,
 ) {
     for (series_id, raw) in last_watched {
-        let meta = match raw.get("meta") { Some(m) if m.get("type").and_then(Value::as_str) == Some("series") => m, _ => continue };
+        let meta = match raw.get("meta") {
+            Some(m) if m.get("type").and_then(Value::as_str) == Some("series") => m,
+            _ => continue,
+        };
         let record = raw;
         by_id.entry(series_id.clone()).or_insert_with(|| json!({
             "id": series_id,
@@ -427,16 +477,38 @@ fn next_episode_for_candidate(
             NextEpisodeOutcome::Skip
         };
     };
-    let stored_badge = candidate.get("continueWatchingBadge").and_then(Value::as_str);
-    let stored_video_id = candidate.get("lastVideoId").and_then(Value::as_str).unwrap_or("").to_string();
+    let stored_badge = candidate
+        .get("continueWatchingBadge")
+        .and_then(Value::as_str);
+    if stored_badge == Some("upNext")
+        && candidate
+            .get("continueWatchingEpisodeResolved")
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+    {
+        return NextEpisodeOutcome::Skip;
+    }
+    let stored_video_id = candidate
+        .get("lastVideoId")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string();
 
     // When the stored badge is scheduledEpisode, lastEpisodeNumber already points to the
     // scheduled episode itself. Re-check that same episode rather than advancing past it.
     let next = if stored_badge == Some("scheduledEpisode") {
-        videos.iter().find(|v| {
-            let vid = v.get("id").or_else(|| v.get("_id")).and_then(Value::as_str).unwrap_or("");
-            vid == stored_video_id
-        }).cloned().or_else(|| first_episode_after(videos, season, episode))
+        videos
+            .iter()
+            .find(|v| {
+                let vid = v
+                    .get("id")
+                    .or_else(|| v.get("_id"))
+                    .and_then(Value::as_str)
+                    .unwrap_or("");
+                vid == stored_video_id
+            })
+            .cloned()
+            .or_else(|| first_episode_after(videos, season, episode))
     } else {
         first_episode_after(videos, season, episode)
     };
@@ -452,13 +524,30 @@ fn next_episode_for_candidate(
 // Computes the badge (upNext / newEpisode / scheduledEpisode) for advancing `candidate`
 // to `next`, and rewrites `candidate` in place to point at that episode.
 fn apply_next_episode_badge(series_id: &str, candidate: &mut Value, next: &Value, now_ms: i64) {
-    let existing_video_id = candidate.get("lastVideoId").and_then(Value::as_str).unwrap_or("").to_string();
-    let next_id = next.get("id").or_else(|| next.get("_id")).and_then(Value::as_str)
-        .unwrap_or(&existing_video_id).to_string();
-    if !is_up_next_item(candidate) && existing_video_id != next_id { return; }
+    let existing_video_id = candidate
+        .get("lastVideoId")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string();
+    let next_id = next
+        .get("id")
+        .or_else(|| next.get("_id"))
+        .and_then(Value::as_str)
+        .unwrap_or(&existing_video_id)
+        .to_string();
+    if !is_up_next_item(candidate) && existing_video_id != next_id {
+        return;
+    }
     let is_new_target = existing_video_id != next_id;
     let is_released = is_episode_released(next, now_ms);
-    let existing_badge = if !is_new_target { candidate.get("continueWatchingBadge").and_then(Value::as_str).map(str::to_string) } else { None };
+    let existing_badge = if !is_new_target {
+        candidate
+            .get("continueWatchingBadge")
+            .and_then(Value::as_str)
+            .map(str::to_string)
+    } else {
+        None
+    };
 
     let badge = if !is_released {
         "scheduledEpisode"
@@ -467,17 +556,31 @@ fn apply_next_episode_badge(series_id: &str, candidate: &mut Value, next: &Value
     } else if let Some(b) = existing_badge.as_deref() {
         b
     } else {
-        let watched_at = candidate.get("savedAt").and_then(Value::as_str)
+        let watched_at = candidate
+            .get("savedAt")
+            .and_then(Value::as_str)
             .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
-            .map(|dt| dt.timestamp_millis()).unwrap_or(now_ms);
-        let next_released_at = next.get("released").and_then(Value::as_str)
+            .map(|dt| dt.timestamp_millis())
+            .unwrap_or(now_ms);
+        let next_released_at = next
+            .get("released")
+            .and_then(Value::as_str)
             .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
-            .map(|dt| dt.timestamp_millis()).unwrap_or(0);
-        let was_released_when_watched = next.get("released").is_none() || next_released_at <= watched_at;
-        if was_released_when_watched { "upNext" } else { "newEpisode" }
-    }.to_string();
+            .map(|dt| dt.timestamp_millis())
+            .unwrap_or(0);
+        let was_released_when_watched =
+            next.get("released").is_none() || next_released_at <= watched_at;
+        if was_released_when_watched {
+            "upNext"
+        } else {
+            "newEpisode"
+        }
+    }
+    .to_string();
 
-    let released_str = next.get("released").and_then(Value::as_str)
+    let released_str = next
+        .get("released")
+        .and_then(Value::as_str)
         .map(str::to_string)
         .unwrap_or_else(|| chrono::Utc::now().to_rfc3339());
     let saved_at_new = if is_new_target && badge == "newEpisode" {
@@ -512,17 +615,34 @@ fn apply_next_episode_badge(series_id: &str, candidate: &mut Value, next: &Value
 }
 
 fn first_episode_after(videos: &[Value], season: i64, episode: i64) -> Option<Value> {
-    let mut candidates: Vec<&Value> = videos.iter().filter(|v| {
-        let vs = v.get("season").and_then(Value::as_i64).unwrap_or(0);
-        let ve = v.get("episode").or_else(|| v.get("number")).and_then(Value::as_i64).unwrap_or(0);
-        vs > season || (vs == season && ve > episode)
-    }).collect();
+    let mut candidates: Vec<&Value> = videos
+        .iter()
+        .filter(|v| {
+            let vs = v.get("season").and_then(Value::as_i64).unwrap_or(0);
+            let ve = v
+                .get("episode")
+                .or_else(|| v.get("number"))
+                .and_then(Value::as_i64)
+                .unwrap_or(0);
+            vs > season || (vs == season && ve > episode)
+        })
+        .collect();
     candidates.sort_by(|a, b| {
         let as_ = a.get("season").and_then(Value::as_i64).unwrap_or(0);
         let bs = b.get("season").and_then(Value::as_i64).unwrap_or(0);
-        if as_ != bs { return as_.cmp(&bs); }
-        let ae = a.get("episode").or_else(|| a.get("number")).and_then(Value::as_i64).unwrap_or(0);
-        let be = b.get("episode").or_else(|| b.get("number")).and_then(Value::as_i64).unwrap_or(0);
+        if as_ != bs {
+            return as_.cmp(&bs);
+        }
+        let ae = a
+            .get("episode")
+            .or_else(|| a.get("number"))
+            .and_then(Value::as_i64)
+            .unwrap_or(0);
+        let be = b
+            .get("episode")
+            .or_else(|| b.get("number"))
+            .and_then(Value::as_i64)
+            .unwrap_or(0);
         ae.cmp(&be)
     });
     candidates.first().map(|v| (*v).clone())
@@ -541,20 +661,40 @@ pub(crate) fn is_episode_released(video: &Value, now_ms: i64) -> bool {
 
 /// Given a library JSON and a set of just-watched video IDs, update `lastWatchedEpisodes`.
 /// Returns the updated library as JSON.
-pub(crate) fn remember_last_watched_episodes_json(lib_json: &str, watched_ids_json: &str) -> String {
+pub(crate) fn remember_last_watched_episodes_json(
+    lib_json: &str,
+    watched_ids_json: &str,
+) -> String {
     let mut lib: Value = serde_json::from_str(lib_json).unwrap_or(json!({}));
     let watched_ids: std::collections::HashSet<String> = serde_json::from_str(watched_ids_json)
         .ok()
-        .and_then(|v: Value| v.as_array().map(|arr| {
-            arr.iter().filter_map(|s| s.as_str().map(str::to_string)).collect()
-        }))
+        .and_then(|v: Value| {
+            v.as_array().map(|arr| {
+                arr.iter()
+                    .filter_map(|s| s.as_str().map(str::to_string))
+                    .collect()
+            })
+        })
         .unwrap_or_default();
-    let progress = lib.get("progress").and_then(Value::as_object).cloned().unwrap_or_default();
-    let mut last_watched = lib.get("lastWatchedEpisodes").and_then(Value::as_object).cloned().unwrap_or_default();
+    let progress = lib
+        .get("progress")
+        .and_then(Value::as_object)
+        .cloned()
+        .unwrap_or_default();
+    let mut last_watched = lib
+        .get("lastWatchedEpisodes")
+        .and_then(Value::as_object)
+        .cloned()
+        .unwrap_or_default();
     for (series_id, raw) in &progress {
         let video_id = raw.get("lastVideoId").and_then(Value::as_str).unwrap_or("");
-        if video_id.is_empty() || !watched_ids.contains(video_id) { continue; }
-        let meta = match raw.get("meta") { Some(m) if m.get("type").and_then(Value::as_str) == Some("series") => m, _ => continue };
+        if video_id.is_empty() || !watched_ids.contains(video_id) {
+            continue;
+        }
+        let meta = match raw.get("meta") {
+            Some(m) if m.get("type").and_then(Value::as_str) == Some("series") => m,
+            _ => continue,
+        };
         last_watched.insert(series_id.clone(), json!({
             "meta": meta,
             "lastVideoId": video_id,
@@ -566,7 +706,10 @@ pub(crate) fn remember_last_watched_episodes_json(lib_json: &str, watched_ids_js
         }));
     }
     if let Some(obj) = lib.as_object_mut() {
-        obj.insert("lastWatchedEpisodes".to_string(), Value::Object(last_watched));
+        obj.insert(
+            "lastWatchedEpisodes".to_string(),
+            Value::Object(last_watched),
+        );
     }
     serde_json::to_string(&lib).unwrap_or_else(|_| lib_json.to_string())
 }
@@ -615,8 +758,12 @@ pub(crate) fn format_episode_line_json(
                     parts[parts.len() - 1].parse::<i64>(),
                 ) {
                     if s > 0 && e > 0 {
-                        if season.is_none() { season = Some(s); }
-                        if episode.is_none() { episode = Some(e); }
+                        if season.is_none() {
+                            season = Some(s);
+                        }
+                        if episode.is_none() {
+                            episode = Some(e);
+                        }
                     }
                 }
             }
@@ -659,10 +806,13 @@ pub(crate) fn select_continue_watching_artwork_json(
     let cw_background = str_field("continueWatchingBackground");
 
     let is_real_backdrop = background.as_deref().is_some_and(|bg| {
-        poster.as_deref().map_or(true, |p| bg != p)
-            && !bg.to_lowercase().contains("/poster/")
+        (poster.as_deref() != Some(bg)) && !bg.to_lowercase().contains("/poster/")
     });
-    let existing_backdrop = if is_real_backdrop { background.clone() } else { None };
+    let existing_backdrop = if is_real_backdrop {
+        background.clone()
+    } else {
+        None
+    };
 
     let result = if !is_horizontal {
         thumbnail
@@ -701,8 +851,16 @@ pub(crate) fn continue_watching_card_fields_json(
     let fields: Vec<Value> = items
         .iter()
         .map(|item| {
-            let id = item.get("id").and_then(Value::as_str).unwrap_or("").to_string();
-            let artwork = select_continue_watching_artwork_json(&item.to_string(), artwork_preference, is_horizontal);
+            let id = item
+                .get("id")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string();
+            let artwork = select_continue_watching_artwork_json(
+                &item.to_string(),
+                artwork_preference,
+                is_horizontal,
+            );
             let episode_line = format_episode_line_json(
                 item.get("lastEpisodeName").and_then(Value::as_str),
                 item.get("lastEpisodeSeason").and_then(Value::as_i64),
@@ -792,9 +950,54 @@ mod tests {
         .expect("badges");
         let result = result.as_array().unwrap();
 
-        assert_eq!(result.len(), 1, "s3 (no video data, not from a real CW list) should be dropped");
+        assert_eq!(
+            result.len(),
+            1,
+            "s3 (no video data, not from a real CW list) should be dropped"
+        );
         assert_eq!(result[0]["id"], "s1");
         assert_eq!(result[0]["lastVideoId"], "s1:1:3");
+        assert_eq!(result[0]["continueWatchingBadge"], "upNext");
+    }
+
+    #[test]
+    fn continue_watching_badges_do_not_double_advance_resolved_up_next_entries() {
+        let candidates = json!([{
+            "id": "s1",
+            "_id": "s1",
+            "type": "series",
+            "lastVideoId": "s1:2:3",
+            "lastEpisodeSeason": 2,
+            "lastEpisodeNumber": 3,
+            "timeOffset": 1,
+            "duration": 99999,
+            "continueWatchingBadge": "upNext",
+            "continueWatchingEpisodeResolved": true,
+            "savedAt": "2020-02-01T00:00:00Z",
+        }]);
+        let videos_by_series = json!({
+            "s1": [
+                { "id": "s1:2:3", "season": 2, "episode": 3, "released": "2020-01-01T00:00:00Z" },
+                { "id": "s1:2:4", "season": 2, "episode": 4, "released": "2020-01-08T00:00:00Z" },
+            ],
+        });
+        let now_ms = chrono::DateTime::parse_from_rfc3339("2021-01-01T00:00:00Z")
+            .unwrap()
+            .timestamp_millis();
+
+        let result = compute_continue_watching_badges_json(
+            &candidates.to_string(),
+            &videos_by_series.to_string(),
+            "{}",
+            now_ms,
+        )
+        .and_then(|json| serde_json::from_str::<Value>(&json).ok())
+        .expect("badges");
+        let result = result.as_array().unwrap();
+
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0]["lastVideoId"], "s1:2:3");
+        assert_eq!(result[0]["lastEpisodeNumber"], 3);
         assert_eq!(result[0]["continueWatchingBadge"], "upNext");
     }
 }
