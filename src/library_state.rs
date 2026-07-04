@@ -375,7 +375,12 @@ pub(crate) fn compute_continue_watching_badges_json(
                 }
                 NextEpisodeOutcome::Found(next) => next,
             };
-        apply_next_episode_badge(series_id, candidate, &next, now_ms);
+        let videos = videos_by_series
+            .get(series_id)
+            .and_then(Value::as_array)
+            .map(Vec::as_slice)
+            .unwrap_or(&[]);
+        apply_next_episode_badge(series_id, candidate, &next, videos, now_ms);
     }
 
     for id in &finished_series {
@@ -523,7 +528,13 @@ fn next_episode_for_candidate(
 
 // Computes the badge (upNext / newEpisode / scheduledEpisode) for advancing `candidate`
 // to `next`, and rewrites `candidate` in place to point at that episode.
-fn apply_next_episode_badge(series_id: &str, candidate: &mut Value, next: &Value, now_ms: i64) {
+fn apply_next_episode_badge(
+    series_id: &str,
+    candidate: &mut Value,
+    next: &Value,
+    videos: &[Value],
+    now_ms: i64,
+) {
     let existing_video_id = candidate
         .get("lastVideoId")
         .and_then(Value::as_str)
@@ -589,6 +600,18 @@ fn apply_next_episode_badge(series_id: &str, candidate: &mut Value, next: &Value
         candidate.get("savedAt").cloned().unwrap_or(Value::Null)
     };
 
+    let unwatched_ahead = if badge == "scheduledEpisode" {
+        0
+    } else {
+        let next_season = next.get("season").and_then(Value::as_i64).unwrap_or(0);
+        let next_episode = next
+            .get("episode")
+            .or_else(|| next.get("number"))
+            .and_then(Value::as_i64)
+            .unwrap_or(0);
+        count_released_after(videos, next_season, next_episode, now_ms)
+    };
+
     *candidate = json!({
         "id": series_id,
         "_id": series_id,
@@ -611,7 +634,23 @@ fn apply_next_episode_badge(series_id: &str, candidate: &mut Value, next: &Value
         "continueWatchingBadge": badge,
         "newEpisodeReleasedAt": released_str,
         "savedAt": saved_at_new,
+        "unwatchedAhead": unwatched_ahead,
     });
+}
+
+fn count_released_after(videos: &[Value], season: i64, episode: i64, now_ms: i64) -> i64 {
+    videos
+        .iter()
+        .filter(|v| {
+            let vs = v.get("season").and_then(Value::as_i64).unwrap_or(0);
+            let ve = v
+                .get("episode")
+                .or_else(|| v.get("number"))
+                .and_then(Value::as_i64)
+                .unwrap_or(0);
+            (vs > season || (vs == season && ve > episode)) && is_episode_released(v, now_ms)
+        })
+        .count() as i64
 }
 
 fn first_episode_after(videos: &[Value], season: i64, episode: i64) -> Option<Value> {
@@ -999,5 +1038,44 @@ mod tests {
         assert_eq!(result[0]["lastVideoId"], "s1:2:3");
         assert_eq!(result[0]["lastEpisodeNumber"], 3);
         assert_eq!(result[0]["continueWatchingBadge"], "upNext");
+    }
+
+    #[test]
+    fn continue_watching_badges_count_only_released_episodes_ahead() {
+        let candidates = json!([{
+            "id": "s1",
+            "_id": "s1",
+            "type": "series",
+            "lastVideoId": "s1:1:2",
+            "lastEpisodeSeason": 1,
+            "lastEpisodeNumber": 2,
+            "timeOffset": 1,
+            "duration": 99999,
+            "savedAt": "2020-02-01T00:00:00Z",
+        }]);
+        let videos_by_series = json!({
+            "s1": [
+                { "id": "s1:1:2", "season": 1, "episode": 2, "released": "2020-01-01T00:00:00Z" },
+                { "id": "s1:1:3", "season": 1, "episode": 3, "released": "2020-01-08T00:00:00Z" },
+                { "id": "s1:1:4", "season": 1, "episode": 4, "released": "2020-01-15T00:00:00Z" },
+                { "id": "s1:1:5", "season": 1, "episode": 5, "released": "2099-01-01T00:00:00Z" },
+            ],
+        });
+        let now_ms = chrono::DateTime::parse_from_rfc3339("2021-01-01T00:00:00Z")
+            .unwrap()
+            .timestamp_millis();
+
+        let result = compute_continue_watching_badges_json(
+            &candidates.to_string(),
+            &videos_by_series.to_string(),
+            "{}",
+            now_ms,
+        )
+        .and_then(|json| serde_json::from_str::<Value>(&json).ok())
+        .expect("badges");
+        let result = result.as_array().unwrap();
+
+        assert_eq!(result[0]["lastVideoId"], "s1:1:3");
+        assert_eq!(result[0]["unwatchedAhead"], 1);
     }
 }
