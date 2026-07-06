@@ -190,48 +190,35 @@ fn is_imdb_id(id: &str) -> bool {
         && id[2..].bytes().all(|b| b.is_ascii_digit())
 }
 
-pub(crate) fn tmdb_people_request_plan_json(
-    meta_json: &str,
-    api_key: &str,
-    language: &str,
-) -> Option<String> {
-    let meta: Value = serde_json::from_str(meta_json).ok()?;
+pub(crate) fn tmdb_people_request_plan(meta: &Value, api_key: &str, language: &str) -> Value {
     let id = meta.get("id").and_then(Value::as_str).unwrap_or("");
     let content_type = meta.get("type").and_then(Value::as_str).unwrap_or("");
 
     let (base_id, resolved) = tmdb_resolve_id_hint(id);
     if resolved {
-        return Some(
-            json!({ "creditsUrl": tmdb_credits_url(content_type, &base_id, api_key, language) })
-                .to_string(),
-        );
+        return json!({ "creditsUrl": tmdb_credits_url(content_type, &base_id, api_key, language) });
     }
 
     let imdb_id = id.split(':').next().unwrap_or("");
     if !is_imdb_id(imdb_id) {
-        return Some("{}".to_string());
+        return json!({});
     }
-    Some(
-        json!({
-            "findUrl": tmdb_api_url(
-                &format!("3/find/{imdb_id}"),
-                api_key,
-                language,
-                &[("external_source", "imdb_id")],
-            ),
-        })
-        .to_string(),
-    )
+    json!({
+        "findUrl": tmdb_api_url(
+            &format!("3/find/{imdb_id}"),
+            api_key,
+            language,
+            &[("external_source", "imdb_id")],
+        ),
+    })
 }
 
-pub(crate) fn tmdb_credits_url_from_find_json(
-    find_json: &str,
-    meta_json: &str,
+pub(crate) fn tmdb_credits_url_from_find(
+    find: &Value,
+    meta: &Value,
     api_key: &str,
     language: &str,
 ) -> Option<String> {
-    let find: Value = serde_json::from_str(find_json).ok()?;
-    let meta: Value = serde_json::from_str(meta_json).ok()?;
     let content_type = meta.get("type").and_then(Value::as_str).unwrap_or("");
     let key = if content_type == "series" {
         "tv_results"
@@ -255,15 +242,9 @@ fn normalize_person_name(name: &str) -> String {
         .join(" ")
 }
 
-pub(crate) fn tmdb_people_images_from_credits_json(
-    credits_json: &str,
-    links_json: &str,
-) -> Option<String> {
-    let credits: Value = serde_json::from_str(credits_json).ok()?;
-    let links: Vec<Value> = serde_json::from_str(links_json).ok()?;
-
+pub(crate) fn tmdb_people_images_from_credits(credits: &Value, links: &[Value]) -> Value {
     let mut wanted: std::collections::HashMap<String, String> = std::collections::HashMap::new();
-    for link in &links {
+    for link in links {
         if let Some(name) = link.get("name").and_then(Value::as_str) {
             wanted.insert(normalize_person_name(name), name.to_string());
         }
@@ -289,5 +270,5 @@ pub(crate) fn tmdb_people_images_from_credits_json(
         }
     }
 
-    serde_json::to_string(&Value::Object(images)).ok()
+    Value::Object(images)
 }

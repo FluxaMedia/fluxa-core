@@ -714,17 +714,20 @@ fn route_external_sync_anilist(method: &str, args_json: &str) -> Outcome {
             let now_ms = field(&args, "nowMs")?
                 .as_i64()
                 .ok_or_else(|| fail(ErrorKind::InvalidArgs, "nowMs must be a number"))?;
-            opt_json(external_sync::anilist_entries_to_sync_json(
-                field_str(&args, "entriesJson")?,
-                now_ms,
-            ))
+            let entries = field(&args, "entries")?
+                .as_array()
+                .ok_or_else(|| fail(ErrorKind::InvalidArgs, "entries must be an array"))?;
+            Ok(external_sync::anilist_entries_to_sync(entries, now_ms))
         }
         "mergeLibraryItemsById" => {
             let args = object(args_json)?;
-            into_json(external_sync::merge_library_items_by_id_json(
-                field_str(&args, "localJson")?,
-                field_str(&args, "incomingJson")?,
-            ))
+            let local = field(&args, "local")?
+                .as_array()
+                .ok_or_else(|| fail(ErrorKind::InvalidArgs, "local must be an array"))?;
+            let incoming = field(&args, "incoming")?
+                .as_array()
+                .ok_or_else(|| fail(ErrorKind::InvalidArgs, "incoming must be an array"))?;
+            Ok(external_sync::merge_library_items_by_id(local, incoming))
         }
 
         _ => Err(fail(
@@ -738,11 +741,16 @@ fn route_anime_detection(method: &str, args_json: &str) -> Outcome {
     match method {
         "detectAnimePlayback" => {
             let args = object(args_json)?;
-            into_json(anime_detection::detect_anime_playback_json(
-                field_str(&args, "metaJson")?,
-                field_str(&args, "episodeJson")?,
-                field_str(&args, "streamJson")?,
-                field_str(&args, "addonsJson")?,
+            let empty: Vec<Value> = Vec::new();
+            let addons = args
+                .get("addons")
+                .and_then(Value::as_array)
+                .unwrap_or(&empty);
+            Ok(anime_detection::detect_anime_playback(
+                args.get("meta").unwrap_or(&Value::Null),
+                args.get("episode").unwrap_or(&Value::Null),
+                args.get("stream").unwrap_or(&Value::Null),
+                addons,
             ))
         }
 
@@ -892,26 +900,31 @@ fn route_tmdb(method: &str, args_json: &str) -> Outcome {
         }
         "tmdbPeopleRequestPlan" => {
             let args = object(args_json)?;
-            opt_json(tmdb_plan::tmdb_people_request_plan_json(
-                field_str(&args, "metaJson")?,
+            Ok(tmdb_plan::tmdb_people_request_plan(
+                field(&args, "meta")?,
                 field_str(&args, "apiKey")?,
                 field_str(&args, "language")?,
             ))
         }
         "tmdbCreditsUrlFromFind" => {
             let args = object(args_json)?;
-            Ok(json!(tmdb_plan::tmdb_credits_url_from_find_json(
-                field_str(&args, "findJson")?,
-                field_str(&args, "metaJson")?,
+            Ok(json!(tmdb_plan::tmdb_credits_url_from_find(
+                field(&args, "find")?,
+                field(&args, "meta")?,
                 field_str(&args, "apiKey")?,
                 field_str(&args, "language")?,
             )))
         }
         "tmdbPeopleImagesFromCredits" => {
             let args = object(args_json)?;
-            opt_json(tmdb_plan::tmdb_people_images_from_credits_json(
-                field_str(&args, "creditsJson")?,
-                field_str(&args, "linksJson")?,
+            let empty: Vec<Value> = Vec::new();
+            let links = args
+                .get("links")
+                .and_then(Value::as_array)
+                .unwrap_or(&empty);
+            Ok(tmdb_plan::tmdb_people_images_from_credits(
+                field(&args, "credits")?,
+                links,
             ))
         }
 
@@ -1087,27 +1100,27 @@ mod tests {
     fn new_sync_and_detection_methods_are_routed() {
         let detect = parse(&core_invoke(
             "detectAnimePlayback",
-            r#"{"metaJson":"{\"genres\":[\"Anime\"]}","episodeJson":"null","streamJson":"null","addonsJson":"[]"}"#,
+            r#"{"meta":{"genres":["Anime"]},"episode":null,"stream":null,"addons":[]}"#,
         ));
         assert_eq!(detect["ok"], json!(true));
         assert_eq!(detect["value"]["confidence"], json!(65));
 
         let sync = parse(&core_invoke(
             "anilistEntriesToSync",
-            r#"{"entriesJson":"[]","nowMs":0}"#,
+            r#"{"entries":[],"nowMs":0}"#,
         ));
         assert_eq!(sync["ok"], json!(true));
         assert_eq!(sync["value"]["watchlist"], json!([]));
 
         let merged = parse(&core_invoke(
             "mergeLibraryItemsById",
-            r#"{"localJson":"[]","incomingJson":"[{\"id\":\"a\"}]"}"#,
+            r#"{"local":[],"incoming":[{"id":"a"}]}"#,
         ));
         assert_eq!(merged["value"][0]["id"], json!("a"));
 
         let plan = parse(&core_invoke(
             "tmdbPeopleRequestPlan",
-            r#"{"metaJson":"{\"id\":\"tt123\",\"type\":\"movie\"}","apiKey":"k","language":"en"}"#,
+            r#"{"meta":{"id":"tt123","type":"movie"},"apiKey":"k","language":"en"}"#,
         ));
         assert_eq!(
             plan["value"]["findUrl"],
@@ -1116,7 +1129,7 @@ mod tests {
 
         let images = parse(&core_invoke(
             "tmdbPeopleImagesFromCredits",
-            r#"{"creditsJson":"{\"cast\":[{\"name\":\"Jane Doe\",\"profile_path\":\"/x.jpg\"}]}","linksJson":"[{\"name\":\"jane  doe\"}]"}"#,
+            r#"{"credits":{"cast":[{"name":"Jane Doe","profile_path":"/x.jpg"}]},"links":[{"name":"jane  doe"}]}"#,
         ));
         assert_eq!(
             images["value"]["jane  doe"],

@@ -67,17 +67,12 @@ fn push_text(parts: &mut Vec<String>, value: Option<&Value>) {
     }
 }
 
-pub(crate) fn detect_anime_playback_json(
-    meta_json: &str,
-    episode_json: &str,
-    stream_json: &str,
-    addons_json: &str,
-) -> String {
-    let meta: Value = serde_json::from_str(meta_json).unwrap_or(Value::Null);
-    let episode: Value = serde_json::from_str(episode_json).unwrap_or(Value::Null);
-    let stream: Value = serde_json::from_str(stream_json).unwrap_or(Value::Null);
-    let addons: Vec<Value> = serde_json::from_str(addons_json).unwrap_or_default();
-
+pub(crate) fn detect_anime_playback(
+    meta: &Value,
+    episode: &Value,
+    stream: &Value,
+    addons: &[Value],
+) -> Value {
     let mut confidence: i64 = 0;
     let mut reasons: Vec<&str> = Vec::new();
 
@@ -152,7 +147,7 @@ pub(crate) fn detect_anime_playback_json(
     }
 
     let mut addon_parts: Vec<String> = Vec::new();
-    for addon in &addons {
+    for addon in addons {
         for value in [
             addon.get("id"),
             addon.get("name"),
@@ -201,7 +196,6 @@ pub(crate) fn detect_anime_playback_json(
         "confidence": clamped,
         "reasons": reasons,
     })
-    .to_string()
 }
 
 #[cfg(test)]
@@ -210,7 +204,12 @@ mod tests {
     use serde_json::Value;
 
     fn detect(meta: &str, stream: &str) -> Value {
-        serde_json::from_str(&detect_anime_playback_json(meta, "null", stream, "[]")).unwrap()
+        detect_anime_playback(
+            &serde_json::from_str(meta).unwrap(),
+            &Value::Null,
+            &serde_json::from_str(stream).unwrap(),
+            &[],
+        )
     }
 
     #[test]
