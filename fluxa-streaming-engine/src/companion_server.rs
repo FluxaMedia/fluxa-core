@@ -71,7 +71,11 @@ async fn require_companion_token(request: Request, next: Next) -> Response {
     ) {
         return next.run(request).await;
     }
-    (StatusCode::UNAUTHORIZED, Json(json!({ "error": "unauthorized" }))).into_response()
+    (
+        StatusCode::UNAUTHORIZED,
+        Json(json!({ "error": "unauthorized" })),
+    )
+        .into_response()
 }
 
 async fn start_torrent(
@@ -91,12 +95,9 @@ async fn start_torrent_inner(state: &AppState, body: StartTorrentBody) -> Result
         None => {
             let cache_dir = std::env::temp_dir().join("fluxa-web-torrent-cache");
             let access_token = std::env::var("FLUXA_COMPANION_TORRENT_TOKEN").unwrap_or_default();
-            let server_json = crate::start_torrent_server(
-                &cache_dir.to_string_lossy(),
-                0,
-                &access_token,
-            )
-                .ok_or_else(|| "failed to start torrent server".to_string())?;
+            let server_json =
+                crate::start_torrent_server(&cache_dir.to_string_lossy(), 0, &access_token)
+                    .ok_or_else(|| "failed to start torrent server".to_string())?;
             let server: Value = serde_json::from_str(&server_json)
                 .map_err(|e| format!("invalid torrent server response: {e}"))?;
             let url = server
@@ -112,18 +113,21 @@ async fn start_torrent_inner(state: &AppState, body: StartTorrentBody) -> Result
 
     apply_torrent_preferences(&base_url, body.preferences.as_ref());
 
-    let stream: Value = serde_json::from_str(&body.stream_json)
-        .map_err(|e| format!("invalid stream json: {e}"))?;
+    let stream: Value =
+        serde_json::from_str(&body.stream_json).map_err(|e| format!("invalid stream json: {e}"))?;
     let playback_json = FluxaCore::stream_playback_info_json(&body.stream_json)
         .ok_or_else(|| "stream playback info could not be resolved".to_string())?;
-    let playback: Value = serde_json::from_str(&playback_json)
-        .map_err(|e| format!("invalid playback info: {e}"))?;
+    let playback: Value =
+        serde_json::from_str(&playback_json).map_err(|e| format!("invalid playback info: {e}"))?;
     let link = playback
         .get("playableUrl")
         .and_then(Value::as_str)
         .ok_or_else(|| "torrent stream has no playable link".to_string())?;
 
-    let requested_file_idx = stream.get("fileIdx").and_then(Value::as_i64).map(|v| v as i32);
+    let requested_file_idx = stream
+        .get("fileIdx")
+        .and_then(Value::as_i64)
+        .map(|v| v as i32);
     let preferred_filename = stream
         .get("behaviorHints")
         .and_then(|hints| hints.get("filename"))
@@ -181,10 +185,17 @@ fn apply_torrent_preferences(base_url: &str, preferences: Option<&Value>) {
     };
     let url = format!("{}/settings", base_url.trim_end_matches('/'));
     tokio::spawn(async move {
-        let Ok(client) = reqwest::Client::builder().timeout(std::time::Duration::from_secs(5)).build() else {
+        let Ok(client) = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(5))
+            .build()
+        else {
             return;
         };
-        let _ = client.post(&url).json(&json!({ "PreloadSize": preload_size })).send().await;
+        let _ = client
+            .post(&url)
+            .json(&json!({ "PreloadSize": preload_size }))
+            .send()
+            .await;
     });
 }
 

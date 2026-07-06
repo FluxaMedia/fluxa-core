@@ -39,9 +39,15 @@ async fn forward(
 ) -> Result<String, (StatusCode, String)> {
     let res = res.map_err(|e| (StatusCode::BAD_GATEWAY, e.to_string()))?;
     let status = res.status();
-    let text = res.text().await.map_err(|e| (StatusCode::BAD_GATEWAY, e.to_string()))?;
+    let text = res
+        .text()
+        .await
+        .map_err(|e| (StatusCode::BAD_GATEWAY, e.to_string()))?;
     if !status.is_success() {
-        return Err((StatusCode::BAD_GATEWAY, format!("{failure_label} failed: HTTP {status}: {text}")));
+        return Err((
+            StatusCode::BAD_GATEWAY,
+            format!("{failure_label} failed: HTTP {status}: {text}"),
+        ));
     }
     Ok(text)
 }
@@ -87,7 +93,10 @@ async fn mal_exchange(body: ExchangeBody) -> Result<String, (StatusCode, String)
             ("grant_type", "authorization_code".to_string()),
             ("code", body.code.clone()),
             ("redirect_uri", redirect_uri("mal")),
-            ("code_verifier", body.code_verifier.clone().unwrap_or_default()),
+            (
+                "code_verifier",
+                body.code_verifier.clone().unwrap_or_default(),
+            ),
         ])
         .send()
         .await;
@@ -99,7 +108,10 @@ async fn handle_exchange(Path(service): Path<String>, Json(body): Json<ExchangeB
         "trakt" => trakt_exchange(body).await,
         "simkl" => simkl_exchange(body).await,
         "mal" => mal_exchange(body).await,
-        _ => Err((StatusCode::NOT_FOUND, format!("unknown oauth service `{service}`"))),
+        _ => Err((
+            StatusCode::NOT_FOUND,
+            format!("unknown oauth service `{service}`"),
+        )),
     };
     match result {
         Ok(text) => (StatusCode::OK, text).into_response(),

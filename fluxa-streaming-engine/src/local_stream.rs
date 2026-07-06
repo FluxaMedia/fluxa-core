@@ -1,6 +1,6 @@
 use serde_json::json;
-use std::collections::HashMap;
 use std::collections::hash_map::DefaultHasher;
+use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::io::{BufRead, BufReader, Write};
 use std::net::{TcpListener, TcpStream};
@@ -298,7 +298,10 @@ mod tests {
             .collect();
 
         assert!(ActiveConnectionGuard::try_acquire(counter.clone()).is_none());
-        assert_eq!(counter.load(Ordering::Acquire), MAX_LOCAL_STREAM_CONNECTIONS);
+        assert_eq!(
+            counter.load(Ordering::Acquire),
+            MAX_LOCAL_STREAM_CONNECTIONS
+        );
 
         drop(guards);
         assert_eq!(counter.load(Ordering::Acquire), 0);

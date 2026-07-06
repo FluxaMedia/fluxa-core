@@ -1,5 +1,8 @@
 use crate::chapters::parse_mkv_chapters_json;
-use crate::dv_rewrite::{dv_auto_detect_was_iptpqc2, dv_get_current_l1_json, dv_get_stream_stats_json, dv_rewrite_segment_bytes, dv_rpu_self_test, start_dv_rewrite_local_stream_server};
+use crate::dv_rewrite::{
+    dv_auto_detect_was_iptpqc2, dv_get_current_l1_json, dv_get_stream_stats_json,
+    dv_rewrite_segment_bytes, dv_rpu_self_test, start_dv_rewrite_local_stream_server,
+};
 use crate::local_stream::{start_local_stream_server, stop_local_stream_server};
 use crate::torrent_engine;
 use jni::objects::{JByteArray, JClass, JString};
@@ -88,7 +91,11 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaStreamingNative_
         let result = read_jstring(&mut env, &server_id)
             .map(|server_id| stop_local_stream_server(&server_id))
             .unwrap_or(false);
-        if result { 1 } else { 0 }
+        if result {
+            1
+        } else {
+            0
+        }
     }))
     .unwrap_or(0)
 }
@@ -122,7 +129,11 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaStreamingNative_
     _class: JObject<'_>,
 ) -> JBoolean {
     std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        if torrent_engine::stop_torrent_server() { 1 } else { 0 }
+        if torrent_engine::stop_torrent_server() {
+            1
+        } else {
+            0
+        }
     }))
     .unwrap_or(0)
 }
@@ -135,7 +146,11 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaStreamingNative_
     _class: JObject<'_>,
 ) -> JBoolean {
     std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        if dv_rpu_self_test() { 1 } else { 0 }
+        if dv_rpu_self_test() {
+            1
+        } else {
+            0
+        }
     }))
     .unwrap_or(0)
 }
@@ -148,7 +163,11 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaStreamingNative_
     _class: JObject<'_>,
 ) -> JBoolean {
     std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        if dv_auto_detect_was_iptpqc2() { 1 } else { 0 }
+        if dv_auto_detect_was_iptpqc2() {
+            1
+        } else {
+            0
+        }
     }))
     .unwrap_or(0)
 }
@@ -166,7 +185,9 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaStreamingNative_
     remove_hdr10plus: JBoolean,
 ) -> jbyteArray {
     std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        let empty = env.new_byte_array(0).ok()
+        let empty = env
+            .new_byte_array(0)
+            .ok()
             .map(|a| a.into_raw())
             .unwrap_or(ptr::null_mut());
 

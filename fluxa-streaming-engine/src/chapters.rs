@@ -70,12 +70,17 @@ fn parse_chapter_atom(buf: &[u8], mut pos: usize, end: usize) -> Option<MkvChapt
         }
         pos = content_end.max(pos + 1);
     }
-    start_ms.map(|ms| MkvChapter { title: title.unwrap_or_default(), start_ms: ms })
+    start_ms.map(|ms| MkvChapter {
+        title: title.unwrap_or_default(),
+        start_ms: ms,
+    })
 }
 
 fn parse_edition_entry(buf: &[u8], mut pos: usize, end: usize, out: &mut Vec<MkvChapter>) {
     while pos < end {
-        let Some((id, _, content_start, content_end)) = read_element(buf, pos, end) else { return };
+        let Some((id, _, content_start, content_end)) = read_element(buf, pos, end) else {
+            return;
+        };
         if id == ID_CHAPTER_ATOM {
             if let Some(chapter) = parse_chapter_atom(buf, content_start, content_end) {
                 out.push(chapter);
@@ -88,7 +93,9 @@ fn parse_edition_entry(buf: &[u8], mut pos: usize, end: usize, out: &mut Vec<Mkv
 fn parse_chapters_element(buf: &[u8], mut pos: usize, end: usize) -> Vec<MkvChapter> {
     let mut chapters = Vec::new();
     while pos < end {
-        let Some((id, _, content_start, content_end)) = read_element(buf, pos, end) else { break };
+        let Some((id, _, content_start, content_end)) = read_element(buf, pos, end) else {
+            break;
+        };
         if id == ID_EDITION_ENTRY {
             parse_edition_entry(buf, content_start, content_end, &mut chapters);
         }
@@ -101,7 +108,9 @@ fn parse_chapters_element(buf: &[u8], mut pos: usize, end: usize) -> Vec<MkvChap
 /// as a `Cluster` is reached (chapter metadata always precedes frame data).
 fn scan_segment(buf: &[u8], mut pos: usize, end: usize) -> Vec<MkvChapter> {
     while pos < end {
-        let Some((id, _, content_start, content_end)) = read_element(buf, pos, end) else { break };
+        let Some((id, _, content_start, content_end)) = read_element(buf, pos, end) else {
+            break;
+        };
         if id == ID_CLUSTER {
             break;
         }
@@ -125,7 +134,9 @@ pub(crate) fn parse_mkv_chapters(buf: &[u8]) -> Vec<MkvChapter> {
         }
     }
     while pos < end {
-        let Some((id, _, content_start, content_end)) = read_element(buf, pos, end) else { break };
+        let Some((id, _, content_start, content_end)) = read_element(buf, pos, end) else {
+            break;
+        };
         if id == ID_SEGMENT {
             return scan_segment(buf, content_start, content_end);
         }
@@ -149,7 +160,8 @@ mod tests {
     use crate::dv_rewrite::encode_ebml_element;
 
     fn chapter_atom(start_ms: u64, title: &str) -> Vec<u8> {
-        let time_start = encode_ebml_element(ID_CHAPTER_TIME_START, &(start_ms * 1_000_000).to_be_bytes());
+        let time_start =
+            encode_ebml_element(ID_CHAPTER_TIME_START, &(start_ms * 1_000_000).to_be_bytes());
         let chapter_string = encode_ebml_element(ID_CHAPTER_STRING, title.as_bytes());
         let display = encode_ebml_element(ID_CHAPTER_DISPLAY, &chapter_string);
         let mut content = Vec::new();
@@ -159,7 +171,10 @@ mod tests {
     }
 
     fn segment_with_chapters(chapters: &[(u64, &str)]) -> Vec<u8> {
-        let atoms: Vec<u8> = chapters.iter().flat_map(|(ms, title)| chapter_atom(*ms, title)).collect();
+        let atoms: Vec<u8> = chapters
+            .iter()
+            .flat_map(|(ms, title)| chapter_atom(*ms, title))
+            .collect();
         let edition_entry = encode_ebml_element(ID_EDITION_ENTRY, &atoms);
         let chapters_elem = encode_ebml_element(ID_CHAPTERS, &edition_entry);
         encode_ebml_element(ID_SEGMENT, &chapters_elem)
@@ -169,7 +184,13 @@ mod tests {
     fn parses_single_chapter() {
         let segment = segment_with_chapters(&[(0, "OP")]);
         let chapters = parse_mkv_chapters(&segment);
-        assert_eq!(chapters, vec![MkvChapter { title: "OP".to_string(), start_ms: 0 }]);
+        assert_eq!(
+            chapters,
+            vec![MkvChapter {
+                title: "OP".to_string(),
+                start_ms: 0
+            }]
+        );
     }
 
     #[test]
@@ -179,9 +200,18 @@ mod tests {
         assert_eq!(
             chapters,
             vec![
-                MkvChapter { title: "OP".to_string(), start_ms: 0 },
-                MkvChapter { title: "Episode".to_string(), start_ms: 90_000 },
-                MkvChapter { title: "ED".to_string(), start_ms: 1_320_000 },
+                MkvChapter {
+                    title: "OP".to_string(),
+                    start_ms: 0
+                },
+                MkvChapter {
+                    title: "Episode".to_string(),
+                    start_ms: 90_000
+                },
+                MkvChapter {
+                    title: "ED".to_string(),
+                    start_ms: 1_320_000
+                },
             ]
         );
     }
@@ -207,7 +237,13 @@ mod tests {
         let segment = encode_ebml_element(ID_SEGMENT, &segment_content);
 
         let chapters = parse_mkv_chapters(&segment);
-        assert_eq!(chapters, vec![MkvChapter { title: "Intro".to_string(), start_ms: 0 }]);
+        assert_eq!(
+            chapters,
+            vec![MkvChapter {
+                title: "Intro".to_string(),
+                start_ms: 0
+            }]
+        );
     }
 
     #[test]

@@ -39,7 +39,9 @@ pub(crate) fn dv_get_current_l1_json() -> String {
 
 fn store_l1_from_rpu(rpu: &DoviRpu) {
     let Some(dm) = &rpu.vdr_dm_data else { return };
-    let Some(ExtMetadataBlock::Level1(l1)) = dm.get_block(1) else { return };
+    let Some(ExtMetadataBlock::Level1(l1)) = dm.get_block(1) else {
+        return;
+    };
     LAST_L1_MIN_PQ.store(l1.min_pq as u32, Ordering::Relaxed);
     LAST_L1_MAX_PQ.store(l1.max_pq as u32, Ordering::Relaxed);
     LAST_L1_AVG_PQ.store(l1.avg_pq as u32, Ordering::Relaxed);
@@ -95,9 +97,9 @@ pub(crate) fn dv_rewrite_segment_bytes(
 // Reset at the start of each rpu_convert stream; read at any time from JNI.
 
 static DV_STAT_RPU_CONVERTED: AtomicU32 = AtomicU32::new(0);
-static DV_STAT_RPU_FAILED:    AtomicU32 = AtomicU32::new(0);
-static DV_STAT_EL_DROPPED:    AtomicU32 = AtomicU32::new(0);
-static DV_STAT_SEGMENTS:      AtomicU32 = AtomicU32::new(0);
+static DV_STAT_RPU_FAILED: AtomicU32 = AtomicU32::new(0);
+static DV_STAT_EL_DROPPED: AtomicU32 = AtomicU32::new(0);
+static DV_STAT_SEGMENTS: AtomicU32 = AtomicU32::new(0);
 
 fn dv_stats_reset() {
     DV_STAT_RPU_CONVERTED.store(0, Ordering::Relaxed);
@@ -185,8 +187,7 @@ pub(crate) fn start_dv_rewrite_local_stream_server(
     dv_config_json: &str,
     preferred_port: i32,
 ) -> Option<String> {
-    let headers =
-        serde_json::from_str::<HashMap<String, String>>(headers_json).unwrap_or_default();
+    let headers = serde_json::from_str::<HashMap<String, String>>(headers_json).unwrap_or_default();
     let dv_config = Arc::new(serde_json::from_str::<DvRewriteConfig>(dv_config_json).ok()?);
 
     let id = next_local_stream_id();
@@ -222,10 +223,13 @@ pub(crate) fn start_dv_rewrite_local_stream_server(
         }
     });
 
-    local_stream_servers()
-        .lock()
-        .ok()?
-        .insert(id.clone(), LocalStreamHandle { stop, thread: Some(thread) });
+    local_stream_servers().lock().ok()?.insert(
+        id.clone(),
+        LocalStreamHandle {
+            stop,
+            thread: Some(thread),
+        },
+    );
 
     serde_json::to_string(&json!({
         "id": id.clone(),
@@ -270,7 +274,13 @@ fn handle_dv_stream(mut stream: TcpStream, config: LocalStreamConfig, dv: &DvRew
         status.as_u16(),
         status.canonical_reason().unwrap_or("OK")
     );
-    for name in ["content-type", "content-range", "accept-ranges", "etag", "last-modified"] {
+    for name in [
+        "content-type",
+        "content-range",
+        "accept-ranges",
+        "etag",
+        "last-modified",
+    ] {
         if let Some(v) = response.headers().get(name).and_then(|v| v.to_str().ok()) {
             let _ = write!(stream, "{name}: {v}\r\n");
         }
@@ -283,9 +293,13 @@ fn handle_dv_stream(mut stream: TcpStream, config: LocalStreamConfig, dv: &DvRew
 
     match dv.action.as_str() {
         "dvcc_strip" => stream_dvcc_strip(&mut response, &mut stream),
-        "rpu_convert" => {
-            stream_rpu_convert(&mut response, &mut stream, dv.rpu_mode, dv.zero_level5, dv.remove_hdr10plus)
-        }
+        "rpu_convert" => stream_rpu_convert(
+            &mut response,
+            &mut stream,
+            dv.rpu_mode,
+            dv.zero_level5,
+            dv.remove_hdr10plus,
+        ),
         "hdr10plus_strip" => stream_hdr10plus_strip(&mut response, &mut stream),
         "auto_detect" => stream_auto_detect(&mut response, &mut stream, dv),
         _ => {
@@ -322,10 +336,15 @@ fn handle_hls_rpu_convert(
         } else {
             serve_hls_segment_rpu_convert(&mut downstream, &config, dv, &seg_url, request);
         }
-    } else if request.path == stream_path
-        || request.path.starts_with(&format!("{}?", stream_path))
+    } else if request.path == stream_path || request.path.starts_with(&format!("{}?", stream_path))
     {
-        serve_hls_manifest_rewritten(&mut downstream, &config, dv, &config.target_url.clone(), request);
+        serve_hls_manifest_rewritten(
+            &mut downstream,
+            &config,
+            dv,
+            &config.target_url.clone(),
+            request,
+        );
     } else {
         write_simple_response(&mut downstream, "404 Not Found");
     }
@@ -338,7 +357,12 @@ fn serve_hls_manifest_rewritten(
     manifest_url: &str,
     request: &crate::local_stream::ParsedLocalRequest,
 ) {
-    let mut upstream = match fetch_arbitrary_url(&config.client, manifest_url, &config.headers, &request.headers) {
+    let mut upstream = match fetch_arbitrary_url(
+        &config.client,
+        manifest_url,
+        &config.headers,
+        &request.headers,
+    ) {
         Ok(r) => r,
         Err(_) => {
             write_simple_response(downstream, "502 Bad Gateway");
@@ -359,7 +383,10 @@ fn serve_hls_manifest_rewritten(
         }
     };
 
-    let proxy_seg_base = format!("http://127.0.0.1:{}/stream/{}/seg?u=", config.port, config.id);
+    let proxy_seg_base = format!(
+        "http://127.0.0.1:{}/stream/{}/seg?u=",
+        config.port, config.id
+    );
     let rewritten = rewrite_hls_manifest_for_dv(&body, manifest_url, &proxy_seg_base);
     let bytes = rewritten.as_bytes();
 
@@ -380,16 +407,22 @@ fn serve_hls_segment_rpu_convert(
     seg_url: &str,
     request: &crate::local_stream::ParsedLocalRequest,
 ) {
-    let mut response = match fetch_arbitrary_url(&config.client, seg_url, &config.headers, &request.headers) {
-        Ok(r) => r,
-        Err(_) => {
-            write_simple_response(downstream, "502 Bad Gateway");
-            return;
-        }
-    };
+    let mut response =
+        match fetch_arbitrary_url(&config.client, seg_url, &config.headers, &request.headers) {
+            Ok(r) => r,
+            Err(_) => {
+                write_simple_response(downstream, "502 Bad Gateway");
+                return;
+            }
+        };
 
     let status = response.status();
-    let _ = write!(downstream, "HTTP/1.1 {} {}\r\n", status.as_u16(), status.canonical_reason().unwrap_or("OK"));
+    let _ = write!(
+        downstream,
+        "HTTP/1.1 {} {}\r\n",
+        status.as_u16(),
+        status.canonical_reason().unwrap_or("OK")
+    );
     for name in ["content-type", "content-range", "accept-ranges"] {
         if let Some(v) = response.headers().get(name).and_then(|v| v.to_str().ok()) {
             let _ = write!(downstream, "{name}: {v}\r\n");
@@ -398,7 +431,13 @@ fn serve_hls_segment_rpu_convert(
     let _ = write!(downstream, "Connection: close\r\n\r\n");
 
     if request.method != "HEAD" {
-        stream_rpu_convert(&mut response, downstream, dv.rpu_mode, dv.zero_level5, dv.remove_hdr10plus);
+        stream_rpu_convert(
+            &mut response,
+            downstream,
+            dv.rpu_mode,
+            dv.zero_level5,
+            dv.remove_hdr10plus,
+        );
     }
 }
 
@@ -529,7 +568,9 @@ fn hls_normalize_url_path(url: String) -> String {
     let mut parts: Vec<&str> = Vec::new();
     for seg in path.split('/') {
         match seg {
-            ".." => { parts.pop(); }
+            ".." => {
+                parts.pop();
+            }
             "." | "" => {}
             s => parts.push(s),
         }
@@ -542,15 +583,43 @@ fn hls_percent_encode(s: &str) -> String {
     let mut out = String::with_capacity(s.len() * 3);
     for byte in s.bytes() {
         match byte {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9'
-            | b'-' | b'_' | b'.' | b'~' | b':' | b'/' | b'?' | b'#' | b'@' | b'!' | b'$'
-            | b'&' | b'\'' | b'(' | b')' | b'*' | b'+' | b',' | b';' | b'=' => {
+            b'A'..=b'Z'
+            | b'a'..=b'z'
+            | b'0'..=b'9'
+            | b'-'
+            | b'_'
+            | b'.'
+            | b'~'
+            | b':'
+            | b'/'
+            | b'?'
+            | b'#'
+            | b'@'
+            | b'!'
+            | b'$'
+            | b'&'
+            | b'\''
+            | b'('
+            | b')'
+            | b'*'
+            | b'+'
+            | b','
+            | b';'
+            | b'=' => {
                 out.push(byte as char);
             }
             b => {
                 out.push('%');
-                out.push(char::from_digit((b >> 4) as u32, 16).unwrap().to_ascii_uppercase());
-                out.push(char::from_digit((b & 0xf) as u32, 16).unwrap().to_ascii_uppercase());
+                out.push(
+                    char::from_digit((b >> 4) as u32, 16)
+                        .unwrap()
+                        .to_ascii_uppercase(),
+                );
+                out.push(
+                    char::from_digit((b & 0xf) as u32, 16)
+                        .unwrap()
+                        .to_ascii_uppercase(),
+                );
             }
         }
     }
@@ -593,12 +662,14 @@ fn stream_dvcc_strip(upstream: &mut reqwest::blocking::Response, downstream: &mu
         .and_then(|v| v.to_str().ok())
         .map(str::to_owned);
 
-    let (file_offset, range_source): (u64, &str) =
-        match raw_range_header.as_deref().and_then(parse_content_range_start) {
-            Some(offset) => (offset, "content_range_header"),
-            None if raw_range_header.is_some() => (0, "content_range_parse_error_assumed_zero"),
-            None => (0, "missing_assumed_zero"),
-        };
+    let (file_offset, range_source): (u64, &str) = match raw_range_header
+        .as_deref()
+        .and_then(parse_content_range_start)
+    {
+        Some(offset) => (offset, "content_range_header"),
+        None if raw_range_header.is_some() => (0, "content_range_parse_error_assumed_zero"),
+        None => (0, "missing_assumed_zero"),
+    };
 
     eprintln!(
         "[fluxa/dvcc_strip] range_header={range_source} file_offset={file_offset} \
@@ -774,12 +845,14 @@ fn stream_auto_detect(
         .and_then(|v| v.to_str().ok())
         .map(str::to_owned);
 
-    let (file_offset, range_source): (u64, &str) =
-        match raw_range_header.as_deref().and_then(parse_content_range_start) {
-            Some(offset) => (offset, "content_range_header"),
-            None if raw_range_header.is_some() => (0, "content_range_parse_error_assumed_zero"),
-            None => (0, "missing_assumed_zero"),
-        };
+    let (file_offset, range_source): (u64, &str) = match raw_range_header
+        .as_deref()
+        .and_then(parse_content_range_start)
+    {
+        Some(offset) => (offset, "content_range_header"),
+        None if raw_range_header.is_some() => (0, "content_range_parse_error_assumed_zero"),
+        None => (0, "missing_assumed_zero"),
+    };
 
     eprintln!(
         "[fluxa/auto_detect] range_header={range_source} file_offset={file_offset} \
@@ -814,8 +887,8 @@ fn stream_auto_detect(
         }
         Some(info) => {
             let not_has_fallback = info.not_has_hdr10_fallback();
-            let device_supports_dv = config.device_has_dv_decoder
-                && (config.device_has_dv_display || not_has_fallback);
+            let device_supports_dv =
+                config.device_has_dv_decoder && (config.device_has_dv_display || not_has_fallback);
 
             // P5 has a HEVC base layer (IPTPQc2-encoded) with no HDR10 fallback.
             // Strip its DVCC box so ExoPlayer decodes it as HEVC on non-DV devices.
@@ -829,7 +902,11 @@ fn stream_auto_detect(
             DV_LAST_AUTO_DETECT_IPTPQC2.store(is_p5_iptpqc2, Ordering::Relaxed);
 
             let decision = if strip {
-                if is_p5_iptpqc2 { "dvcc_strip_p5_iptpqc2" } else { "dvcc_strip_to_hdr10" }
+                if is_p5_iptpqc2 {
+                    "dvcc_strip_p5_iptpqc2"
+                } else {
+                    "dvcc_strip_to_hdr10"
+                }
             } else if device_supports_dv {
                 "keep_dv_native"
             } else {
@@ -889,11 +966,8 @@ fn stream_rpu_convert(
         || (n >= 4 && probe[0] == 0 && probe[1] == 0 && probe[2] == 0 && probe[3] == 1);
 
     // EBML magic: 0x1A 0x45 0xDF 0xA3
-    let is_ebml = n >= 4
-        && probe[0] == 0x1A
-        && probe[1] == 0x45
-        && probe[2] == 0xDF
-        && probe[3] == 0xA3;
+    let is_ebml =
+        n >= 4 && probe[0] == 0x1A && probe[1] == 0x45 && probe[2] == 0xDF && probe[3] == 0xA3;
 
     if is_ebml {
         stream_rpu_convert_mkv(&probe[..n], upstream, downstream, rpu_mode, zero_level5);
@@ -901,14 +975,23 @@ fn stream_rpu_convert(
     }
 
     if !is_annexb {
-        stream_rpu_convert_fmp4(&probe[..n], upstream, downstream, rpu_mode, zero_level5, remove_hdr10plus);
+        stream_rpu_convert_fmp4(
+            &probe[..n],
+            upstream,
+            downstream,
+            rpu_mode,
+            zero_level5,
+            remove_hdr10plus,
+        );
         return;
     }
 
     // Annex-B confirmed — run NAL rewrite, feeding probe bytes as the first chunk.
     let mut state = NalRewriteState::new_rpu_convert(rpu_mode, zero_level5, remove_hdr10plus);
     let out = state.process(&probe[..n]);
-    if downstream.write_all(&out).is_err() { return; }
+    if downstream.write_all(&out).is_err() {
+        return;
+    }
     let mut buf = [0u8; 65536];
     loop {
         let r = upstream.read(&mut buf).unwrap_or(0);
@@ -921,7 +1004,9 @@ fn stream_rpu_convert(
             break;
         }
         let out = state.process(&buf[..r]);
-        if downstream.write_all(&out).is_err() { break; }
+        if downstream.write_all(&out).is_err() {
+            break;
+        }
     }
 }
 
@@ -1035,7 +1120,9 @@ impl FMp4NalRewriter {
                             // size=1: 64-bit extended size — rare, treat as opaque forward
                             1 => {
                                 out.extend_from_slice(&header);
-                                FMp4State::Forward { remaining: u64::MAX }
+                                FMp4State::Forward {
+                                    remaining: u64::MAX,
+                                }
                             }
                             n => {
                                 let content = (n as u64).saturating_sub(8);
@@ -1047,7 +1134,7 @@ impl FMp4NalRewriter {
                                     // Buffer the mdat payload; write corrected header after processing.
                                     FMp4State::Mdat {
                                         buf: Vec::with_capacity(
-                                            content.min(32 * 1024 * 1024) as usize,
+                                            content.min(32 * 1024 * 1024) as usize
                                         ),
                                         remaining: content,
                                     }
@@ -1057,7 +1144,9 @@ impl FMp4NalRewriter {
                     } else {
                         out.extend_from_slice(&header);
                         match size_field {
-                            0 | 1 => FMp4State::Forward { remaining: u64::MAX },
+                            0 | 1 => FMp4State::Forward {
+                                remaining: u64::MAX,
+                            },
                             n => {
                                 let content = (n as u64).saturating_sub(8);
                                 if content == 0 {
@@ -1072,8 +1161,11 @@ impl FMp4NalRewriter {
 
                 FMp4State::Forward { mut remaining } => {
                     let available = (input.len() - pos) as u64;
-                    let take =
-                        if remaining == u64::MAX { available } else { available.min(remaining) };
+                    let take = if remaining == u64::MAX {
+                        available
+                    } else {
+                        available.min(remaining)
+                    };
                     out.extend_from_slice(&input[pos..pos + take as usize]);
                     pos += take as usize;
                     if remaining != u64::MAX {
@@ -1084,11 +1176,16 @@ impl FMp4NalRewriter {
                             FMp4State::Forward { remaining }
                         };
                     } else {
-                        self.state = FMp4State::Forward { remaining: u64::MAX };
+                        self.state = FMp4State::Forward {
+                            remaining: u64::MAX,
+                        };
                     }
                 }
 
-                FMp4State::Mdat { mut buf, mut remaining } => {
+                FMp4State::Mdat {
+                    mut buf,
+                    mut remaining,
+                } => {
                     let available = (input.len() - pos) as u64;
                     let take = available.min(remaining) as usize;
                     buf.extend_from_slice(&input[pos..pos + take]);
@@ -1098,7 +1195,12 @@ impl FMp4NalRewriter {
                     if remaining == 0 {
                         let original_len = buf.len();
                         let (processed, rpu_count, rpu_fail, el_dropped) =
-                            rewrite_length_delimited_nals(&buf, self.rpu_mode, self.zero_level5, self.remove_hdr10plus);
+                            rewrite_length_delimited_nals(
+                                &buf,
+                                self.rpu_mode,
+                                self.zero_level5,
+                                self.remove_hdr10plus,
+                            );
                         dv_stats_add(rpu_count, rpu_fail, el_dropped);
                         eprintln!(
                             "[fluxa/rpu_convert_fmp4] mdat original_size={original_len} \
@@ -1131,8 +1233,12 @@ impl FMp4NalRewriter {
         match self.state {
             FMp4State::MdatEof { buf } => {
                 let original_len = buf.len();
-                let (processed, rpu_count, rpu_fail, el_dropped) =
-                    rewrite_length_delimited_nals(&buf, self.rpu_mode, self.zero_level5, self.remove_hdr10plus);
+                let (processed, rpu_count, rpu_fail, el_dropped) = rewrite_length_delimited_nals(
+                    &buf,
+                    self.rpu_mode,
+                    self.zero_level5,
+                    self.remove_hdr10plus,
+                );
                 dv_stats_add(rpu_count, rpu_fail, el_dropped);
                 eprintln!(
                     "[fluxa/rpu_convert_fmp4] mdat(eof) original_size={original_len} \
@@ -1172,8 +1278,7 @@ pub(crate) fn rewrite_length_delimited_nals(
     let mut i = 0;
 
     while i + 4 <= data.len() {
-        let nal_len =
-            u32::from_be_bytes([data[i], data[i + 1], data[i + 2], data[i + 3]]) as usize;
+        let nal_len = u32::from_be_bytes([data[i], data[i + 1], data[i + 2], data[i + 3]]) as usize;
         let payload_end = i + 4 + nal_len;
 
         if payload_end > data.len() {
@@ -1227,10 +1332,7 @@ pub(crate) fn rewrite_length_delimited_nals(
 // provider signature (country=0xB5, provider=0x003C, oriented=0x0001).
 // Mirrors Kodi's CBitstreamConverter::SetRemoveHdr10Plus.
 
-fn stream_hdr10plus_strip(
-    upstream: &mut reqwest::blocking::Response,
-    downstream: &mut TcpStream,
-) {
+fn stream_hdr10plus_strip(upstream: &mut reqwest::blocking::Response, downstream: &mut TcpStream) {
     run_nal_stream(upstream, downstream, NalRewriteState::new_hdr10plus_strip());
 }
 
@@ -1256,7 +1358,11 @@ fn run_nal_stream(
 
 // NAL rewrite state machine
 enum NalProcessMode {
-    RpuConvert { rpu_mode: u8, zero_level5: bool, remove_hdr10plus: bool },
+    RpuConvert {
+        rpu_mode: u8,
+        zero_level5: bool,
+        remove_hdr10plus: bool,
+    },
     Hdr10PlusStrip,
 }
 
@@ -1277,7 +1383,11 @@ impl NalRewriteState {
     fn new_rpu_convert(rpu_mode: u8, zero_level5: bool, remove_hdr10plus: bool) -> Self {
         Self {
             pending: Vec::with_capacity(65536),
-            mode: NalProcessMode::RpuConvert { rpu_mode, zero_level5, remove_hdr10plus },
+            mode: NalProcessMode::RpuConvert {
+                rpu_mode,
+                zero_level5,
+                remove_hdr10plus,
+            },
             rpu_converted: 0,
             rpu_failed: 0,
         }
@@ -1336,7 +1446,11 @@ fn emit_nal(nal_with_sc: &[u8], mode: &NalProcessMode, out: &mut Vec<u8>) -> (u3
     let nal_type = (nal[0] >> 1) & 0x3F;
 
     match mode {
-        NalProcessMode::RpuConvert { rpu_mode, zero_level5, remove_hdr10plus } => {
+        NalProcessMode::RpuConvert {
+            rpu_mode,
+            zero_level5,
+            remove_hdr10plus,
+        } => {
             // Single-pass: strip HDR10+ SEIs and convert RPU NALs together.
             if *remove_hdr10plus && nal_is_hdr10plus_sei(nal) {
                 eprintln!("[fluxa/rpu_convert] stripped_hdr10plus_sei_nal");
@@ -1412,7 +1526,7 @@ fn nal_is_hdr10plus_sei(nal: &[u8]) -> bool {
         i += 1;
     }
     i += 1; // skip final size byte
-    // Check ITU-T T35 header: country=0xB5, provider=0x003C, oriented=0x0001
+            // Check ITU-T T35 header: country=0xB5, provider=0x003C, oriented=0x0001
     i + 5 <= nal.len()
         && nal[i] == 0xB5
         && nal[i + 1] == 0x00
@@ -1462,14 +1576,14 @@ fn start_code_len(data: &[u8]) -> usize {
 // end of the base-layer Block's frame data, and drops the BlockAdditions element.
 
 // EBML element IDs
-const EBML_CLUSTER: u64         = 0x1F43_B675;
-const EBML_BLOCK_GROUP: u64     = 0xA0;
-const EBML_BLOCK: u64           = 0xA1;
+const EBML_CLUSTER: u64 = 0x1F43_B675;
+const EBML_BLOCK_GROUP: u64 = 0xA0;
+const EBML_BLOCK: u64 = 0xA1;
 #[allow(dead_code)]
-const EBML_SIMPLE_BLOCK: u64    = 0xA3;
+const EBML_SIMPLE_BLOCK: u64 = 0xA3;
 const EBML_BLOCK_ADDITIONS: u64 = 0x75A1;
-const EBML_BLOCK_MORE: u64      = 0xA6;
-const EBML_BLOCK_ADD_ID: u64    = 0xEE;
+const EBML_BLOCK_MORE: u64 = 0xA6;
+const EBML_BLOCK_ADD_ID: u64 = 0xEE;
 const EBML_BLOCK_ADDITIONAL: u64 = 0xA5;
 
 /// DV EL track BlockAddID value.
@@ -1495,23 +1609,43 @@ pub(crate) fn ebml_id_width(first_byte: u8) -> usize {
 /// Returns the byte-width of an EBML variable-length integer (vint) whose first
 /// byte is `first_byte`.
 pub(crate) fn ebml_vint_width(first_byte: u8) -> usize {
-    if first_byte & 0x80 != 0 { return 1; }
-    if first_byte & 0x40 != 0 { return 2; }
-    if first_byte & 0x20 != 0 { return 3; }
-    if first_byte & 0x10 != 0 { return 4; }
-    if first_byte & 0x08 != 0 { return 5; }
-    if first_byte & 0x04 != 0 { return 6; }
-    if first_byte & 0x02 != 0 { return 7; }
-    if first_byte & 0x01 != 0 { return 8; }
+    if first_byte & 0x80 != 0 {
+        return 1;
+    }
+    if first_byte & 0x40 != 0 {
+        return 2;
+    }
+    if first_byte & 0x20 != 0 {
+        return 3;
+    }
+    if first_byte & 0x10 != 0 {
+        return 4;
+    }
+    if first_byte & 0x08 != 0 {
+        return 5;
+    }
+    if first_byte & 0x04 != 0 {
+        return 6;
+    }
+    if first_byte & 0x02 != 0 {
+        return 7;
+    }
+    if first_byte & 0x01 != 0 {
+        return 8;
+    }
     0
 }
 
 /// Parse an EBML element ID from `buf`.  Returns `Some((id, bytes_consumed))`.
 /// EBML IDs are stored as raw big-endian bytes (marker bits are part of the ID).
 pub(crate) fn parse_ebml_id(buf: &[u8]) -> Option<(u64, usize)> {
-    if buf.is_empty() { return None; }
+    if buf.is_empty() {
+        return None;
+    }
     let width = ebml_id_width(buf[0]);
-    if width == 0 || buf.len() < width { return None; }
+    if width == 0 || buf.len() < width {
+        return None;
+    }
     let mut id = 0u64;
     for &b in &buf[..width] {
         id = (id << 8) | b as u64;
@@ -1523,9 +1657,13 @@ pub(crate) fn parse_ebml_id(buf: &[u8]) -> Option<(u64, usize)> {
 /// Returns `Some((value, bytes_consumed))`.
 /// Returns `EBML_UNKNOWN_SIZE` for all-ones vint (unknown size marker).
 pub(crate) fn parse_ebml_vint(buf: &[u8]) -> Option<(u64, usize)> {
-    if buf.is_empty() { return None; }
+    if buf.is_empty() {
+        return None;
+    }
     let width = ebml_vint_width(buf[0]);
-    if width == 0 || buf.len() < width { return None; }
+    if width == 0 || buf.len() < width {
+        return None;
+    }
 
     // Check for unknown-size marker: all data bits set to 1.
     let unknown_size = match width {
@@ -1635,10 +1773,20 @@ pub(crate) fn encode_ebml_element(id: u64, data: &[u8]) -> Vec<u8> {
 
 /// Encode an EBML element ID as minimum big-endian bytes.
 fn id_to_bytes(id: u64) -> Vec<u8> {
-    if id <= 0xFF { vec![id as u8] }
-    else if id <= 0xFFFF { vec![(id >> 8) as u8, (id & 0xFF) as u8] }
-    else if id <= 0xFF_FFFF { vec![(id >> 16) as u8, (id >> 8) as u8, (id & 0xFF) as u8] }
-    else { vec![(id >> 24) as u8, (id >> 16) as u8, (id >> 8) as u8, (id & 0xFF) as u8] }
+    if id <= 0xFF {
+        vec![id as u8]
+    } else if id <= 0xFFFF {
+        vec![(id >> 8) as u8, (id & 0xFF) as u8]
+    } else if id <= 0xFF_FFFF {
+        vec![(id >> 16) as u8, (id >> 8) as u8, (id & 0xFF) as u8]
+    } else {
+        vec![
+            (id >> 24) as u8,
+            (id >> 16) as u8,
+            (id >> 8) as u8,
+            (id & 0xFF) as u8,
+        ]
+    }
 }
 
 // BlockGroup processor
@@ -1653,20 +1801,24 @@ pub(crate) fn process_block_group_data(
     zero_level5: bool,
 ) -> (Vec<u8>, u32) {
     // Parse all child elements of this BlockGroup.
-    let mut block_offset: Option<usize>    = None;
-    let mut block_end: Option<usize>       = None;
+    let mut block_offset: Option<usize> = None;
+    let mut block_end: Option<usize> = None;
     let mut block_additions: Option<&[u8]> = None;
     let mut pos = 0;
 
     while pos < data.len() {
-        let Some((id, data_size, hlen)) = try_parse_ebml_header(&data[pos..]) else { break };
+        let Some((id, data_size, hlen)) = try_parse_ebml_header(&data[pos..]) else {
+            break;
+        };
         if data_size == EBML_UNKNOWN_SIZE {
             // Can't safely walk past unknown-size children; return original.
             return (data.to_vec(), 0);
         }
         let child_start = pos + hlen;
         let child_end = child_start + data_size as usize;
-        if child_end > data.len() { break; }
+        if child_end > data.len() {
+            break;
+        }
 
         if id == EBML_BLOCK {
             block_offset = Some(pos);
@@ -1692,26 +1844,23 @@ pub(crate) fn process_block_group_data(
     let block_payload = &data[block_payload_start..block_data_end];
 
     // Try to extract an RPU from BlockAdditions.
-    let rpu_raw: Option<Vec<u8>> = block_additions.and_then(|ba| {
-        extract_dv_rpu_from_block_additions(ba)
-    });
+    let rpu_raw: Option<Vec<u8>> =
+        block_additions.and_then(|ba| extract_dv_rpu_from_block_additions(ba));
 
     // If no RPU or conversion fails, build output without BlockAdditions but
     // with original Block intact.
     let rpu_injected;
     let new_block_payload = match rpu_raw {
-        Some(rpu_nal) => {
-            match convert_rpu_nal(&rpu_nal, rpu_mode, zero_level5) {
-                Some(converted_rpu) => {
-                    rpu_injected = 1u32;
-                    inject_rpu_into_mkv_block(block_payload, &converted_rpu)
-                }
-                None => {
-                    rpu_injected = 0;
-                    block_payload.to_vec()
-                }
+        Some(rpu_nal) => match convert_rpu_nal(&rpu_nal, rpu_mode, zero_level5) {
+            Some(converted_rpu) => {
+                rpu_injected = 1u32;
+                inject_rpu_into_mkv_block(block_payload, &converted_rpu)
             }
-        }
+            None => {
+                rpu_injected = 0;
+                block_payload.to_vec()
+            }
+        },
         None => {
             // No RPU found — return data unchanged (BlockAdditions kept if present).
             return (data.to_vec(), 0);
@@ -1733,10 +1882,16 @@ pub(crate) fn process_block_group_data(
     // Elements after Block, skipping BlockAdditions.
     let mut pos = block_data_end;
     while pos < data.len() {
-        let Some((id, ds, hlen)) = try_parse_ebml_header(&data[pos..]) else { break };
-        if ds == EBML_UNKNOWN_SIZE { break; }
+        let Some((id, ds, hlen)) = try_parse_ebml_header(&data[pos..]) else {
+            break;
+        };
+        if ds == EBML_UNKNOWN_SIZE {
+            break;
+        }
         let elem_end = pos + hlen + ds as usize;
-        if elem_end > data.len() { break; }
+        if elem_end > data.len() {
+            break;
+        }
         if id != EBML_BLOCK_ADDITIONS {
             out.extend_from_slice(&data[pos..elem_end]);
         }
@@ -1755,11 +1910,17 @@ fn extract_dv_rpu_from_block_additions(ba: &[u8]) -> Option<Vec<u8>> {
     let mut pos = 0;
     while pos < ba.len() {
         let (id, ds, hlen) = try_parse_ebml_header(&ba[pos..])?;
-        if ds == EBML_UNKNOWN_SIZE { return None; }
+        if ds == EBML_UNKNOWN_SIZE {
+            return None;
+        }
         let child_end = pos + hlen + ds as usize;
-        if child_end > ba.len() { return None; }
+        if child_end > ba.len() {
+            return None;
+        }
         if id == EBML_BLOCK_MORE {
-            if let Some(rpu) = extract_rpu_from_block_more(&ba[pos + hlen..pos + hlen + ds as usize]) {
+            if let Some(rpu) =
+                extract_rpu_from_block_more(&ba[pos + hlen..pos + hlen + ds as usize])
+            {
                 return Some(rpu);
             }
         }
@@ -1774,10 +1935,14 @@ fn extract_rpu_from_block_more(bm: &[u8]) -> Option<Vec<u8>> {
     let mut additional: Option<Vec<u8>> = None;
     while pos < bm.len() {
         let (id, ds, hlen) = try_parse_ebml_header(&bm[pos..])?;
-        if ds == EBML_UNKNOWN_SIZE { return None; }
+        if ds == EBML_UNKNOWN_SIZE {
+            return None;
+        }
         let child_start = pos + hlen;
         let child_end = child_start + ds as usize;
-        if child_end > bm.len() { return None; }
+        if child_end > bm.len() {
+            return None;
+        }
         if id == EBML_BLOCK_ADD_ID {
             // Parse the integer value.
             let val_bytes = &bm[child_start..child_end];
@@ -1805,7 +1970,9 @@ fn extract_rpu_from_block_more(bm: &[u8]) -> Option<Vec<u8>> {
 /// If lacing flags (bits 5-4 of flags byte) are non-zero, the block is laced
 /// and we cannot safely append — return the block unchanged.
 pub(crate) fn inject_rpu_into_mkv_block(block: &[u8], rpu: &[u8]) -> Vec<u8> {
-    if block.is_empty() { return block.to_vec(); }
+    if block.is_empty() {
+        return block.to_vec();
+    }
 
     // Parse track number vint.
     let Some((_, track_vint_len)) = parse_ebml_vint(block) else {
@@ -1944,14 +2111,19 @@ impl MkvRpuRewriter {
                                     let id_len = ebml_id_width(header_bytes[0]);
                                     out.extend_from_slice(&header_bytes[..id_len]);
                                     // Emit 8-byte unknown-size vint.
-                                    out.extend_from_slice(&[0x01, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF]);
+                                    out.extend_from_slice(&[
+                                        0x01, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+                                    ]);
                                     self.cluster_remaining = Some(data_size);
                                 } else {
                                     out.extend_from_slice(&header_bytes);
                                     self.cluster_remaining = None;
                                 }
                                 self.state = MkvState::Header;
-                            } else if id == EBML_BLOCK_GROUP && self.in_cluster() && data_size != EBML_UNKNOWN_SIZE {
+                            } else if id == EBML_BLOCK_GROUP
+                                && self.in_cluster()
+                                && data_size != EBML_UNKNOWN_SIZE
+                            {
                                 // Buffer BlockGroup — do NOT emit header yet.
                                 // Decrement cluster_remaining by full element size.
                                 if let Some(cr) = self.cluster_remaining.as_mut() {
@@ -1963,7 +2135,10 @@ impl MkvRpuRewriter {
                                 }
                                 if data_size == 0 {
                                     // Empty BlockGroup: re-encode and emit immediately.
-                                    out.extend_from_slice(&encode_ebml_element(EBML_BLOCK_GROUP, &[]));
+                                    out.extend_from_slice(&encode_ebml_element(
+                                        EBML_BLOCK_GROUP,
+                                        &[],
+                                    ));
                                     self.state = MkvState::Header;
                                 } else {
                                     self.state = MkvState::BlockGroup {
@@ -1977,7 +2152,12 @@ impl MkvRpuRewriter {
                                 // Decrement cluster_remaining for elements inside a cluster.
                                 if self.in_cluster() {
                                     if let Some(cr) = self.cluster_remaining.as_mut() {
-                                        let full_size = hlen as u64 + if data_size == EBML_UNKNOWN_SIZE { 0 } else { data_size };
+                                        let full_size = hlen as u64
+                                            + if data_size == EBML_UNKNOWN_SIZE {
+                                                0
+                                            } else {
+                                                data_size
+                                            };
                                         *cr = cr.saturating_sub(full_size);
                                         if *cr == 0 {
                                             self.cluster_remaining = None;
@@ -1986,12 +2166,16 @@ impl MkvRpuRewriter {
                                 }
                                 if data_size == 0 || data_size == EBML_UNKNOWN_SIZE {
                                     if data_size == EBML_UNKNOWN_SIZE {
-                                        self.state = MkvState::Forward { remaining: u64::MAX };
+                                        self.state = MkvState::Forward {
+                                            remaining: u64::MAX,
+                                        };
                                     } else {
                                         self.state = MkvState::Header;
                                     }
                                 } else {
-                                    self.state = MkvState::Forward { remaining: data_size };
+                                    self.state = MkvState::Forward {
+                                        remaining: data_size,
+                                    };
                                 }
                             }
 
@@ -2006,7 +2190,11 @@ impl MkvRpuRewriter {
 
                 MkvState::Forward { mut remaining } => {
                     let available = (input.len() - pos) as u64;
-                    let take = if remaining == u64::MAX { available } else { available.min(remaining) };
+                    let take = if remaining == u64::MAX {
+                        available
+                    } else {
+                        available.min(remaining)
+                    };
                     out.extend_from_slice(&input[pos..pos + take as usize]);
                     pos += take as usize;
                     if remaining != u64::MAX {
@@ -2017,11 +2205,16 @@ impl MkvRpuRewriter {
                             MkvState::Forward { remaining }
                         };
                     } else {
-                        self.state = MkvState::Forward { remaining: u64::MAX };
+                        self.state = MkvState::Forward {
+                            remaining: u64::MAX,
+                        };
                     }
                 }
 
-                MkvState::BlockGroup { mut buf, mut remaining } => {
+                MkvState::BlockGroup {
+                    mut buf,
+                    mut remaining,
+                } => {
                     let available = (input.len() - pos) as u64;
                     let take = available.min(remaining) as usize;
                     buf.extend_from_slice(&input[pos..pos + take]);
@@ -2092,7 +2285,6 @@ fn stream_rpu_convert_mkv(
         }
     }
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -2181,12 +2373,18 @@ mod tests {
 
     #[test]
     fn parse_range_mid_file_seek() {
-        assert_eq!(parse_content_range_start("bytes 50000-100000/1000000"), Some(50000));
+        assert_eq!(
+            parse_content_range_start("bytes 50000-100000/1000000"),
+            Some(50000)
+        );
     }
 
     #[test]
     fn parse_range_past_window() {
-        assert_eq!(parse_content_range_start("bytes 131072-200000/5000000"), Some(131072));
+        assert_eq!(
+            parse_content_range_start("bytes 131072-200000/5000000"),
+            Some(131072)
+        );
     }
 
     #[test]
@@ -2226,7 +2424,10 @@ mod tests {
     fn patch_at_offset_overlapping_range_patches_only_window_portion() {
         let mut data = b"dvcCxxxx".to_vec();
         let count = apply_dvcc_patch_at_offset(&mut data, 65530, 65536);
-        assert_eq!(count, 1, "dvcC at file offset 65530 is inside the scan window");
+        assert_eq!(
+            count, 1,
+            "dvcC at file offset 65530 is inside the scan window"
+        );
         assert_eq!(&data[..4], b"XXXX");
     }
 
@@ -2234,8 +2435,15 @@ mod tests {
     fn patch_at_offset_fourcc_straddles_window_boundary_not_patched() {
         let mut data = b"dvcCxxxx".to_vec();
         let count = apply_dvcc_patch_at_offset(&mut data, 65534, 65536);
-        assert_eq!(count, 0, "partial match at window boundary must not be patched");
-        assert_eq!(&data[..4], b"dvcC", "straddling fourcc must remain unchanged");
+        assert_eq!(
+            count, 0,
+            "partial match at window boundary must not be patched"
+        );
+        assert_eq!(
+            &data[..4],
+            b"dvcC",
+            "straddling fourcc must remain unchanged"
+        );
     }
 
     #[test]
@@ -2313,7 +2521,10 @@ mod tests {
     fn parse_dvcc_profile5_cid1_has_hdr10_fallback() {
         let box_data = make_dvcc_box(5, 1);
         let info = scan_dvcc_info(&box_data).unwrap();
-        assert!(!info.not_has_hdr10_fallback(), "P5 CID=1 has HDR10 base layer");
+        assert!(
+            !info.not_has_hdr10_fallback(),
+            "P5 CID=1 has HDR10 base layer"
+        );
     }
 
     #[test]
@@ -2353,7 +2564,10 @@ mod tests {
         let payload = hdr10plus_payload();
         // PREFIX_SEI = nal_type 39, payload_type 4 = user_data_registered_itu_t_t35
         let nal = make_sei_nal(39, 4, &payload);
-        assert!(nal_is_hdr10plus_sei(&nal), "prefix SEI with HDR10+ payload must be detected");
+        assert!(
+            nal_is_hdr10plus_sei(&nal),
+            "prefix SEI with HDR10+ payload must be detected"
+        );
     }
 
     #[test]
@@ -2450,7 +2664,10 @@ mod tests {
         let second = make_nal(1, &[0x11]);
         let mut state = NalRewriteState::new(2);
         let partial = state.process(&input);
-        assert!(partial.is_empty(), "single NAL must be buffered until next start code");
+        assert!(
+            partial.is_empty(),
+            "single NAL must be buffered until next start code"
+        );
         let out = state.process(&second);
         assert!(
             out.windows(input.len()).any(|w| w == input.as_slice()),
@@ -2496,7 +2713,10 @@ mod tests {
         let flushed = state.flush();
         let all_out = [first_out, second_out, flushed].concat();
 
-        assert_eq!(all_out, combined, "chunked input must produce identical output");
+        assert_eq!(
+            all_out, combined,
+            "chunked input must produce identical output"
+        );
     }
 
     #[test]
@@ -2613,7 +2833,7 @@ mod tests {
         let other_payload = vec![0xCC, 0xCC, 0xCC, 0xCC];
         let mut mdat = Vec::new();
         mdat.extend_from_slice(&make_ld_nal(19, 0, &bl_payload)); // IDR BL
-        mdat.extend_from_slice(&make_ld_nal(1, 1, &el_payload));  // EL → drop
+        mdat.extend_from_slice(&make_ld_nal(1, 1, &el_payload)); // EL → drop
         mdat.extend_from_slice(&make_ld_nal(35, 0, &other_payload)); // AUD BL
 
         let (out, _, _, el_count) = rewrite_length_delimited_nals(&mdat, 2, false, false);
@@ -2655,7 +2875,7 @@ mod tests {
         let el_payload = vec![0x22u8; 8];
         let mut mdat_content = Vec::new();
         mdat_content.extend_from_slice(&make_ld_nal(19, 0, &bl_payload)); // BL
-        mdat_content.extend_from_slice(&make_ld_nal(1, 1, &el_payload));  // EL → drop
+        mdat_content.extend_from_slice(&make_ld_nal(1, 1, &el_payload)); // EL → drop
 
         let segment = make_mdat_box(&mdat_content);
 
@@ -2665,10 +2885,17 @@ mod tests {
         let all = [out, flushed].concat();
 
         // mdat fourcc must be present
-        assert!(all.windows(4).any(|w| w == b"mdat"), "mdat fourcc must be in output");
+        assert!(
+            all.windows(4).any(|w| w == b"mdat"),
+            "mdat fourcc must be in output"
+        );
         // box size in output must equal actual content size + 8
         let out_box_size = u32::from_be_bytes([all[0], all[1], all[2], all[3]]) as usize;
-        assert_eq!(out_box_size, all.len(), "mdat box size must match actual output length");
+        assert_eq!(
+            out_box_size,
+            all.len(),
+            "mdat box size must match actual output length"
+        );
         // BL payload must be present, EL must be absent
         assert!(all.windows(8).any(|w| w == bl_payload.as_slice()));
         assert!(!all.windows(8).any(|w| w == el_payload.as_slice()));
@@ -2689,9 +2916,15 @@ mod tests {
         let flushed = rewriter.flush();
         let all = [out, flushed].concat();
 
-        assert!(all.windows(4).any(|w| w == b"moof"), "moof must be forwarded");
+        assert!(
+            all.windows(4).any(|w| w == b"moof"),
+            "moof must be forwarded"
+        );
         assert!(all.windows(4).any(|w| w == b"mdat"), "mdat must be present");
-        assert!(all.windows(4).any(|w| w == bl_payload.as_slice()), "BL payload must survive");
+        assert!(
+            all.windows(4).any(|w| w == bl_payload.as_slice()),
+            "BL payload must survive"
+        );
     }
 
     #[test]
@@ -2765,7 +2998,9 @@ mod tests {
     #[test]
     fn parse_ebml_id_4_byte() {
         // Cluster = 0x1F43B675
-        let buf = [0x1Fu8, 0x43, 0xB6, 0x75, 0x01, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF];
+        let buf = [
+            0x1Fu8, 0x43, 0xB6, 0x75, 0x01, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+        ];
         let (id, consumed) = parse_ebml_id(&buf).unwrap();
         assert_eq!(id, 0x1F43_B675u64);
         assert_eq!(consumed, 4);
@@ -2791,7 +3026,18 @@ mod tests {
 
     #[test]
     fn encode_decode_vint_roundtrip() {
-        for &value in &[0u64, 1, 42, 126, 127, 128, 16383, 16384, 2_000_000, 268_435_455] {
+        for &value in &[
+            0u64,
+            1,
+            42,
+            126,
+            127,
+            128,
+            16383,
+            16384,
+            2_000_000,
+            268_435_455,
+        ] {
             let encoded = encode_ebml_vint(value);
             let (decoded, _) = parse_ebml_vint(&encoded).unwrap();
             assert_eq!(decoded, value, "roundtrip failed for value {value}");
@@ -2860,10 +3106,15 @@ mod tests {
             // EBML_BLOCK_ADDITIONS = 0x75A1 → 2 bytes
             w[0] == 0x75 && w[1] == 0xA1
         });
-        assert!(!has_block_additions, "BlockAdditions must be stripped even when RPU conversion fails");
+        assert!(
+            !has_block_additions,
+            "BlockAdditions must be stripped even when RPU conversion fails"
+        );
         // Block content must still be present.
-        assert!(result.windows(frame.len()).any(|w| w == frame.as_slice()),
-            "Block frame data must be preserved");
+        assert!(
+            result.windows(frame.len()).any(|w| w == frame.as_slice()),
+            "Block frame data must be preserved"
+        );
     }
 
     #[test]
@@ -2903,7 +3154,7 @@ mod tests {
     fn make_ebml_header() -> Vec<u8> {
         // EBML element (0x1A45DFA3) with minimal content.
         let content = make_ebml_elem(0x4286u64, &[0x01]); // EBMLVersion = 1
-        // EBML ID = 0x1A45DFA3 (4 bytes) + vint size + content.
+                                                          // EBML ID = 0x1A45DFA3 (4 bytes) + vint size + content.
         let id_bytes = [0x1Au8, 0x45, 0xDF, 0xA3];
         let size_bytes = encode_ebml_vint(content.len() as u64);
         let mut v = Vec::new();
@@ -2957,10 +3208,16 @@ mod tests {
 
         // BlockAdditions (0x75A1) must NOT appear in output.
         let has_block_additions = all.windows(2).any(|w| w[0] == 0x75 && w[1] == 0xA1);
-        assert!(!has_block_additions, "BlockAdditions must be stripped from MKV output");
+        assert!(
+            !has_block_additions,
+            "BlockAdditions must be stripped from MKV output"
+        );
 
         // BlockGroup (0xA0) must still be present.
-        assert!(all.iter().any(|&b| b == 0xA0), "BlockGroup must be present in output");
+        assert!(
+            all.iter().any(|&b| b == 0xA0),
+            "BlockGroup must be present in output"
+        );
     }
 
     #[test]
@@ -2979,6 +3236,9 @@ mod tests {
         let all = [out1, out2, flushed].concat();
 
         let has_block_additions = all.windows(2).any(|w| w[0] == 0x75 && w[1] == 0xA1);
-        assert!(!has_block_additions, "BlockAdditions must be stripped even when split across chunks");
+        assert!(
+            !has_block_additions,
+            "BlockAdditions must be stripped even when split across chunks"
+        );
     }
 }

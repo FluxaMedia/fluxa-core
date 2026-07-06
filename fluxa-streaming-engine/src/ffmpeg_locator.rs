@@ -12,11 +12,21 @@ fn platform_dir() -> &'static str {
 
 fn bundled_path(name: &str) -> Option<PathBuf> {
     let exe_dir = std::env::current_exe().ok()?.parent()?.to_path_buf();
-    let exe_name = if cfg!(windows) { format!("{name}.exe") } else { name.to_string() };
+    let exe_name = if cfg!(windows) {
+        format!("{name}.exe")
+    } else {
+        name.to_string()
+    };
     [
-        exe_dir.join("resources/ffmpeg").join(platform_dir()).join(&exe_name),
+        exe_dir
+            .join("resources/ffmpeg")
+            .join(platform_dir())
+            .join(&exe_name),
         // cargo run / cargo test layout: target/<profile>/ -> crate root/resources
-        exe_dir.join("../../resources/ffmpeg").join(platform_dir()).join(&exe_name),
+        exe_dir
+            .join("../../resources/ffmpeg")
+            .join(platform_dir())
+            .join(&exe_name),
     ]
     .into_iter()
     .find(|candidate| candidate.is_file())
