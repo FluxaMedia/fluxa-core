@@ -376,6 +376,63 @@ pub(crate) fn trakt_watched_to_ids_json(movies_json: &str, shows_json: &str) -> 
     serde_json::to_string(&Value::Object(ids)).ok()
 }
 
+pub(crate) fn stremio_watchlist_to_items_json(items_json: &str) -> Option<String> {
+    let items: Vec<Value> = serde_json::from_str(items_json).ok()?;
+    let out: Vec<Value> = items
+        .iter()
+        .filter(|item| {
+            item.get("removed").and_then(Value::as_bool) != Some(true)
+                && item.get("temp").and_then(Value::as_bool) != Some(true)
+        })
+        .filter_map(|item| {
+            let id = item
+                .get("_id")
+                .and_then(Value::as_str)
+                .filter(|s| !s.is_empty())?;
+            if crate::content_identity::parse_episode_locator(id).is_some() {
+                return None;
+            }
+            let name = item.get("name").and_then(Value::as_str).unwrap_or("");
+            let kind = match item.get("type").and_then(Value::as_str) {
+                Some("movie") => "movie",
+                _ => "series",
+            };
+            let mut entry = json!({ "id": id, "name": name, "type": kind, "source": "stremio" });
+            if let Some(poster) = item
+                .get("poster")
+                .and_then(Value::as_str)
+                .filter(|s| !s.is_empty())
+            {
+                entry["poster"] = json!(poster);
+            }
+            Some(entry)
+        })
+        .collect();
+    serde_json::to_string(&out).ok()
+}
+
+pub(crate) fn stremio_watched_to_ids_json(items_json: &str) -> Option<String> {
+    let items: Vec<Value> = serde_json::from_str(items_json).ok()?;
+    let mut ids: serde_json::Map<String, Value> = serde_json::Map::new();
+    for item in &items {
+        let flagged = item.get("state").is_some_and(|s| {
+            s.get("flaggedWatched").and_then(Value::as_i64).unwrap_or(0) == 1
+                || s.get("timesWatched").and_then(Value::as_i64).unwrap_or(0) > 0
+        });
+        if !flagged {
+            continue;
+        }
+        if let Some(id) = item
+            .get("_id")
+            .and_then(Value::as_str)
+            .filter(|s| !s.is_empty())
+        {
+            ids.insert(id.to_string(), Value::Bool(true));
+        }
+    }
+    serde_json::to_string(&Value::Object(ids)).ok()
+}
+
 pub(crate) fn merge_external_watchlist_json(local_json: &str, external_json: &str) -> String {
     let mut local: Vec<Value> = serde_json::from_str(local_json).unwrap_or_default();
     let external: Vec<Value> = serde_json::from_str(external_json).unwrap_or_default();
@@ -806,6 +863,29 @@ pub(crate) fn simkl_match_episode_json(episodes_json: &str, target_json: &str) -
 mod tests {
     use super::*;
     use serde_json::Value;
+
+    #[test]
+    fn stremio_episode_entries_become_watched_keys_not_watchlist_items() {
+        let items = r#"[
+            {"_id":"tt1","name":"A Movie","type":"movie","poster":"p.jpg","state":{"flaggedWatched":1}},
+            {"_id":"tt2","name":"A Show","type":"series","state":{"flaggedWatched":0}},
+            {"_id":"tt2:1:3","name":"A Show","type":"series","state":{"flaggedWatched":1}},
+            {"_id":"tt3","name":"Removed","type":"movie","removed":true,"state":null}
+        ]"#;
+        let watchlist: Vec<Value> =
+            serde_json::from_str(&stremio_watchlist_to_items_json(items).unwrap()).unwrap();
+        let ids: Vec<&str> = watchlist
+            .iter()
+            .filter_map(|i| i.get("id").and_then(Value::as_str))
+            .collect();
+        assert_eq!(ids, vec!["tt1", "tt2"]);
+
+        let watched: Value =
+            serde_json::from_str(&stremio_watched_to_ids_json(items).unwrap()).unwrap();
+        assert_eq!(watched.get("tt1"), Some(&Value::Bool(true)));
+        assert_eq!(watched.get("tt2:1:3"), Some(&Value::Bool(true)));
+        assert_eq!(watched.get("tt2"), None);
+    }
 
     #[test]
     fn trakt_ids_support_stremio_episode_ids() {

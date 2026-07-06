@@ -563,6 +563,12 @@ fn route_external_sync_trakt(method: &str, args_json: &str) -> Outcome {
                 field_str(&args, "showsJson")?,
             ))
         }
+        "stremioWatchlistToItems" => {
+            opt_json(external_sync::stremio_watchlist_to_items_json(args_json))
+        }
+        "stremioWatchedToIds" => {
+            opt_json(external_sync::stremio_watched_to_ids_json(args_json))
+        }
         "traktWatchedToIds" => {
             let args = object(args_json)?;
             opt_json(external_sync::trakt_watched_to_ids_json(
