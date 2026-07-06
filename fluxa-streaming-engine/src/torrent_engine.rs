@@ -15,10 +15,12 @@ use std::collections::{HashMap, HashSet};
 use std::io::SeekFrom;
 use std::net::SocketAddr;
 use std::path::PathBuf;
+use std::pin::Pin;
 use std::sync::{Arc, Mutex, OnceLock};
+use std::task::{Context, Poll};
 use std::thread;
 use std::time::Duration;
-use tokio::io::{AsyncReadExt, AsyncSeekExt};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncSeekExt, ReadBuf};
 use tokio::net::TcpListener;
 use tokio::sync::oneshot;
 use tokio::sync::Mutex as AsyncMutex;
@@ -58,6 +60,7 @@ struct EngineState {
     output_dir: PathBuf,
     preload_size: Arc<Mutex<u64>>,
     known_links: Arc<Mutex<HashMap<String, usize>>>,
+    stream_progress: Arc<Mutex<HashMap<String, u64>>>,
     access_token: Arc<String>,
     // Serializes the check-then-add sequence in ensure_torrent so two
     // near-simultaneous requests for the same new link (e.g. a stat poll
@@ -104,11 +107,8 @@ pub fn start_torrent_server(
     let cache_dir = PathBuf::from(cache_dir);
     std::fs::create_dir_all(&cache_dir).ok()?;
     let bind_port = preferred_port.clamp(0, u16::MAX as i32) as u16;
-    let std_listener = std::net::TcpListener::bind(("0.0.0.0", bind_port)).ok()?;
-    std_listener.set_nonblocking(true).ok()?;
-    let port = std_listener.local_addr().ok()?.port();
     let (stop_tx, stop_rx) = oneshot::channel::<()>();
-    let (ready_tx, ready_rx) = std::sync::mpsc::channel::<Result<(), String>>();
+    let (ready_tx, ready_rx) = std::sync::mpsc::channel::<Result<u16, String>>();
     let thread_cache_dir = cache_dir.clone();
     let thread_access_token = access_token.trim().to_string();
 
@@ -129,14 +129,6 @@ pub fn start_torrent_server(
         };
 
         runtime.block_on(async move {
-            let listener = match TcpListener::from_std(std_listener) {
-                Ok(listener) => listener,
-                Err(error) => {
-                    let _ = ready_tx.send(Err(error.to_string()));
-                    return;
-                }
-            };
-
             let options = SessionOptions {
                 disable_dht_persistence: true,
                 defer_writes_up_to: Some(64),
@@ -158,10 +150,34 @@ pub fn start_torrent_server(
                 ..Default::default()
             };
 
-            let session = match Session::new_with_opts(thread_cache_dir.clone(), options).await {
-                Ok(session) => session,
-                Err(error) => {
+            let session = match tokio::time::timeout(
+                Duration::from_secs(18),
+                Session::new_with_opts(thread_cache_dir.clone(), options),
+            )
+            .await
+            {
+                Ok(Ok(session)) => session,
+                Ok(Err(error)) => {
                     let _ = ready_tx.send(Err(format!("{error:#}")));
+                    return;
+                }
+                Err(_) => {
+                    let _ = ready_tx.send(Err("torrent session init timed out".to_string()));
+                    return;
+                }
+            };
+
+            let listener = match TcpListener::bind(("0.0.0.0", bind_port)).await {
+                Ok(listener) => listener,
+                Err(error) => {
+                    let _ = ready_tx.send(Err(error.to_string()));
+                    return;
+                }
+            };
+            let port = match listener.local_addr() {
+                Ok(addr) => addr.port(),
+                Err(error) => {
+                    let _ = ready_tx.send(Err(error.to_string()));
                     return;
                 }
             };
@@ -171,11 +187,13 @@ pub fn start_torrent_server(
                 output_dir: thread_cache_dir,
                 preload_size: Arc::new(Mutex::new(10 * 1024 * 1024)),
                 known_links: Arc::new(Mutex::new(HashMap::new())),
+                stream_progress: Arc::new(Mutex::new(HashMap::new())),
                 access_token: Arc::new(thread_access_token),
                 add_lock: Arc::new(AsyncMutex::new(())),
             };
             let app = Router::new()
                 .route("/", get(root))
+                .route("/health", get(health))
                 .route("/settings", post(update_settings))
                 .route("/torrents", post(torrents))
                 .route("/stream/fname", get(stream_fname))
@@ -188,13 +206,13 @@ pub fn start_torrent_server(
             .with_graceful_shutdown(async move {
                 let _ = stop_rx.await;
             });
-            let _ = ready_tx.send(Ok(()));
+            let _ = ready_tx.send(Ok(port));
             let _ = server.await;
         });
     });
 
-    match ready_rx.recv_timeout(Duration::from_secs(20)).ok()? {
-        Ok(()) => {
+    match ready_rx.recv_timeout(Duration::from_secs(20)) {
+        Ok(Ok(port)) => {
             *torrent_server_handle().lock().ok()? = Some(TorrentServerHandle {
                 stop: Some(stop_tx),
                 thread: Some(thread),
@@ -206,7 +224,21 @@ pub fn start_torrent_server(
             }))
             .ok()
         }
-        Err(_) => None,
+        Ok(Err(error)) => {
+            debug_log(format!("[TorrServer] startup failed: {error}"));
+            let _ = stop_tx.send(());
+            let _ = thread.join();
+            None
+        }
+        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+            debug_log("[TorrServer] startup timed out");
+            let _ = stop_tx.send(());
+            None
+        }
+        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+            let _ = thread.join();
+            None
+        }
     }
 }
 
@@ -229,6 +261,10 @@ pub fn stop_torrent_server() -> bool {
 
 async fn root() -> impl IntoResponse {
     "Fluxa Rust Torrent Engine"
+}
+
+async fn health() -> impl IntoResponse {
+    "ok"
 }
 
 async fn update_settings(
@@ -259,15 +295,21 @@ async fn torrents(
     let action = request.action.to_ascii_lowercase();
     match action.as_str() {
         "add" => {
-            match ensure_torrent(&state, request.link.as_deref(), request.title.as_deref(), request.file_id).await {
+            match ensure_torrent(
+                &state,
+                request.link.as_deref(),
+                request.title.as_deref(),
+                request.file_id,
+                Duration::from_secs(45),
+            )
+            .await
+            {
                 Ok((id, details)) => {
-                    let focus = request
-                        .file_id
-                        .or_else(|| largest_file_id(&details));
+                    let focus = request.file_id.or_else(|| largest_file_id(&details));
                     if let Some(file_id) = focus {
                         prioritize_stream_file(&state, id, file_id).await;
                     }
-                    status_response(&state, id, Some(details))
+                    status_response(&state, id, Some(details), focus)
                         .await
                         .into_response()
                 }
@@ -283,15 +325,23 @@ async fn torrents(
             {
                 Some(id) => id,
                 None => {
-                    match ensure_torrent(&state, request.link.as_deref(), request.title.as_deref(), None)
-                        .await
+                    match ensure_torrent(
+                        &state,
+                        request.link.as_deref(),
+                        request.title.as_deref(),
+                        None,
+                        Duration::from_secs(45),
+                    )
+                    .await
                     {
                         Ok((id, _)) => id,
                         Err(error) => return error_response(StatusCode::BAD_REQUEST, error),
                     }
                 }
             };
-            status_response(&state, id, None).await.into_response()
+            status_response(&state, id, None, request.file_id)
+                .await
+                .into_response()
         }
         "rem" | "remove" | "delete" => {
             if let Some(id) = lookup_known_link(&state, request.link.as_deref()) {
@@ -315,25 +365,40 @@ async fn stream_fname(
     if !request_authorized(&state, remote_addr, query.access_token.as_deref()) {
         return error_response(StatusCode::UNAUTHORIZED, "unauthorized");
     }
-    let range_header = headers.get("Range").and_then(|v| v.to_str().ok()).unwrap_or("none");
-    debug_log(format!("[TorrServer] stream_fname link={} stat={} range={range_header}", &query.link[..query.link.len().min(60)], query.stat.is_some()));
+    let range_header = headers
+        .get("Range")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("none");
+    debug_log(format!(
+        "[TorrServer] stream_fname link={} stat={} range={range_header}",
+        &query.link[..query.link.len().min(60)],
+        query.stat.is_some()
+    ));
 
-    // Stat requests return immediately — no retry loop (used by Kotlin status polling)
+    // Stat requests return immediately. They must not start or block metadata
+    // acquisition; otherwise UI polling can contend with the real stream GET.
     if query.stat.is_some() {
-        return match ensure_torrent(&state, Some(&query.link), query.title.as_deref(), None).await {
-            Ok((id, details)) => status_response(&state, id, Some(details)).await.into_response(),
-            Err(_) => (StatusCode::SERVICE_UNAVAILABLE, axum::Json(serde_json::json!({
-                "stat": 0, "preload": 0, "file_stats": [], "download_speed": 0,
-                "active_peers": 0, "total_peers": 0, "progress": 0
-            }))).into_response(),
-        };
+        if let Some(id) = lookup_known_link(&state, Some(&query.link)) {
+            return status_response(&state, id, None, query.index)
+                .await
+                .into_response();
+        }
+        return Json(empty_status_json()).into_response();
     }
 
     // Stream request: ensure_torrent does its own add+lookup. Calling it
     // once is enough — if metadata isn't ready yet, return 503 and let the
     // player retry the GET. No outer retry loop (the old 60s loop just hid
     // the latency from the user without saving any time).
-    let (id, details) = match ensure_torrent(&state, Some(&query.link), query.title.as_deref(), query.index).await {
+    let (id, details) = match ensure_torrent(
+        &state,
+        Some(&query.link),
+        query.title.as_deref(),
+        query.index,
+        Duration::from_secs(45),
+    )
+    .await
+    {
         Ok(value) => value,
         Err(error) => {
             debug_log(format!("[TorrServer] ensure_torrent failed: {error}"));
@@ -343,7 +408,11 @@ async fn stream_fname(
     let file_id = query
         .index
         .unwrap_or_else(|| largest_file_id(&details).unwrap_or(0));
-    debug_log(format!("[TorrServer] streaming torrent={id} file={file_id} files={}", details.files.as_ref().map(|f| f.len()).unwrap_or(0)));
+    reset_stream_progress(&state, id, file_id);
+    debug_log(format!(
+        "[TorrServer] streaming torrent={id} file={file_id} files={}",
+        details.files.as_ref().map(|f| f.len()).unwrap_or(0)
+    ));
     prioritize_stream_file(&state, id, file_id).await;
 
     // Wait for rqbit to leave Initializing state before attempting to stream.
@@ -351,13 +420,12 @@ async fn stream_fname(
     // transition happens, so polling was wasting 50ms slots per attempt.
     // wait_until_initialized uses a notify channel and fires as soon as it's ready.
     if let Ok(handle) = state.api.mgr_handle(TorrentIdOrHash::Id(id)) {
-        if let Err(e) = tokio::time::timeout(
-            Duration::from_secs(60),
-            handle.wait_until_initialized(),
-        )
-        .await
+        if let Err(e) =
+            tokio::time::timeout(Duration::from_secs(60), handle.wait_until_initialized()).await
         {
-            debug_log(format!("[TorrServer] wait_until_initialized timed out torrent={id}: {e}"));
+            debug_log(format!(
+                "[TorrServer] wait_until_initialized timed out torrent={id}: {e}"
+            ));
             return error_response(StatusCode::SERVICE_UNAVAILABLE, "torrent init timed out");
         }
     }
@@ -367,7 +435,10 @@ async fn stream_fname(
             let mut status = StatusCode::OK;
             let mut output_headers = HeaderMap::new();
             output_headers.insert("Accept-Ranges", HeaderValue::from_static("bytes"));
-            if let Ok(mime) = state.api.torrent_file_mime_type(TorrentIdOrHash::Id(id), file_id) {
+            if let Ok(mime) = state
+                .api
+                .torrent_file_mime_type(TorrentIdOrHash::Id(id), file_id)
+            {
                 if let Ok(value) = HeaderValue::from_str(mime) {
                     output_headers.insert("Content-Type", value);
                 }
@@ -377,25 +448,48 @@ async fn stream_fname(
                 Ok(Some((start, end))) => {
                     if let Err(error) = stream.seek(SeekFrom::Start(start)).await {
                         debug_log(format!("[TorrServer] seek failed torrent={id} file={file_id} start={start} len={total_len}: {error}"));
-                        return error_response(StatusCode::INTERNAL_SERVER_ERROR, "failed to seek stream");
+                        return error_response(
+                            StatusCode::INTERNAL_SERVER_ERROR,
+                            "failed to seek stream",
+                        );
                     }
                     status = StatusCode::PARTIAL_CONTENT;
                     let length = end.saturating_sub(start).saturating_add(1);
                     insert_header(&mut output_headers, "Content-Length", length.to_string());
-                    insert_header(&mut output_headers, "Content-Range", format!("bytes {start}-{end}/{total_len}"));
-                    let body = Body::from_stream(ReaderStream::with_capacity(stream.take(length), 65536));
+                    insert_header(
+                        &mut output_headers,
+                        "Content-Range",
+                        format!("bytes {start}-{end}/{total_len}"),
+                    );
+                    let body = Body::from_stream(ReaderStream::with_capacity(
+                        CountingReader::new(
+                            stream.take(length),
+                            state.stream_progress.clone(),
+                            stream_progress_key(id, file_id),
+                        ),
+                        65536,
+                    ));
                     (status, output_headers, body).into_response()
                 }
                 Ok(None) => {
                     insert_header(&mut output_headers, "Content-Length", total_len.to_string());
-                    let body = Body::from_stream(ReaderStream::with_capacity(stream, 65536));
+                    let body = Body::from_stream(ReaderStream::with_capacity(
+                        CountingReader::new(
+                            stream,
+                            state.stream_progress.clone(),
+                            stream_progress_key(id, file_id),
+                        ),
+                        65536,
+                    ));
                     (status, output_headers, body).into_response()
                 }
                 Err(()) => range_not_satisfiable_response(total_len),
             }
         }
         Err(e) => {
-            debug_log(format!("[TorrServer] api_stream failed torrent={id} file={file_id}: {e:#}"));
+            debug_log(format!(
+                "[TorrServer] api_stream failed torrent={id} file={file_id}: {e:#}"
+            ));
             error_response(StatusCode::NOT_FOUND, format!("{e:#}"))
         }
     }
@@ -406,6 +500,7 @@ async fn ensure_torrent(
     link: Option<&str>,
     title: Option<&str>,
     only_file: Option<usize>,
+    metadata_timeout: Duration,
 ) -> Result<(usize, TorrentDetailsResponse), String> {
     let link = link
         .map(str::trim)
@@ -423,7 +518,14 @@ async fn ensure_torrent(
     // that loses the race blocks here instead of also calling
     // api_add_torrent, then re-check known_links in case the first caller
     // already finished adding it while we were waiting.
-    let _add_guard = state.add_lock.lock().await;
+    let lock_timeout = metadata_timeout
+        .checked_add(Duration::from_secs(5))
+        .unwrap_or(metadata_timeout);
+    let _add_guard =
+        match tokio::time::timeout(lock_timeout, state.add_lock.lock()).await {
+            Ok(guard) => guard,
+            Err(_) => return Err("torrent add already in progress".to_string()),
+        };
     if let Some(id) = lookup_known_link(state, Some(link)) {
         let details = state
             .api
@@ -447,11 +549,15 @@ async fn ensure_torrent(
     if let Some(file_id) = only_file {
         options.only_files = Some(vec![file_id]);
     }
-    let response = state
-        .api
-        .api_add_torrent(AddTorrent::Url(link.to_string().into()), Some(options))
-        .await
-        .map_err(|error| format!("{error:#}"))?;
+    let response = tokio::time::timeout(
+        metadata_timeout,
+        state
+            .api
+            .api_add_torrent(AddTorrent::Url(link.to_string().into()), Some(options)),
+    )
+    .await
+    .map_err(|_| "torrent metadata timed out".to_string())?
+    .map_err(|error| format!("{error:#}"))?;
     let id = response
         .id
         .ok_or_else(|| "torrent metadata is not ready".to_string())?;
@@ -462,10 +568,91 @@ async fn ensure_torrent(
     Ok((id, response.details))
 }
 
+fn stream_progress_key(id: usize, file_id: usize) -> String {
+    format!("{id}:{file_id}")
+}
+
+fn reset_stream_progress(state: &EngineState, id: usize, file_id: usize) {
+    if let Ok(mut map) = state.stream_progress.lock() {
+        map.insert(stream_progress_key(id, file_id), 0);
+    }
+}
+
+fn streamed_size_for(state: &EngineState, id: usize, file_id: Option<usize>) -> u64 {
+    let Some(file_id) = file_id else {
+        return 0;
+    };
+    state
+        .stream_progress
+        .lock()
+        .ok()
+        .and_then(|map| map.get(&stream_progress_key(id, file_id)).copied())
+        .unwrap_or(0)
+}
+
+fn empty_status_json() -> Value {
+    json!({
+        "hash": "",
+        "title": "",
+        "download_speed": 0.0,
+        "active_peers": 0,
+        "total_peers": 0,
+        "progress": 0.0,
+        "stat": 0,
+        "stat_string": "initializing",
+        "preload": 0,
+        "loaded_size": 0,
+        "streamed_size": 0,
+        "preload_size": 0,
+        "file_stats": []
+    })
+}
+
+struct CountingReader<R> {
+    inner: R,
+    progress: Arc<Mutex<HashMap<String, u64>>>,
+    key: String,
+    counted: u64,
+}
+
+impl<R> CountingReader<R> {
+    fn new(inner: R, progress: Arc<Mutex<HashMap<String, u64>>>, key: String) -> Self {
+        Self {
+            inner,
+            progress,
+            key,
+            counted: 0,
+        }
+    }
+}
+
+impl<R: AsyncRead + Unpin> AsyncRead for CountingReader<R> {
+    fn poll_read(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<std::io::Result<()>> {
+        let this = self.get_mut();
+        let before = buf.filled().len();
+        let result = Pin::new(&mut this.inner).poll_read(cx, buf);
+        if let Poll::Ready(Ok(())) = &result {
+            let delta = (buf.filled().len() - before) as u64;
+            if delta > 0 {
+                this.counted = this.counted.saturating_add(delta);
+                if let Ok(mut map) = this.progress.lock() {
+                    map.insert(this.key.clone(), this.counted);
+                }
+            }
+        }
+        result
+    }
+}
+
 async fn status_response(
     state: &EngineState,
     id: usize,
     details: Option<TorrentDetailsResponse>,
+    focus_file: Option<usize>,
 ) -> Json<Value> {
     let details = details.or_else(|| state.api.api_torrent_details(TorrentIdOrHash::Id(id)).ok());
     let stats = state.api.api_stats_v1(TorrentIdOrHash::Id(id)).ok();
@@ -510,8 +697,10 @@ async fn status_response(
         .as_ref()
         .map(|stats| stats.progress_bytes.min(preload_size))
         .unwrap_or(0);
+    let streamed_size = streamed_size_for(state, id, focus_file);
+    let progress_loaded_size = loaded_size.max(streamed_size).min(preload_size);
     let stat = match stats.as_ref().map(|stats| stats.state) {
-        Some(TorrentStatsState::Live) if loaded_size >= preload_size && preload_size > 0 => 3,
+        Some(TorrentStatsState::Live) if progress_loaded_size >= preload_size && preload_size > 0 => 3,
         Some(TorrentStatsState::Live) => 2,
         Some(TorrentStatsState::Initializing) => 0,
         Some(TorrentStatsState::Paused) => 1,
@@ -527,8 +716,9 @@ async fn status_response(
         "progress": progress,
         "stat": stat,
         "stat_string": stats.as_ref().map(|stats| stats.state.to_string()).unwrap_or_else(|| "initializing".to_string()),
-        "preload": if preload_size == 0 { 0 } else { ((loaded_size as f64 / preload_size as f64) * 100.0).round() as i64 },
+        "preload": if preload_size == 0 { 0 } else { ((progress_loaded_size as f64 / preload_size as f64) * 100.0).round() as i64 },
         "loaded_size": loaded_size,
+        "streamed_size": streamed_size,
         "preload_size": preload_size,
         "file_stats": file_stats
     }))
