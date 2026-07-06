@@ -15,6 +15,8 @@ mod addon_resource;
 #[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
 mod addon_store;
 #[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
+mod anime_detection;
+#[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
 mod app_state;
 #[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
 mod calendar_plan;

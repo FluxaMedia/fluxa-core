@@ -1,10 +1,10 @@
 use serde_json::{json, Value};
 
 use crate::{
-    addon_protocol, addon_resource, app_state, calendar_plan, content_identity, core_contract,
-    external_sync, headless_engine, home_ranking, intro_segments, library_state, offline_download,
-    platform_plan, player_policy, player_scrobble, repository_flow, search_plan, stream_policy,
-    tmdb_plan, watchlist_plan,
+    addon_protocol, addon_resource, anime_detection, app_state, calendar_plan, content_identity,
+    core_contract, external_sync, headless_engine, home_ranking, intro_segments, library_state,
+    offline_download, platform_plan, player_policy, player_scrobble, repository_flow, search_plan,
+    stream_policy, tmdb_plan, watchlist_plan,
 };
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -80,6 +80,8 @@ const ROUTERS: &[fn(&str, &str) -> Outcome] = &[
     route_calendar,
     route_external_sync_trakt,
     route_external_sync_simkl,
+    route_external_sync_anilist,
+    route_anime_detection,
     route_library_state,
     route_tmdb,
     route_intro_segments,
@@ -705,6 +707,52 @@ fn route_external_sync_simkl(method: &str, args_json: &str) -> Outcome {
     }
 }
 
+fn route_external_sync_anilist(method: &str, args_json: &str) -> Outcome {
+    match method {
+        "anilistEntriesToSync" => {
+            let args = object(args_json)?;
+            let now_ms = field(&args, "nowMs")?
+                .as_i64()
+                .ok_or_else(|| fail(ErrorKind::InvalidArgs, "nowMs must be a number"))?;
+            opt_json(external_sync::anilist_entries_to_sync_json(
+                field_str(&args, "entriesJson")?,
+                now_ms,
+            ))
+        }
+        "mergeLibraryItemsById" => {
+            let args = object(args_json)?;
+            into_json(external_sync::merge_library_items_by_id_json(
+                field_str(&args, "localJson")?,
+                field_str(&args, "incomingJson")?,
+            ))
+        }
+
+        _ => Err(fail(
+            ErrorKind::UnknownMethod,
+            format!("no such method `{method}`"),
+        )),
+    }
+}
+
+fn route_anime_detection(method: &str, args_json: &str) -> Outcome {
+    match method {
+        "detectAnimePlayback" => {
+            let args = object(args_json)?;
+            into_json(anime_detection::detect_anime_playback_json(
+                field_str(&args, "metaJson")?,
+                field_str(&args, "episodeJson")?,
+                field_str(&args, "streamJson")?,
+                field_str(&args, "addonsJson")?,
+            ))
+        }
+
+        _ => Err(fail(
+            ErrorKind::UnknownMethod,
+            format!("no such method `{method}`"),
+        )),
+    }
+}
+
 fn route_library_state(method: &str, args_json: &str) -> Outcome {
     match method {
         // args_json IS the items/item/doc JSON for single-arg methods
@@ -841,6 +889,30 @@ fn route_tmdb(method: &str, args_json: &str) -> Outcome {
             let (content_type, is_movie) =
                 tmdb_plan::tmdb_resolve_id_hint(&arg_str(args_json, "contentId")?);
             Ok(json!([content_type, is_movie]))
+        }
+        "tmdbPeopleRequestPlan" => {
+            let args = object(args_json)?;
+            opt_json(tmdb_plan::tmdb_people_request_plan_json(
+                field_str(&args, "metaJson")?,
+                field_str(&args, "apiKey")?,
+                field_str(&args, "language")?,
+            ))
+        }
+        "tmdbCreditsUrlFromFind" => {
+            let args = object(args_json)?;
+            Ok(json!(tmdb_plan::tmdb_credits_url_from_find_json(
+                field_str(&args, "findJson")?,
+                field_str(&args, "metaJson")?,
+                field_str(&args, "apiKey")?,
+                field_str(&args, "language")?,
+            )))
+        }
+        "tmdbPeopleImagesFromCredits" => {
+            let args = object(args_json)?;
+            opt_json(tmdb_plan::tmdb_people_images_from_credits_json(
+                field_str(&args, "creditsJson")?,
+                field_str(&args, "linksJson")?,
+            ))
         }
 
         _ => Err(fail(
@@ -1009,6 +1081,47 @@ mod tests {
         assert_eq!(env["ok"], json!(true));
         assert_eq!(env["value"]["imdb"], json!("tt123"));
         assert_eq!(env["value"]["isEpisode"], json!(true));
+    }
+
+    #[test]
+    fn new_sync_and_detection_methods_are_routed() {
+        let detect = parse(&core_invoke(
+            "detectAnimePlayback",
+            r#"{"metaJson":"{\"genres\":[\"Anime\"]}","episodeJson":"null","streamJson":"null","addonsJson":"[]"}"#,
+        ));
+        assert_eq!(detect["ok"], json!(true));
+        assert_eq!(detect["value"]["confidence"], json!(65));
+
+        let sync = parse(&core_invoke(
+            "anilistEntriesToSync",
+            r#"{"entriesJson":"[]","nowMs":0}"#,
+        ));
+        assert_eq!(sync["ok"], json!(true));
+        assert_eq!(sync["value"]["watchlist"], json!([]));
+
+        let merged = parse(&core_invoke(
+            "mergeLibraryItemsById",
+            r#"{"localJson":"[]","incomingJson":"[{\"id\":\"a\"}]"}"#,
+        ));
+        assert_eq!(merged["value"][0]["id"], json!("a"));
+
+        let plan = parse(&core_invoke(
+            "tmdbPeopleRequestPlan",
+            r#"{"metaJson":"{\"id\":\"tt123\",\"type\":\"movie\"}","apiKey":"k","language":"en"}"#,
+        ));
+        assert_eq!(
+            plan["value"]["findUrl"],
+            json!("https://api.themoviedb.org/3/find/tt123?api_key=k&language=en-US&external_source=imdb_id")
+        );
+
+        let images = parse(&core_invoke(
+            "tmdbPeopleImagesFromCredits",
+            r#"{"creditsJson":"{\"cast\":[{\"name\":\"Jane Doe\",\"profile_path\":\"/x.jpg\"}]}","linksJson":"[{\"name\":\"jane  doe\"}]"}"#,
+        ));
+        assert_eq!(
+            images["value"]["jane  doe"],
+            json!("https://image.tmdb.org/t/p/w185/x.jpg")
+        );
     }
 
     #[test]

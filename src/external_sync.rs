@@ -859,10 +859,235 @@ pub(crate) fn simkl_match_episode_json(episodes_json: &str, target_json: &str) -
     serde_json::to_string(&json!({ "season": season, "episode": episode })).ok()
 }
 
+fn anilist_media_to_item(media: &Value, media_id: i64) -> serde_json::Map<String, Value> {
+    let title = ["english", "romaji", "native"]
+        .iter()
+        .find_map(|key| {
+            media
+                .get("title")
+                .and_then(|t| t.get(*key))
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+        })
+        .map(str::to_string)
+        .unwrap_or_else(|| format!("AniList {media_id}"));
+
+    let mut item = serde_json::Map::new();
+    item.insert("id".to_string(), json!(format!("anilist:{media_id}")));
+    item.insert("name".to_string(), json!(title));
+    item.insert("type".to_string(), json!("series"));
+    let poster = media.get("coverImage").and_then(|c| {
+        c.get("extraLarge")
+            .and_then(Value::as_str)
+            .or_else(|| c.get("large").and_then(Value::as_str))
+    });
+    if let Some(poster) = poster {
+        item.insert("poster".to_string(), json!(poster));
+    }
+    if let Some(banner) = media.get("bannerImage").and_then(Value::as_str) {
+        item.insert("background".to_string(), json!(banner));
+    }
+    if let Some(year) = media.get("seasonYear").and_then(Value::as_i64) {
+        item.insert("year".to_string(), json!(year));
+    }
+    if let Some(genres) = media.get("genres").filter(|g| g.is_array()) {
+        item.insert("genres".to_string(), genres.clone());
+    }
+    item.insert("anilistId".to_string(), json!(media_id));
+    if let Some(episodes) = media.get("episodes").filter(|e| !e.is_null()) {
+        item.insert("totalEpisodes".to_string(), episodes.clone());
+    }
+    item
+}
+
+fn anilist_updated_at(entry: &Value, now_ms: i64) -> String {
+    let seconds = entry.get("updatedAt").and_then(Value::as_i64).unwrap_or(0);
+    let ms = if seconds > 0 { seconds * 1000 } else { now_ms };
+    chrono::DateTime::<chrono::Utc>::from_timestamp_millis(ms)
+        .map(|dt| dt.to_rfc3339_opts(chrono::SecondsFormat::Millis, true))
+        .unwrap_or_default()
+}
+
+fn mark_watched_through(watched: &mut serde_json::Map<String, Value>, id: &str, through: i64) {
+    for ep in 1..=through.max(0) {
+        watched.insert(format!("{id}:1:{ep}"), Value::Bool(true));
+    }
+}
+
+pub(crate) fn anilist_entries_to_sync_json(entries_json: &str, now_ms: i64) -> Option<String> {
+    let entries: Vec<Value> = serde_json::from_str(entries_json).ok()?;
+
+    let mut watchlist: Vec<Value> = Vec::new();
+    let mut completed: Vec<Value> = Vec::new();
+    let mut dropped: Vec<Value> = Vec::new();
+    let mut watching: Vec<Value> = Vec::new();
+    let mut watched = serde_json::Map::new();
+    let mut progress = serde_json::Map::new();
+
+    for entry in &entries {
+        let Some(media) = entry.get("media").filter(|m| m.is_object()) else {
+            continue;
+        };
+        let Some(media_id) = media.get("id").and_then(Value::as_i64) else {
+            continue;
+        };
+        let item = anilist_media_to_item(media, media_id);
+        let id = format!("anilist:{media_id}");
+        let status = entry
+            .get("status")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_uppercase();
+        let progress_episode = entry
+            .get("progress")
+            .and_then(Value::as_f64)
+            .map(|p| p.floor().max(0.0) as i64)
+            .unwrap_or(0);
+        let updated_at = anilist_updated_at(entry, now_ms);
+
+        match status.as_str() {
+            "PLANNING" => {
+                let mut it = item.clone();
+                it.insert("inWatchlist".to_string(), Value::Bool(true));
+                watchlist.push(Value::Object(it));
+            }
+            "COMPLETED" => {
+                let mut it = item.clone();
+                it.insert("statusChangedAt".to_string(), json!(updated_at));
+                completed.push(Value::Object(it));
+                let through = if progress_episode > 0 {
+                    progress_episode
+                } else {
+                    media.get("episodes").and_then(Value::as_i64).unwrap_or(0)
+                };
+                mark_watched_through(&mut watched, &id, through);
+            }
+            "DROPPED" | "PAUSED" => {
+                let mut it = item.clone();
+                it.insert("statusChangedAt".to_string(), json!(updated_at));
+                dropped.push(Value::Object(it));
+                mark_watched_through(&mut watched, &id, progress_episode);
+            }
+            "CURRENT" | "REPEATING" if progress_episode > 0 => {
+                let last_video_id = format!("{id}:1:{progress_episode}");
+                let episode_name = format!("Episode {progress_episode}");
+                let mut it = item.clone();
+                it.insert("lastVideoId".to_string(), json!(last_video_id));
+                it.insert("lastEpisodeSeason".to_string(), json!(1));
+                it.insert("lastEpisodeNumber".to_string(), json!(progress_episode));
+                it.insert("lastEpisodeName".to_string(), json!(episode_name));
+                it.insert("timeOffset".to_string(), json!(1));
+                it.insert("duration".to_string(), json!(1));
+                watching.push(Value::Object(it));
+                progress.insert(
+                    id.clone(),
+                    json!({
+                        "meta": Value::Object(item.clone()),
+                        "lastVideoId": last_video_id,
+                        "lastEpisodeSeason": 1,
+                        "lastEpisodeNumber": progress_episode,
+                        "lastEpisodeName": episode_name,
+                        "timeOffset": 1,
+                        "duration": 1,
+                        "savedAt": updated_at,
+                    }),
+                );
+                mark_watched_through(&mut watched, &id, progress_episode);
+            }
+            _ => {}
+        }
+    }
+
+    serde_json::to_string(&json!({
+        "watchlist": watchlist,
+        "completed": completed,
+        "dropped": dropped,
+        "watching": watching,
+        "watched": Value::Object(watched),
+        "progress": Value::Object(progress),
+    }))
+    .ok()
+}
+
+pub(crate) fn merge_library_items_by_id_json(local_json: &str, incoming_json: &str) -> String {
+    let local: Vec<Value> = serde_json::from_str(local_json).unwrap_or_default();
+    let incoming: Vec<Value> = serde_json::from_str(incoming_json).unwrap_or_default();
+
+    fn item_id(item: &Value) -> String {
+        match item.get("id") {
+            Some(Value::String(s)) => s.clone(),
+            Some(Value::Number(n)) => n.to_string(),
+            _ => String::new(),
+        }
+    }
+
+    let mut order: Vec<String> = Vec::new();
+    let mut by_id: std::collections::HashMap<String, Value> = std::collections::HashMap::new();
+    for item in local {
+        let id = item_id(&item);
+        if !by_id.contains_key(&id) {
+            order.push(id.clone());
+        }
+        by_id.insert(id, item);
+    }
+    for item in incoming {
+        let id = item_id(&item);
+        let merged = match (by_id.get(&id), &item) {
+            (Some(Value::Object(existing)), Value::Object(inc)) => {
+                let mut m = existing.clone();
+                for (k, v) in inc {
+                    m.insert(k.clone(), v.clone());
+                }
+                Value::Object(m)
+            }
+            _ => item.clone(),
+        };
+        if !by_id.contains_key(&id) {
+            order.push(id.clone());
+        }
+        by_id.insert(id, merged);
+    }
+
+    let merged: Vec<Value> = order.iter().filter_map(|id| by_id.remove(id)).collect();
+    serde_json::to_string(&merged).unwrap_or_else(|_| "[]".to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use serde_json::Value;
+
+    #[test]
+    fn anilist_current_entries_build_progress_and_watched_keys() {
+        let entries = r#"[
+            {"status":"CURRENT","progress":3,"updatedAt":1700000000,"media":{"id":5,"title":{"romaji":"Show"},"episodes":12}},
+            {"status":"PLANNING","media":{"id":6,"title":{"english":"Other"}}}
+        ]"#;
+        let plan: Value =
+            serde_json::from_str(&anilist_entries_to_sync_json(entries, 0).unwrap()).unwrap();
+        assert_eq!(plan["watching"][0]["lastVideoId"], "anilist:5:1:3");
+        assert_eq!(plan["watched"]["anilist:5:1:2"], Value::Bool(true));
+        assert_eq!(
+            plan["progress"]["anilist:5"]["savedAt"],
+            "2023-11-14T22:13:20.000Z"
+        );
+        assert_eq!(plan["watchlist"][0]["inWatchlist"], Value::Bool(true));
+        assert_eq!(plan["watchlist"][0]["name"], "Other");
+    }
+
+    #[test]
+    fn merge_by_id_overlays_incoming_fields_onto_local_items() {
+        let merged: Vec<Value> = serde_json::from_str(&merge_library_items_by_id_json(
+            r#"[{"id":"a","name":"Old","poster":"p"},{"id":"b","name":"Keep"}]"#,
+            r#"[{"id":"a","name":"New"},{"id":"c","name":"Added"}]"#,
+        ))
+        .unwrap();
+        assert_eq!(merged[0]["name"], "New");
+        assert_eq!(merged[0]["poster"], "p");
+        assert_eq!(merged[1]["name"], "Keep");
+        assert_eq!(merged[2]["name"], "Added");
+    }
 
     #[test]
     fn stremio_episode_entries_become_watched_keys_not_watchlist_items() {

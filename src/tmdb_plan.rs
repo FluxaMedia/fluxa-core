@@ -11,8 +11,8 @@ pub(crate) fn tmdb_content_type(content_type: &str) -> &str {
 
 pub(crate) fn tmdb_language(language: &str) -> String {
     match language {
-        "" | DEFAULT_LANGUAGE => "en-US".to_string(),
-        "tr" => "tr-TR".to_string(),
+        "" | DEFAULT_LANGUAGE | "english_us" => "en-US".to_string(),
+        "tr" | "tr_tr" => "tr-TR".to_string(),
         lang if lang.contains('-') => lang.to_string(),
         lang => format!("{}-{}", lang, lang.to_uppercase()),
     }
@@ -148,4 +148,146 @@ pub(crate) fn tmdb_resolve_id_hint(content_id: &str) -> (String, bool) {
     }
     let imdb_part = content_id.split(':').next().unwrap_or(content_id);
     (imdb_part.to_string(), false)
+}
+
+fn encode_query(value: &str) -> String {
+    let mut out = String::with_capacity(value.len());
+    for byte in value.bytes() {
+        match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                out.push(byte as char)
+            }
+            _ => out.push_str(&format!("%{byte:02X}")),
+        }
+    }
+    out
+}
+
+fn tmdb_api_url(path: &str, api_key: &str, language: &str, extra: &[(&str, &str)]) -> String {
+    let mut params = format!(
+        "api_key={}&language={}",
+        encode_query(api_key),
+        encode_query(&tmdb_language(language))
+    );
+    for (key, value) in extra {
+        params.push_str(&format!("&{key}={}", encode_query(value)));
+    }
+    format!("https://api.themoviedb.org/{path}?{params}")
+}
+
+fn tmdb_credits_url(content_type: &str, tmdb_id: &str, api_key: &str, language: &str) -> String {
+    tmdb_api_url(
+        &format!("3/{}/{tmdb_id}/credits", tmdb_content_type(content_type)),
+        api_key,
+        language,
+        &[],
+    )
+}
+
+fn is_imdb_id(id: &str) -> bool {
+    id.len() > 2
+        && id[..2].eq_ignore_ascii_case("tt")
+        && id[2..].bytes().all(|b| b.is_ascii_digit())
+}
+
+pub(crate) fn tmdb_people_request_plan_json(
+    meta_json: &str,
+    api_key: &str,
+    language: &str,
+) -> Option<String> {
+    let meta: Value = serde_json::from_str(meta_json).ok()?;
+    let id = meta.get("id").and_then(Value::as_str).unwrap_or("");
+    let content_type = meta.get("type").and_then(Value::as_str).unwrap_or("");
+
+    let (base_id, resolved) = tmdb_resolve_id_hint(id);
+    if resolved {
+        return Some(
+            json!({ "creditsUrl": tmdb_credits_url(content_type, &base_id, api_key, language) })
+                .to_string(),
+        );
+    }
+
+    let imdb_id = id.split(':').next().unwrap_or("");
+    if !is_imdb_id(imdb_id) {
+        return Some("{}".to_string());
+    }
+    Some(
+        json!({
+            "findUrl": tmdb_api_url(
+                &format!("3/find/{imdb_id}"),
+                api_key,
+                language,
+                &[("external_source", "imdb_id")],
+            ),
+        })
+        .to_string(),
+    )
+}
+
+pub(crate) fn tmdb_credits_url_from_find_json(
+    find_json: &str,
+    meta_json: &str,
+    api_key: &str,
+    language: &str,
+) -> Option<String> {
+    let find: Value = serde_json::from_str(find_json).ok()?;
+    let meta: Value = serde_json::from_str(meta_json).ok()?;
+    let content_type = meta.get("type").and_then(Value::as_str).unwrap_or("");
+    let key = if content_type == "series" {
+        "tv_results"
+    } else {
+        "movie_results"
+    };
+    let result_id = find.get(key)?.as_array()?.first()?.get("id")?;
+    let tmdb_id = match result_id {
+        Value::Number(n) => n.to_string(),
+        Value::String(s) => s.clone(),
+        _ => return None,
+    };
+    Some(tmdb_credits_url(content_type, &tmdb_id, api_key, language))
+}
+
+fn normalize_person_name(name: &str) -> String {
+    name.trim()
+        .to_lowercase()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+pub(crate) fn tmdb_people_images_from_credits_json(
+    credits_json: &str,
+    links_json: &str,
+) -> Option<String> {
+    let credits: Value = serde_json::from_str(credits_json).ok()?;
+    let links: Vec<Value> = serde_json::from_str(links_json).ok()?;
+
+    let mut wanted: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+    for link in &links {
+        if let Some(name) = link.get("name").and_then(Value::as_str) {
+            wanted.insert(normalize_person_name(name), name.to_string());
+        }
+    }
+
+    let empty: Vec<Value> = Vec::new();
+    let cast = credits.get("cast").and_then(Value::as_array).unwrap_or(&empty);
+    let crew = credits.get("crew").and_then(Value::as_array).unwrap_or(&empty);
+
+    let mut images = serde_json::Map::new();
+    for person in cast.iter().chain(crew.iter()) {
+        let name = person.get("name").and_then(Value::as_str).unwrap_or("");
+        let Some(canonical) = wanted.get(&normalize_person_name(name)) else {
+            continue;
+        };
+        if images.contains_key(canonical) {
+            continue;
+        }
+        if let Some(image) =
+            tmdb_image_url(person.get("profile_path").and_then(Value::as_str), "w185")
+        {
+            images.insert(canonical.clone(), Value::String(image));
+        }
+    }
+
+    serde_json::to_string(&Value::Object(images)).ok()
 }
