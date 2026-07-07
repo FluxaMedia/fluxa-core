@@ -129,7 +129,7 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaStreamingNative_
     _class: JObject<'_>,
 ) -> JBoolean {
     std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        if torrent_engine::stop_torrent_server() {
+        if torrent_engine::stop_torrent_server(None) {
             1
         } else {
             0

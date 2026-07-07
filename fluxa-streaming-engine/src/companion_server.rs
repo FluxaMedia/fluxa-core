@@ -167,7 +167,7 @@ async fn start_torrent_inner(state: &AppState, body: StartTorrentBody) -> Result
 
 async fn stop_torrent(State(state): State<Arc<AppState>>) -> Json<bool> {
     *state.torrent_base_url.lock().await = None;
-    let stopped = tokio::task::spawn_blocking(crate::stop_torrent_server)
+    let stopped = tokio::task::spawn_blocking(|| crate::stop_torrent_server(None))
         .await
         .unwrap_or(false);
     Json(stopped)

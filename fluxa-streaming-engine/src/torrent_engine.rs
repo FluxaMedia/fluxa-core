@@ -16,6 +16,7 @@ use std::io::SeekFrom;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::pin::Pin;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::task::{Context, Poll};
 use std::thread;
@@ -69,11 +70,13 @@ struct EngineState {
 }
 
 struct TorrentServerHandle {
+    generation: u64,
     stop: Option<oneshot::Sender<()>>,
     thread: Option<thread::JoinHandle<()>>,
 }
 
 static TORRENT_SERVER: OnceLock<Mutex<Option<TorrentServerHandle>>> = OnceLock::new();
+static TORRENT_GENERATION: AtomicU64 = AtomicU64::new(0);
 
 fn torrent_server_handle() -> &'static Mutex<Option<TorrentServerHandle>> {
     TORRENT_SERVER.get_or_init(|| Mutex::new(None))
@@ -213,14 +216,17 @@ pub fn start_torrent_server(
 
     match ready_rx.recv_timeout(Duration::from_secs(20)) {
         Ok(Ok(port)) => {
+            let generation = TORRENT_GENERATION.fetch_add(1, Ordering::SeqCst) + 1;
             *torrent_server_handle().lock().ok()? = Some(TorrentServerHandle {
+                generation,
                 stop: Some(stop_tx),
                 thread: Some(thread),
             });
             serde_json::to_string(&json!({
                 "url": format!("http://127.0.0.1:{port}"),
                 "port": port,
-                "cacheDir": cache_dir.to_string_lossy()
+                "cacheDir": cache_dir.to_string_lossy(),
+                "generation": generation
             }))
             .ok()
         }
@@ -242,14 +248,25 @@ pub fn start_torrent_server(
     }
 }
 
-pub fn stop_torrent_server() -> bool {
-    let Some(mut handle) = torrent_server_handle()
-        .lock()
-        .ok()
-        .and_then(|mut guard| guard.take())
-    else {
+/// Stops the running torrent server. If `expected_generation` is given, the
+/// stop is a no-op when a newer server has already replaced the one the
+/// caller meant to stop (e.g. a stale stop racing a fast replay's start) —
+/// otherwise a stop issued for an old session could tear down the session
+/// that superseded it.
+pub fn stop_torrent_server(expected_generation: Option<u64>) -> bool {
+    let mut guard = match torrent_server_handle().lock() {
+        Ok(guard) => guard,
+        Err(_) => return false,
+    };
+    if let Some(expected) = expected_generation {
+        if guard.as_ref().map(|h| h.generation) != Some(expected) {
+            return false;
+        }
+    }
+    let Some(mut handle) = guard.take() else {
         return false;
     };
+    drop(guard);
     if let Some(stop) = handle.stop.take() {
         let _ = stop.send(());
     }
