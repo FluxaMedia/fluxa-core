@@ -46,7 +46,7 @@ pub(super) fn dispatch_flow(
     mode: String,
 ) -> Vec<EffectEnvelope> {
     let generation = engine.bump_generation(GenerationKey::Auth);
-    engine.state.auth = AuthState {
+    *engine.state.auth = AuthState {
         provider: provider.clone(),
         mode: mode.clone(),
         is_loading: true,
@@ -69,7 +69,7 @@ pub(super) fn dispatch_exchange(
     profile: Option<Value>,
 ) -> Vec<EffectEnvelope> {
     let generation = engine.bump_generation(GenerationKey::Auth);
-    engine.state.auth = AuthState {
+    *engine.state.auth = AuthState {
         provider: provider.clone(),
         mode: "exchange".to_string(),
         is_loading: true,
@@ -95,7 +95,7 @@ pub(super) fn dispatch_token_refresh(
     profile: Value,
 ) -> Vec<EffectEnvelope> {
     let generation = engine.bump_generation(GenerationKey::Auth);
-    engine.state.auth = AuthState {
+    *engine.state.auth = AuthState {
         provider: provider.clone(),
         mode: "refresh".to_string(),
         is_loading: true,

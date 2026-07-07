@@ -118,6 +118,20 @@ pub mod fuzz_targets {
     };
 }
 
+// Re-exports for the `benches/` dev-dependency only, mirroring `fuzz_targets` above —
+// these functions are `pub(crate)` for real consumers and only reachable from outside
+// the crate through this feature-gated module.
+#[cfg(all(
+    feature = "bench",
+    any(feature = "full-api", not(feature = "streaming-shared"))
+))]
+pub mod bench_targets {
+    pub use crate::headless_engine::{
+        create_headless_engine, destroy_headless_engine, headless_engine_dispatch_json,
+    };
+    pub use crate::player_policy::player_source_sidebar_plan_json;
+}
+
 #[cfg(all(test, any(feature = "full-api", not(feature = "streaming-shared"))))]
 mod tests {
     use crate::addon_protocol::{

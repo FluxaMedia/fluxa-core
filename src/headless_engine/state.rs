@@ -13,7 +13,72 @@ use super::search::SearchState;
 use super::settings::SettingsState;
 use super::sync::SyncState;
 use crate::runtime::EffectEnvelope;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use std::ops::{Deref, DerefMut};
+
+// Wraps a domain's state so any mutable access (a direct field write, a whole-value
+// replacement via DerefMut, a method call taking &mut) flips `dirty` automatically —
+// StatePatch::from_dirty then clones only domains actually touched by a dispatch
+// instead of cloning the whole EngineState before and after every action to diff it
+// via PartialEq. Serializes/deserializes exactly like the wrapped value: the wire
+// format is unaffected.
+#[derive(Clone, Debug)]
+pub(super) struct Tracked<T> {
+    value: T,
+    dirty: bool,
+}
+
+impl<T: Default> Default for Tracked<T> {
+    fn default() -> Self {
+        Tracked {
+            value: T::default(),
+            dirty: false,
+        }
+    }
+}
+
+impl<T> Tracked<T> {
+    pub(super) fn take_if_dirty(&mut self) -> Option<T>
+    where
+        T: Clone,
+    {
+        if self.dirty {
+            self.dirty = false;
+            Some(self.value.clone())
+        } else {
+            None
+        }
+    }
+}
+
+impl<T> Deref for Tracked<T> {
+    type Target = T;
+    fn deref(&self) -> &T {
+        &self.value
+    }
+}
+
+impl<T> DerefMut for Tracked<T> {
+    fn deref_mut(&mut self) -> &mut T {
+        self.dirty = true;
+        &mut self.value
+    }
+}
+
+impl<T: Serialize> Serialize for Tracked<T> {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        self.value.serialize(serializer)
+    }
+}
+
+impl<'de, T: Deserialize<'de>> Deserialize<'de> for Tracked<T> {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        Ok(Tracked {
+            value: T::deserialize(deserializer)?,
+            dirty: false,
+        })
+    }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum GenerationKey {
@@ -105,22 +170,45 @@ impl RuntimeGenerations {
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", default)]
 pub(super) struct EngineState {
-    pub(super) navigation: NavigationState,
-    pub(super) home: HomeState,
-    pub(super) search: SearchState,
-    pub(super) discover: DiscoverState,
-    pub(super) detail: DetailState,
-    pub(super) player: PlayerState,
-    pub(super) library: LibraryState,
-    pub(super) profile: ProfileState,
-    pub(super) settings: SettingsState,
-    pub(super) calendar: CalendarState,
-    pub(super) addons: AddonsState,
-    pub(super) auth: AuthState,
-    pub(super) sync: SyncState,
-    pub(super) lookup: LookupState,
-    pub(super) offline: OfflineState,
-    pub(super) pending_effects: Vec<EffectEnvelope>,
+    pub(super) navigation: Tracked<NavigationState>,
+    pub(super) home: Tracked<HomeState>,
+    pub(super) search: Tracked<SearchState>,
+    pub(super) discover: Tracked<DiscoverState>,
+    pub(super) detail: Tracked<DetailState>,
+    pub(super) player: Tracked<PlayerState>,
+    pub(super) library: Tracked<LibraryState>,
+    pub(super) profile: Tracked<ProfileState>,
+    pub(super) settings: Tracked<SettingsState>,
+    pub(super) calendar: Tracked<CalendarState>,
+    pub(super) addons: Tracked<AddonsState>,
+    pub(super) auth: Tracked<AuthState>,
+    pub(super) sync: Tracked<SyncState>,
+    pub(super) lookup: Tracked<LookupState>,
+    pub(super) offline: Tracked<OfflineState>,
+    pub(super) pending_effects: Tracked<Vec<EffectEnvelope>>,
     #[serde(rename = "_runtime")]
     pub(super) runtime: RuntimeGenerations,
+}
+
+impl EngineState {
+    pub(super) fn diff_dirty(&mut self) -> super::contracts::StatePatch {
+        super::contracts::StatePatch {
+            navigation: self.navigation.take_if_dirty(),
+            home: self.home.take_if_dirty(),
+            search: self.search.take_if_dirty(),
+            discover: self.discover.take_if_dirty(),
+            detail: self.detail.take_if_dirty(),
+            player: self.player.take_if_dirty(),
+            library: self.library.take_if_dirty(),
+            profile: self.profile.take_if_dirty(),
+            settings: self.settings.take_if_dirty(),
+            calendar: self.calendar.take_if_dirty(),
+            addons: self.addons.take_if_dirty(),
+            auth: self.auth.take_if_dirty(),
+            sync: self.sync.take_if_dirty(),
+            lookup: self.lookup.take_if_dirty(),
+            offline: self.offline.take_if_dirty(),
+            pending_effects: self.pending_effects.take_if_dirty(),
+        }
+    }
 }

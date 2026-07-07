@@ -35,7 +35,7 @@ pub(super) fn dispatch(
     let generation = engine.bump_generation(GenerationKey::Search);
     let profile_value = profile.unwrap_or_else(|| engine.state.profile.active.clone());
     let profile_id = active_profile_id(&engine.state, &profile_value);
-    engine.state.search = SearchState {
+    *engine.state.search = SearchState {
         query: query.clone(),
         is_loading: true,
         results: serde_json::json!([]),

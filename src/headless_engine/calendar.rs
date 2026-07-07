@@ -52,7 +52,7 @@ pub(super) fn dispatch(
     let generation = engine.bump_generation(GenerationKey::Calendar);
     let profile_value = profile.unwrap_or_else(|| engine.state.profile.active.clone());
     let profile_id = active_profile_id(&engine.state, &profile_value);
-    engine.state.calendar = CalendarState {
+    *engine.state.calendar = CalendarState {
         year,
         month,
         is_loading: true,

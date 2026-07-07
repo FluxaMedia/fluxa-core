@@ -136,7 +136,7 @@ pub(super) fn dispatch_load(
     let generation = engine.bump_generation(GenerationKey::Home);
     let profile_value = profile.unwrap_or_else(|| engine.state.profile.active.clone());
     let profile_id = active_profile_id(&engine.state, &profile_value);
-    engine.state.home = HomeState {
+    *engine.state.home = HomeState {
         is_loading: true,
         generation,
         ..HomeState::default()

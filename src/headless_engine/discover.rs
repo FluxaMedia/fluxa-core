@@ -50,7 +50,7 @@ pub(super) fn dispatch_discover(
     let profile_value = profile.unwrap_or_else(|| engine.state.profile.active.clone());
     let profile_id = active_profile_id(&engine.state, &profile_value);
     let filters_value = filters.unwrap_or(Value::Null);
-    engine.state.discover = DiscoverState {
+    *engine.state.discover = DiscoverState {
         content_type: content_type.clone(),
         filters: filters_value.clone(),
         is_loading: true,

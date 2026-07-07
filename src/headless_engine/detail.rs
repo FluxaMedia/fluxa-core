@@ -195,7 +195,7 @@ pub(super) fn dispatch_load(
 ) -> Vec<EffectEnvelope> {
     let generation = engine.bump_generation(GenerationKey::Detail);
     let language = language.unwrap_or_else(|| "en".to_string());
-    engine.state.detail = DetailState {
+    *engine.state.detail = DetailState {
         content_type: content_type.clone(),
         id: id.clone(),
         language: language.clone(),
@@ -588,13 +588,13 @@ pub(super) fn complete(
         "fetchMetaDetailLookup" => {
             if generation == engine.state.runtime.get(GenerationKey::Lookup) {
                 if result.status.is_ok() {
-                    engine.state.lookup = LookupState {
+                    *engine.state.lookup = LookupState {
                         trailers: normalize_meta_trailers(&result.value),
                         meta_detail: result.value.clone(),
                         error: Value::Null,
                     };
                 } else {
-                    engine.state.lookup = LookupState {
+                    *engine.state.lookup = LookupState {
                         trailers: serde_json::json!([]),
                         meta_detail: Value::Null,
                         error: normalize_error(result.error.clone()),

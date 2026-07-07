@@ -43,7 +43,7 @@ pub(super) fn dispatch_external_sync(
     let generation = engine.bump_generation(GenerationKey::Sync);
     let profile_value = profile.unwrap_or_else(|| engine.state.profile.active.clone());
     let profile_id = active_profile_id(&engine.state, &profile_value);
-    engine.state.sync = SyncState {
+    *engine.state.sync = SyncState {
         provider: provider.clone(),
         is_loading: true,
         snapshot: Value::Null,
@@ -69,7 +69,7 @@ pub(super) fn dispatch_integration_sync(
     language: Option<String>,
 ) -> Vec<EffectEnvelope> {
     let generation = engine.bump_generation(GenerationKey::Sync);
-    engine.state.sync = SyncState {
+    *engine.state.sync = SyncState {
         provider: provider.clone(),
         is_loading: true,
         snapshot: Value::Null,

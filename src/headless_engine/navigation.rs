@@ -24,7 +24,7 @@ pub(super) fn dispatch(
     route: String,
     params: Option<Value>,
 ) -> Vec<EffectEnvelope> {
-    engine.state.navigation = NavigationState {
+    *engine.state.navigation = NavigationState {
         route,
         params: params.unwrap_or(Value::Null),
     };

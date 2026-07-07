@@ -320,7 +320,7 @@ pub(crate) fn player_retry_policy_json(request_json: &str) -> Option<String> {
 }
 
 /// Build the source sidebar option state: which streams to show and which is selected.
-pub(crate) fn player_source_sidebar_plan_json(request_json: &str) -> Option<String> {
+pub fn player_source_sidebar_plan_json(request_json: &str) -> Option<String> {
     let request = serde_json::from_str::<SourceSidebarRequest>(request_json)
         .map_err(|e| CoreError::BadInput {
             context: "player_source_sidebar_plan_json",

@@ -57,6 +57,7 @@ uniffi-bindings = ["dep:uniffi", "full-api"]
 uniffi-cli = ["uniffi-bindings", "uniffi/cli"]
 wasm = ["full-api", "dep:wasm-bindgen", "chrono/wasmbind"]
 fuzzing = []
+bench = []
 
 [dependencies]
 base64 = "0.22"
@@ -69,3 +70,16 @@ serde_json = { workspace = true }
 uniffi = { version = "0.31.1", optional = true }
 wasm-bindgen = { version = "0.2", optional = true }
 web-time = "1"
+
+[dev-dependencies]
+criterion = { version = "0.5", default-features = false }
+
+[[bench]]
+name = "headless_engine_dispatch"
+harness = false
+required-features = ["bench"]
+
+[[bench]]
+name = "stream_ranking"
+harness = false
+required-features = ["bench"]

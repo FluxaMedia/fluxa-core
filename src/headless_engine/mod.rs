@@ -82,8 +82,11 @@ pub fn destroy_headless_engine(handle: u64) -> bool {
 }
 
 pub fn headless_engine_snapshot_json(handle: u64) -> Option<String> {
-    let map = lock_engines();
-    serde_json::to_string(&map.get(&handle)?.state).ok()
+    let state = {
+        let map = lock_engines();
+        map.get(&handle)?.state.clone()
+    };
+    serde_json::to_string(&state).ok()
 }
 
 pub fn headless_engine_dispatch_json(handle: u64, action_json: &str) -> Option<String> {
@@ -93,7 +96,7 @@ pub fn headless_engine_dispatch_json(handle: u64, action_json: &str) -> Option<S
             detail: e.to_string(),
         })
         .log_discard()?;
-    let (before, after, visible_effects) = {
+    let (patch, visible_effects) = {
         let mut map = lock_engines();
         let engine = match map.get_mut(&handle) {
             Some(engine) => engine,
@@ -105,12 +108,11 @@ pub fn headless_engine_dispatch_json(handle: u64, action_json: &str) -> Option<S
             }
         };
         engine.expire_stale_pending_effects(Instant::now());
-        let before = engine.state.clone();
         let effects = engine.dispatch(action);
         let visible_effects = engine.resolve_visible_effects(effects);
-        (before, engine.state.clone(), visible_effects)
+        (engine.state.diff_dirty(), visible_effects)
     };
-    result_patch_json(&before, &after, visible_effects)
+    result_patch_json(patch, visible_effects)
 }
 
 pub fn headless_engine_complete_effect_json(handle: u64, result_json: &str) -> Option<String> {
@@ -120,7 +122,7 @@ pub fn headless_engine_complete_effect_json(handle: u64, result_json: &str) -> O
             detail: e.to_string(),
         })
         .log_discard()?;
-    let (before, after, visible_effects) = {
+    let (patch, visible_effects) = {
         let mut map = lock_engines();
         let engine = match map.get_mut(&handle) {
             Some(engine) => engine,
@@ -132,12 +134,11 @@ pub fn headless_engine_complete_effect_json(handle: u64, result_json: &str) -> O
             }
         };
         engine.expire_stale_pending_effects(Instant::now());
-        let before = engine.state.clone();
         let effects = engine.complete_effect(result);
         let visible_effects = engine.resolve_visible_effects(effects);
-        (before, engine.state.clone(), visible_effects)
+        (engine.state.diff_dirty(), visible_effects)
     };
-    result_patch_json(&before, &after, visible_effects)
+    result_patch_json(patch, visible_effects)
 }
 
 impl HeadlessEngine {
@@ -707,16 +708,8 @@ impl HeadlessEngine {
 // over a second, and every other Tauri command shares one global engine mutex — holding
 // it for that long would stall unrelated IPC calls behind it. Callers clone what they
 // need and drop the lock before calling this.
-fn result_patch_json(
-    before: &EngineState,
-    after: &EngineState,
-    effects: Vec<EffectEnvelope>,
-) -> Option<String> {
-    serde_json::to_string(&DispatchResult {
-        state: StatePatch::diff(before, after),
-        effects,
-    })
-    .ok()
+fn result_patch_json(state: StatePatch, effects: Vec<EffectEnvelope>) -> Option<String> {
+    serde_json::to_string(&DispatchResult { state, effects }).ok()
 }
 
 fn engines() -> &'static Mutex<HashMap<u64, HeadlessEngine>> {

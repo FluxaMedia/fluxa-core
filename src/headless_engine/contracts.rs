@@ -1,4 +1,3 @@
-use super::state::EngineState;
 use crate::runtime::EffectEnvelope;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -384,28 +383,4 @@ pub(super) struct StatePatch {
     pub offline: Option<super::offline::OfflineState>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub pending_effects: Option<Vec<EffectEnvelope>>,
-}
-
-impl StatePatch {
-    pub(super) fn diff(before: &EngineState, after: &EngineState) -> Self {
-        Self {
-            navigation: (before.navigation != after.navigation).then(|| after.navigation.clone()),
-            home: (before.home != after.home).then(|| after.home.clone()),
-            search: (before.search != after.search).then(|| after.search.clone()),
-            discover: (before.discover != after.discover).then(|| after.discover.clone()),
-            detail: (before.detail != after.detail).then(|| after.detail.clone()),
-            player: (before.player != after.player).then(|| after.player.clone()),
-            library: (before.library != after.library).then(|| after.library.clone()),
-            profile: (before.profile != after.profile).then(|| after.profile.clone()),
-            settings: (before.settings != after.settings).then(|| after.settings.clone()),
-            calendar: (before.calendar != after.calendar).then(|| after.calendar.clone()),
-            addons: (before.addons != after.addons).then(|| after.addons.clone()),
-            auth: (before.auth != after.auth).then(|| after.auth.clone()),
-            sync: (before.sync != after.sync).then(|| after.sync.clone()),
-            lookup: (before.lookup != after.lookup).then(|| after.lookup.clone()),
-            offline: (before.offline != after.offline).then(|| after.offline.clone()),
-            pending_effects: (before.pending_effects != after.pending_effects)
-                .then(|| after.pending_effects.clone()),
-        }
-    }
 }

@@ -301,7 +301,7 @@ pub(super) fn dispatch_load_streams(
     };
     let mut flow_state = engine.state.player.to_flow_state();
     let effects = player_flow::dispatch(&mut flow_state, action);
-    engine.state.player = PlayerState::from_flow_state(flow_state);
+    *engine.state.player = PlayerState::from_flow_state(flow_state);
 
     let pending = PendingStreamLoad {
         saved_url,
@@ -376,7 +376,7 @@ pub(super) fn dispatch_streams_loaded(
     };
     let mut flow_state = engine.state.player.to_flow_state();
     let _ = player_flow::dispatch(&mut flow_state, action);
-    engine.state.player = PlayerState::from_flow_state(flow_state);
+    *engine.state.player = PlayerState::from_flow_state(flow_state);
     engine.state.player.generation = generation;
     vec![]
 }
@@ -390,7 +390,7 @@ pub(super) fn dispatch_streams_failed(
     };
     let mut flow_state = engine.state.player.to_flow_state();
     let _ = player_flow::dispatch(&mut flow_state, action);
-    engine.state.player = PlayerState::from_flow_state(flow_state);
+    *engine.state.player = PlayerState::from_flow_state(flow_state);
     vec![]
 }
 
