@@ -597,6 +597,8 @@ fn route_external_sync_trakt(method: &str, args_json: &str) -> Outcome {
                 field_str(&args, "localJson")?,
                 field_str(&args, "externalJson")?,
                 field_str(&args, "progressJson")?,
+                args.get("sourceOfTruth").and_then(Value::as_str),
+                args.get("rankingMode").and_then(Value::as_str),
             ))
         }
         "traktScrobblePlan" => {
@@ -629,6 +631,8 @@ fn route_external_sync_trakt(method: &str, args_json: &str) -> Outcome {
                 field_str(&args, "existingJson")?,
                 provider,
                 field_str(&args, "itemsJson")?,
+                args.get("sourceOfTruth").and_then(Value::as_str),
+                args.get("rankingMode").and_then(Value::as_str),
             ))
         }
         "traktPlaybackItemsDedup" => {

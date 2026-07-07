@@ -145,7 +145,8 @@ pub(crate) fn library_continue_watching_items_json(items_json: &str) -> Option<S
                 "description": Value::Null,
                 "timeOffset": number(state, "timeOffset"),
                 "duration": number(state, "duration"),
-                "lastVideoId": text(state, "videoId")
+                "lastVideoId": text(state, "videoId"),
+                "reason": "stremio"
             })
         })
         .collect::<Vec<_>>();
