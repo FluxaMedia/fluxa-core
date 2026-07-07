@@ -321,6 +321,7 @@ pub(crate) fn build_continue_watching_from_progress_json(progress_json: &str) ->
                 "continueWatchingBadge": entry.get("continueWatchingBadge").cloned().unwrap_or(Value::Null),
                 "continueWatchingEpisodeResolved": entry.get("continueWatchingEpisodeResolved").cloned().unwrap_or(Value::Null),
                 "savedAt": entry.get("savedAt").cloned().unwrap_or(Value::Null),
+                "source": entry.get("source").cloned().unwrap_or(Value::Null),
             }))
         })
         .collect();

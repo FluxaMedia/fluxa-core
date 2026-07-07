@@ -91,6 +91,7 @@ struct PlaybackProgress {
     last_stream_title: Option<String>,
     last_audio_language: Option<String>,
     last_subtitle_language: Option<String>,
+    source: &'static str,
 }
 
 #[derive(Serialize)]
@@ -264,6 +265,7 @@ pub(super) fn dispatch_save_progress(
         last_stream_title,
         last_audio_language,
         last_subtitle_language,
+        source: "local",
     };
     engine.state.library.pending_playback_progress =
         serde_json::to_value(&progress).unwrap_or(Value::Null);

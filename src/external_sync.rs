@@ -530,7 +530,8 @@ pub(crate) fn merge_continue_watching_lists_json(
         let ext_time = saved_at_ms(ext_item);
 
         let local_wins = if let Some(local_item) = local_item {
-            if source_of_truth == Some("local") {
+            let local_source = local_item.get("source").and_then(Value::as_str).unwrap_or("local");
+            if source_of_truth.is_some() && source_of_truth == Some(local_source) {
                 true
             } else if source_of_truth.is_some()
                 && source_of_truth == ext_item.get("reason").and_then(Value::as_str)
