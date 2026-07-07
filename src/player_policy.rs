@@ -1529,9 +1529,23 @@ mod tests {
     }
 
     #[test]
-    fn convert_dv81_hls_still_deferred_to_manifest_rewrite() {
+    fn convert_dv81_hls_p7_decoder_returns_hls_rpu_convert() {
+        // P7 HLS with a DV decoder available: segment-level RPU rewrite
+        // (fluxa-streaming-engine's OkHttp interceptor), not the plain
+        // manifest passthrough.
         let p = plan(
             r#"{"stream":{"dvProfile":7},"url":"https://cdn.example/index.m3u8","fallbackMode":"convert_dv81","deviceHasDvDecoder":true,"deviceHasDvDisplay":false}"#,
+        );
+        assert_eq!(p["action"], "hls_rpu_convert");
+        assert_eq!(p["reason"], "p7_hls_segment_rpu_convert");
+    }
+
+    #[test]
+    fn convert_dv81_hls_p7_no_decoder_deferred_to_manifest_rewrite() {
+        // Without a DV decoder there's nothing to convert into, so HLS
+        // still just defers to manifest passthrough.
+        let p = plan(
+            r#"{"stream":{"dvProfile":7},"url":"https://cdn.example/index.m3u8","fallbackMode":"convert_dv81","deviceHasDvDecoder":false,"deviceHasDvDisplay":false}"#,
         );
         assert_eq!(p["action"], "none");
         assert_eq!(p["reason"], "manifest_handled");
