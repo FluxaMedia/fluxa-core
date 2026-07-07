@@ -1149,4 +1149,35 @@ mod tests {
         assert_eq!(destroyed["ok"], json!(true));
         assert_eq!(destroyed["value"], json!(true));
     }
+
+    // tests/wire/core_invoke_methods.txt is a checked-in list of every method
+    // name core_invoke routes. It exists so renaming or removing one shows up
+    // as a failure in this repo (a diff in this fixture is the review
+    // artifact for an intentional rename) instead of as a runtime
+    // "no such method" discovered on a platform we can't see from here. This
+    // doesn't verify each method's business logic — just that the name is
+    // still recognized rather than falling through every router to
+    // UnknownMethod.
+    #[test]
+    fn every_known_core_invoke_method_still_routes() {
+        let fixture_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/wire/core_invoke_methods.txt");
+        let methods = std::fs::read_to_string(&fixture_path)
+            .unwrap_or_else(|_| panic!("missing fixture {fixture_path:?}"));
+        let methods: Vec<&str> = methods
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty())
+            .collect();
+        assert!(!methods.is_empty(), "fixture list must not be empty");
+
+        for method in methods {
+            let result = parse(&core_invoke(method, "{}"));
+            let kind = result["error"]["kind"].as_str().unwrap_or("");
+            assert_ne!(
+                kind, "unknown_method",
+                "{method} no longer routes anywhere — renamed or removed?"
+            );
+        }
+    }
 }
