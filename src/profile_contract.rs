@@ -21,6 +21,27 @@ struct TokenMergeRequest {
     provider: String,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AuthProvider {
+    Trakt,
+    Mal,
+    Simkl,
+    Stremio,
+    Unknown,
+}
+
+impl From<&str> for AuthProvider {
+    fn from(value: &str) -> Self {
+        match value {
+            "trakt" => AuthProvider::Trakt,
+            "mal" => AuthProvider::Mal,
+            "simkl" => AuthProvider::Simkl,
+            "stremio" | "account" => AuthProvider::Stremio,
+            _ => AuthProvider::Unknown,
+        }
+    }
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct DefaultProfileRequest {
@@ -99,8 +120,8 @@ pub(crate) fn token_merge_plan_json(request_json: &str) -> Option<String> {
 
     let obj = profile.as_object_mut()?;
 
-    match provider {
-        "trakt" => {
+    match AuthProvider::from(provider) {
+        AuthProvider::Trakt => {
             let token = auth.get("accessToken").or_else(|| auth.get("access_token"));
             let refresh = auth
                 .get("refreshToken")
@@ -120,7 +141,7 @@ pub(crate) fn token_merge_plan_json(request_json: &str) -> Option<String> {
             }
             obj.insert("traktLastSyncAt".to_string(), Value::Null);
         }
-        "mal" => {
+        AuthProvider::Mal => {
             let token = auth.get("accessToken").or_else(|| auth.get("access_token"));
             let refresh = auth
                 .get("refreshToken")
@@ -132,13 +153,13 @@ pub(crate) fn token_merge_plan_json(request_json: &str) -> Option<String> {
                 obj.insert("malRefreshToken".to_string(), r.clone());
             }
         }
-        "simkl" => {
+        AuthProvider::Simkl => {
             let token = auth.get("accessToken").or_else(|| auth.get("access_token"));
             if let Some(t) = token {
                 obj.insert("simklAccessToken".to_string(), t.clone());
             }
         }
-        "stremio" | "account" => {
+        AuthProvider::Stremio => {
             if let Some(auth_key) = auth.get("authKey").or_else(|| auth.get("apiKey")) {
                 obj.insert("authKey".to_string(), auth_key.clone());
             }
@@ -150,7 +171,7 @@ pub(crate) fn token_merge_plan_json(request_json: &str) -> Option<String> {
             }
             obj.insert("isGuest".to_string(), json!(false));
         }
-        _ => {}
+        AuthProvider::Unknown => {}
     }
 
     serde_json::to_string(&json!({

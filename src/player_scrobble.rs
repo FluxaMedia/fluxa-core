@@ -36,11 +36,33 @@ pub(crate) fn should_queue_pause(
     has_token(token) && was_play_when_ready && has_scrobbled_start && !has_scrobbled_stop
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ScrobbleAction {
+    Start,
+    Pause,
+    Stop,
+    Unknown,
+}
+
+impl From<&str> for ScrobbleAction {
+    fn from(value: &str) -> Self {
+        match value {
+            "start" => ScrobbleAction::Start,
+            "pause" => ScrobbleAction::Pause,
+            "stop" => ScrobbleAction::Stop,
+            _ => ScrobbleAction::Unknown,
+        }
+    }
+}
+
 pub(crate) fn should_enqueue_durable(action: &str, token: Option<&str>, progress: f32) -> bool {
     if !has_token(token) {
         return false;
     }
-    (action != "pause" && action != "stop") || progress >= DURABLE_SCROBBLE_MIN_PROGRESS_PERCENT
+    !matches!(
+        ScrobbleAction::from(action),
+        ScrobbleAction::Pause | ScrobbleAction::Stop
+    ) || progress >= DURABLE_SCROBBLE_MIN_PROGRESS_PERCENT
 }
 
 pub(crate) fn should_save_periodic_progress(
