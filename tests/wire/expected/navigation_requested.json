@@ -1,0 +1,12 @@
+{
+  "effects": [],
+  "state": {
+    "navigation": {
+      "params": {
+        "contentType": "movie",
+        "id": "tt1"
+      },
+      "route": "detail"
+    }
+  }
+}

@@ -1,0 +1,32 @@
+{
+  "effects": [
+    {
+      "generation": 1,
+      "id": "fx-1",
+      "payload": {
+        "key": "subtitleLanguage",
+        "value": "en"
+      },
+      "type": "writeSettings"
+    }
+  ],
+  "state": {
+    "pendingEffects": [
+      {
+        "generation": 1,
+        "id": "fx-1",
+        "payload": {
+          "key": "subtitleLanguage",
+          "value": "en"
+        },
+        "type": "writeSettings"
+      }
+    ],
+    "settings": {
+      "lastWriteError": null,
+      "values": {
+        "subtitleLanguage": "en"
+      }
+    }
+  }
+}
