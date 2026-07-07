@@ -1081,11 +1081,13 @@ mod tests {
 
     #[test]
     fn buffer_targets_negative_cache_size_means_unbounded() {
-        let result: Value = serde_json::from_str(
-            &player_buffer_targets_json(r#"{"cacheSizeMb":-1}"#).unwrap(),
-        )
-        .unwrap();
-        assert_eq!(result["cacheSizeBytes"].as_i64().unwrap(), 64_000 * 1_000_000);
+        let result: Value =
+            serde_json::from_str(&player_buffer_targets_json(r#"{"cacheSizeMb":-1}"#).unwrap())
+                .unwrap();
+        assert_eq!(
+            result["cacheSizeBytes"].as_i64().unwrap(),
+            64_000 * 1_000_000
+        );
     }
 
     #[test]

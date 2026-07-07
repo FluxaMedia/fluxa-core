@@ -484,7 +484,13 @@ fn episode_rank(item: &Value) -> Option<(i64, i64)> {
     Some((season, number))
 }
 
-fn ranked_winner(a: &Value, a_time: i64, b: &Value, b_time: i64, ranking_mode: Option<&str>) -> bool {
+fn ranked_winner(
+    a: &Value,
+    a_time: i64,
+    b: &Value,
+    b_time: i64,
+    ranking_mode: Option<&str>,
+) -> bool {
     if ranking_mode == Some("most_recent_episode") {
         if let (Some(ra), Some(rb)) = (episode_rank(a), episode_rank(b)) {
             if ra != rb {
@@ -530,7 +536,10 @@ pub(crate) fn merge_continue_watching_lists_json(
         let ext_time = saved_at_ms(ext_item);
 
         let local_wins = if let Some(local_item) = local_item {
-            let local_source = local_item.get("source").and_then(Value::as_str).unwrap_or("local");
+            let local_source = local_item
+                .get("source")
+                .and_then(Value::as_str)
+                .unwrap_or("local");
             if source_of_truth.is_some() && source_of_truth == Some(local_source) {
                 true
             } else if source_of_truth.is_some()
@@ -729,7 +738,13 @@ pub(crate) fn replace_external_continue_watching_json(
                 } else if source_of_truth.is_some() && source_of_truth == prev_reason {
                     false
                 } else {
-                    ranked_winner(&item, saved_at_ms(&item), prev, saved_at_ms(prev), ranking_mode)
+                    ranked_winner(
+                        &item,
+                        saved_at_ms(&item),
+                        prev,
+                        saved_at_ms(prev),
+                        ranking_mode,
+                    )
                 };
                 if item_wins {
                     by_id.insert(id, item);

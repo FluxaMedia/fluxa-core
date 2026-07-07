@@ -293,16 +293,28 @@ fn fetch_player_stream(
         return PlayerOutcome::Failed;
     };
     if let Some(url) = streaming.hls_manifest_url {
-        return PlayerOutcome::Ok(TrailerStream { stream_url: url, subtitles });
+        return PlayerOutcome::Ok(TrailerStream {
+            stream_url: url,
+            subtitles,
+        });
     }
     if let Some(url) = streaming.dash_manifest_url {
-        return PlayerOutcome::Ok(TrailerStream { stream_url: url, subtitles });
+        return PlayerOutcome::Ok(TrailerStream {
+            stream_url: url,
+            subtitles,
+        });
     }
     if let Some(url) = best_mp4(streaming.formats) {
-        return PlayerOutcome::Ok(TrailerStream { stream_url: url, subtitles });
+        return PlayerOutcome::Ok(TrailerStream {
+            stream_url: url,
+            subtitles,
+        });
     }
     if let Some(url) = best_mp4(streaming.adaptive_formats) {
-        return PlayerOutcome::Ok(TrailerStream { stream_url: url, subtitles });
+        return PlayerOutcome::Ok(TrailerStream {
+            stream_url: url,
+            subtitles,
+        });
     }
     PlayerOutcome::Failed
 }
@@ -312,7 +324,9 @@ fn best_mp4(formats: Option<Vec<Format>>) -> Option<String> {
         .into_iter()
         .filter(|f| {
             f.url.is_some()
-                && f.mime_type.as_deref().map_or(false, |m: &str| m.starts_with("video/mp4"))
+                && f.mime_type
+                    .as_deref()
+                    .map_or(false, |m: &str| m.starts_with("video/mp4"))
         })
         .max_by_key(|f| f.bitrate.unwrap_or(0))
         .and_then(|f| f.url)
@@ -341,7 +355,11 @@ fn extract_subtitles(captions: Option<&Captions>) -> Vec<SubtitleTrack> {
                 .and_then(|n| n.simple_text.clone())
                 .unwrap_or_else(|| language_tag.clone());
             Some(SubtitleTrack {
-                label: if is_auto { format!("{name} (auto)") } else { name },
+                label: if is_auto {
+                    format!("{name} (auto)")
+                } else {
+                    name
+                },
                 url: format!("{base_url}&fmt=vtt"),
                 mime_type: "text/vtt".to_string(),
                 is_auto,
