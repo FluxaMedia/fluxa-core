@@ -1,5 +1,5 @@
 use crate::local_stream::build_proxy_client;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::collections::HashMap;
 use std::fs;
@@ -66,6 +66,7 @@ struct PlayerResponse {
     playability_status: Option<PlayabilityStatus>,
     #[serde(rename = "streamingData")]
     streaming_data: Option<StreamingData>,
+    captions: Option<Captions>,
 }
 
 #[derive(Deserialize)]
@@ -76,8 +77,12 @@ struct PlayabilityStatus {
 #[derive(Deserialize)]
 struct StreamingData {
     formats: Option<Vec<Format>>,
+    #[serde(rename = "adaptiveFormats")]
+    adaptive_formats: Option<Vec<Format>>,
     #[serde(rename = "hlsManifestUrl")]
     hls_manifest_url: Option<String>,
+    #[serde(rename = "dashManifestUrl")]
+    dash_manifest_url: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -88,14 +93,67 @@ struct Format {
     bitrate: Option<i64>,
 }
 
-#[derive(serde::Serialize, Deserialize, Default)]
+#[derive(Deserialize)]
+struct Captions {
+    #[serde(rename = "playerCaptionsTracklistRenderer")]
+    tracklist_renderer: Option<CaptionsTracklistRenderer>,
+}
+
+#[derive(Deserialize)]
+struct CaptionsTracklistRenderer {
+    #[serde(rename = "captionTracks")]
+    caption_tracks: Option<Vec<CaptionTrack>>,
+}
+
+#[derive(Deserialize)]
+struct CaptionTrack {
+    #[serde(rename = "baseUrl")]
+    base_url: Option<String>,
+    #[serde(rename = "languageCode")]
+    language_code: Option<String>,
+    kind: Option<String>,
+    name: Option<CaptionName>,
+}
+
+#[derive(Deserialize)]
+struct CaptionName {
+    #[serde(rename = "simpleText")]
+    simple_text: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+struct SubtitleTrack {
+    #[serde(rename = "languageTag")]
+    language_tag: String,
+    label: String,
+    url: String,
+    #[serde(rename = "mimeType")]
+    mime_type: String,
+    #[serde(rename = "isAuto")]
+    is_auto: bool,
+}
+
+struct TrailerStream {
+    stream_url: String,
+    subtitles: Vec<SubtitleTrack>,
+}
+
+enum PlayerOutcome {
+    Ok(TrailerStream),
+    GeoBlocked,
+    Failed,
+}
+
+#[derive(Serialize, Deserialize, Default)]
 struct TrailerCache {
     entries: HashMap<String, CacheEntry>,
 }
 
-#[derive(serde::Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone)]
 struct CacheEntry {
     url: String,
+    #[serde(default)]
+    subtitles: Vec<SubtitleTrack>,
     fetched_at: u64,
 }
 
@@ -124,6 +182,18 @@ fn save_cache(path: &PathBuf, cache: &TrailerCache) {
 }
 
 pub fn resolve_youtube_trailer_stream_url(video_id: &str, cache_dir: &str) -> Option<String> {
+    let json = resolve_youtube_trailer_json(video_id, cache_dir)?;
+    let parsed: serde_json::Value = serde_json::from_str(&json).ok()?;
+    if parsed.get("status").and_then(|v| v.as_str()) != Some("ok") {
+        return None;
+    }
+    parsed
+        .get("streamUrl")
+        .and_then(|v| v.as_str())
+        .map(str::to_string)
+}
+
+pub fn resolve_youtube_trailer_json(video_id: &str, cache_dir: &str) -> Option<String> {
     if video_id.is_empty() {
         return None;
     }
@@ -131,39 +201,63 @@ pub fn resolve_youtube_trailer_stream_url(video_id: &str, cache_dir: &str) -> Op
     let mut cache = load_cache(&path);
     if let Some(entry) = cache.entries.get(video_id) {
         if now_secs().saturating_sub(entry.fetched_at) < CACHE_TTL_SECS {
-            return Some(entry.url.clone());
+            return Some(
+                json!({
+                    "status": "ok",
+                    "streamUrl": entry.url,
+                    "subtitles": entry.subtitles,
+                })
+                .to_string(),
+            );
         }
     }
 
     let client = build_proxy_client();
+    let mut last_outcome = PlayerOutcome::Failed;
     for ctx in CLIENT_CONTEXTS {
-        if let Some(url) = fetch_player_stream_url(&client, video_id, ctx) {
-            cache.entries.insert(
-                video_id.to_string(),
-                CacheEntry {
-                    url: url.clone(),
-                    fetched_at: now_secs(),
-                },
-            );
-            save_cache(&path, &cache);
-            return Some(url);
+        match fetch_player_stream(&client, video_id, ctx) {
+            PlayerOutcome::Ok(stream) => {
+                cache.entries.insert(
+                    video_id.to_string(),
+                    CacheEntry {
+                        url: stream.stream_url.clone(),
+                        subtitles: stream.subtitles.clone(),
+                        fetched_at: now_secs(),
+                    },
+                );
+                save_cache(&path, &cache);
+                return Some(
+                    json!({
+                        "status": "ok",
+                        "streamUrl": stream.stream_url,
+                        "subtitles": stream.subtitles,
+                    })
+                    .to_string(),
+                );
+            }
+            outcome => last_outcome = outcome,
         }
     }
-    None
+
+    let status = match last_outcome {
+        PlayerOutcome::GeoBlocked => "geo_blocked",
+        _ => "failed",
+    };
+    Some(json!({ "status": status }).to_string())
 }
 
-fn fetch_player_stream_url(
+fn fetch_player_stream(
     client: &reqwest::blocking::Client,
     video_id: &str,
     ctx: &ClientContext,
-) -> Option<String> {
+) -> PlayerOutcome {
     let body = json!({
         "videoId": video_id,
         "context": { "client": (ctx.client_json)() },
     });
 
     let url = format!("{INNERTUBE_URL}?key={INNERTUBE_API_KEY}");
-    let response = client
+    let response = match client
         .post(url)
         .header("Content-Type", "application/json")
         .header("User-Agent", ctx.user_agent)
@@ -171,32 +265,88 @@ fn fetch_player_stream_url(
         .header("X-YouTube-Client-Version", ctx.client_version)
         .json(&body)
         .send()
-        .ok()?;
+    {
+        Ok(response) => response,
+        Err(_) => return PlayerOutcome::Failed,
+    };
     if !response.status().is_success() {
-        return None;
+        return PlayerOutcome::Failed;
     }
-    let parsed: PlayerResponse = response.json().ok()?;
+    let parsed: PlayerResponse = match response.json() {
+        Ok(parsed) => parsed,
+        Err(_) => return PlayerOutcome::Failed,
+    };
     if let Some(status) = parsed
         .playability_status
         .as_ref()
         .and_then(|p| p.status.as_deref())
     {
+        if status == "UNPLAYABLE" || status == "LOGIN_REQUIRED" {
+            return PlayerOutcome::GeoBlocked;
+        }
         if status != "OK" {
-            return None;
+            return PlayerOutcome::Failed;
         }
     }
-    let streaming = parsed.streaming_data?;
-    if let Some(best) = streaming
-        .formats
-        .unwrap_or_default()
+    let subtitles = extract_subtitles(parsed.captions.as_ref());
+    let Some(streaming) = parsed.streaming_data else {
+        return PlayerOutcome::Failed;
+    };
+    if let Some(url) = streaming.hls_manifest_url {
+        return PlayerOutcome::Ok(TrailerStream { stream_url: url, subtitles });
+    }
+    if let Some(url) = streaming.dash_manifest_url {
+        return PlayerOutcome::Ok(TrailerStream { stream_url: url, subtitles });
+    }
+    if let Some(url) = best_mp4(streaming.formats) {
+        return PlayerOutcome::Ok(TrailerStream { stream_url: url, subtitles });
+    }
+    if let Some(url) = best_mp4(streaming.adaptive_formats) {
+        return PlayerOutcome::Ok(TrailerStream { stream_url: url, subtitles });
+    }
+    PlayerOutcome::Failed
+}
+
+fn best_mp4(formats: Option<Vec<Format>>) -> Option<String> {
+    formats?
         .into_iter()
         .filter(|f| {
             f.url.is_some()
                 && f.mime_type.as_deref().map_or(false, |m: &str| m.starts_with("video/mp4"))
         })
         .max_by_key(|f| f.bitrate.unwrap_or(0))
-    {
-        return best.url;
-    }
-    streaming.hls_manifest_url
+        .and_then(|f| f.url)
+}
+
+fn extract_subtitles(captions: Option<&Captions>) -> Vec<SubtitleTrack> {
+    let mut seen = std::collections::HashSet::new();
+    captions
+        .and_then(|c| c.tracklist_renderer.as_ref())
+        .and_then(|r| r.caption_tracks.as_ref())
+        .into_iter()
+        .flatten()
+        .filter_map(|track| {
+            let base_url = track.base_url.as_deref()?;
+            if !base_url.starts_with("http") {
+                return None;
+            }
+            let language_tag = track.language_code.clone().filter(|s| !s.is_empty())?;
+            if !seen.insert(language_tag.clone()) {
+                return None;
+            }
+            let is_auto = track.kind.as_deref() == Some("asr");
+            let name = track
+                .name
+                .as_ref()
+                .and_then(|n| n.simple_text.clone())
+                .unwrap_or_else(|| language_tag.clone());
+            Some(SubtitleTrack {
+                label: if is_auto { format!("{name} (auto)") } else { name },
+                url: format!("{base_url}&fmt=vtt"),
+                mime_type: "text/vtt".to_string(),
+                is_auto,
+                language_tag,
+            })
+        })
+        .collect()
 }
