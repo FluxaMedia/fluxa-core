@@ -1,6 +1,7 @@
 use crate::content_identity::stream_matches_episode;
 use serde_json::{json, Value};
 use std::collections::HashMap;
+use std::sync::Mutex;
 
 const STREAM_SOURCE_MODE_FIRST: &str = "first";
 const STREAM_SOURCE_MODE_REGEX: &str = "regex";
@@ -525,6 +526,25 @@ pub(crate) fn resolve_preferred_audio_language(
     }
 }
 
+// The preference string changes once per settings edit, not per stream, so a
+// one-entry cache avoids recompiling the same word-boundary regex on every
+// track in a per-stream ranking loop.
+fn word_boundary_regex_for(normalized_preference: &str) -> Option<regex::Regex> {
+    static CACHE: Mutex<Option<(String, regex::Regex)>> = Mutex::new(None);
+    let mut cache = CACHE
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    if let Some((cached_preference, regex)) = cache.as_ref() {
+        if cached_preference == normalized_preference {
+            return Some(regex.clone());
+        }
+    }
+    let regex =
+        regex::Regex::new(&format!(r"\b{}\b", regex::escape(normalized_preference))).ok()?;
+    *cache = Some((normalized_preference.to_string(), regex.clone()));
+    Some(regex)
+}
+
 pub(crate) fn subtitle_language_alias_matches(label: &str, normalized_preference: &str) -> bool {
     match normalized_preference {
         "tr" => ["turkish", "turkce", "turk", "altyazi", "altyazı"]
@@ -544,8 +564,7 @@ pub(crate) fn subtitle_language_matches(
     preferred_language: &str,
 ) -> bool {
     let normalized_preference = normalize_language_preference(preferred_language);
-    let word_regex =
-        regex::Regex::new(&format!(r"\b{}\b", regex::escape(&normalized_preference))).ok();
+    let word_regex = word_boundary_regex_for(&normalized_preference);
     subtitle_language_matches_precompiled(
         label,
         language,
@@ -591,7 +610,7 @@ fn find_preferred_subtitle_index_in_tracks(
         .or_else(|| preferred_subtitle_language.filter(|value| *value != "none"));
     if let Some(preferred) = primary {
         let norm = normalize_language_preference(preferred);
-        let word_regex = regex::Regex::new(&format!(r"\b{}\b", regex::escape(&norm))).ok();
+        let word_regex = word_boundary_regex_for(&norm);
         if let Some(index) = tracks.iter().position(|track| {
             subtitle_language_matches_precompiled(
                 &track.label,
@@ -605,7 +624,7 @@ fn find_preferred_subtitle_index_in_tracks(
     }
     if let Some(secondary) = secondary_subtitle_language.filter(|value| *value != "none") {
         let norm = normalize_language_preference(secondary);
-        let word_regex = regex::Regex::new(&format!(r"\b{}\b", regex::escape(&norm))).ok();
+        let word_regex = word_boundary_regex_for(&norm);
         if let Some(index) = tracks.iter().position(|track| {
             subtitle_language_matches_precompiled(
                 &track.label,

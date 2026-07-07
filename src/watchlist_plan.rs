@@ -1,5 +1,6 @@
 use serde::Deserialize;
 use serde_json::{json, Value};
+use std::sync::OnceLock;
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -202,6 +203,14 @@ fn cleaned_url(raw: Option<&str>) -> Option<String> {
         .map(str::to_string)
 }
 
+fn github_blob_url_regex() -> &'static regex::Regex {
+    static REGEX: OnceLock<regex::Regex> = OnceLock::new();
+    REGEX.get_or_init(|| {
+        regex::Regex::new(r"^https://github\.com/([^/]+)/([^/]+)/blob/([^/]+)/(.+)$")
+            .expect("valid github blob url regex")
+    })
+}
+
 fn cleaned_artwork_url(raw: Option<&str>) -> Option<String> {
     let s = raw?.trim().trim_matches('\'').trim_matches('"').trim();
     if s.is_empty() {
@@ -212,11 +221,7 @@ fn cleaned_artwork_url(raw: Option<&str>) -> Option<String> {
     } else {
         s.to_string()
     };
-    let normalized = if let Some(caps) =
-        regex::Regex::new(r"^https://github\.com/([^/]+)/([^/]+)/blob/([^/]+)/(.+)$")
-            .ok()
-            .and_then(|re| re.captures(&with_scheme))
-    {
+    let normalized = if let Some(caps) = github_blob_url_regex().captures(&with_scheme) {
         format!(
             "https://raw.githubusercontent.com/{}/{}/{}/{}",
             &caps[1], &caps[2], &caps[3], &caps[4]

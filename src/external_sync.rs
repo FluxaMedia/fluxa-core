@@ -1,4 +1,6 @@
-use crate::content_identity::{base_content_id, parse_episode_locator, parse_video_id_json};
+use crate::content_identity::{
+    base_content_id, imdb_regex, parse_episode_locator, parse_video_id_json,
+};
 use serde_json::{json, Map, Value};
 
 const TRAKT_API_BASE_URL: &str = "https://api.trakt.tv";
@@ -62,10 +64,7 @@ pub(crate) fn trakt_content_id_from_ids_json(ids_json: &str) -> Option<String> {
 }
 
 pub(crate) fn trakt_ids_from_content_id_json(raw_id: &str) -> Option<String> {
-    let imdb = regex::Regex::new(r"tt\d+")
-        .ok()?
-        .find(raw_id)
-        .map(|m| m.as_str().to_string());
+    let imdb = imdb_regex().find(raw_id).map(|m| m.as_str().to_string());
     let mut ids = Map::new();
     if let Some(imdb) = imdb {
         ids.insert("imdb".to_string(), Value::String(imdb));
