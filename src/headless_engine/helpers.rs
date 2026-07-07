@@ -1,6 +1,18 @@
 use super::state::EngineState;
 use crate::constants::GUEST_PROFILE_ID;
+use serde::Serialize;
 use serde_json::{json, Value};
+
+#[derive(Serialize)]
+struct NormalizedTrailer {
+    id: String,
+    title: String,
+    #[serde(rename = "type")]
+    item_type: String,
+    url: String,
+    thumbnail: Option<String>,
+    source: &'static str,
+}
 
 pub(super) fn normalize_error(error: Value) -> Value {
     if error.is_null() {
@@ -93,14 +105,15 @@ fn normalize_meta_trailer(trailer: &Value) -> Option<Value> {
             .as_ref()
             .map(|value| format!("https://i.ytimg.com/vi/{value}/hqdefault.jpg"))
     });
-    Some(json!({
-        "id": id,
-        "title": title,
-        "type": item_type,
-        "url": url,
-        "thumbnail": thumbnail,
-        "source": "addon"
-    }))
+    serde_json::to_value(NormalizedTrailer {
+        id,
+        title,
+        item_type,
+        url,
+        thumbnail,
+        source: "addon",
+    })
+    .ok()
 }
 
 pub(super) fn non_blank_str(value: &Value, key: &str) -> Option<String> {

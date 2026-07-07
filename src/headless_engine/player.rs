@@ -160,6 +160,13 @@ struct StopTorrentPayload {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
+struct PrefetchedNextEpisode {
+    video_id: Value,
+    streams: Value,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 struct EnqueueTraktScrobblePayload {
     token: String,
     meta_type: String,
@@ -635,10 +642,16 @@ pub(super) fn complete(
             if generation == engine.state.runtime.get(GenerationKey::Player) {
                 if result.status.is_ok() {
                     let prefetched_video_id = engine.state.player.prefetching_next_video_id.clone();
-                    engine.state.player.prefetched_next_episode = serde_json::json!({
-                        "videoId": prefetched_video_id,
-                        "streams": result.value.get("streams").cloned().unwrap_or_else(|| serde_json::json!([]))
-                    });
+                    engine.state.player.prefetched_next_episode =
+                        serde_json::to_value(PrefetchedNextEpisode {
+                            video_id: prefetched_video_id,
+                            streams: result
+                                .value
+                                .get("streams")
+                                .cloned()
+                                .unwrap_or_else(|| Value::Array(vec![])),
+                        })
+                        .unwrap_or(Value::Null);
                 }
                 engine.state.player.prefetching_next_video_id = Value::Null;
             }
