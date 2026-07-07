@@ -898,7 +898,9 @@ fn resolve_folder_catalog_sources(folder: &Map<String, Value>, addons_json: &str
             if s.get("catalogId").and_then(Value::as_str).is_none() {
                 continue;
             }
-            if let Some(t_url) = resolve_transport_url_json(&s.to_string(), addons_json) {
+            if let Some(t_url) = resolve_transport_url_json(&s.to_string(), addons_json)
+                .and_then(|json| serde_json::from_str::<String>(&json).ok())
+            {
                 let catalog_id = s.get("catalogId").and_then(Value::as_str).unwrap_or("");
                 let content_type = s.get("type").and_then(Value::as_str).unwrap_or("movie");
                 let mut entry =
@@ -914,7 +916,9 @@ fn resolve_folder_catalog_sources(folder: &Map<String, Value>, addons_json: &str
     if resolved.is_empty() {
         if let Some(catalog_id) = folder.get("catalogId").and_then(Value::as_str) {
             let src = json!({ "catalogId": catalog_id, "type": "movie" });
-            if let Some(t_url) = resolve_transport_url_json(&src.to_string(), addons_json) {
+            if let Some(t_url) = resolve_transport_url_json(&src.to_string(), addons_json)
+                .and_then(|json| serde_json::from_str::<String>(&json).ok())
+            {
                 let mut entry =
                     json!({ "transportUrl": t_url, "catalogId": catalog_id, "type": "movie" });
                 if let Some(g) = folder.get("genre").and_then(Value::as_str) {

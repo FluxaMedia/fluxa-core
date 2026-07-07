@@ -660,7 +660,7 @@ pub(crate) fn resolve_transport_url_json(source_json: &str, addons_json: &str) -
                 })
         });
         if matches {
-            return Some(t_url.to_string());
+            return serde_json::to_string(t_url).ok();
         }
     }
     None
@@ -682,7 +682,7 @@ pub(crate) fn resolve_feed_option_genre_json(
         .and_then(Value::as_str)
         .filter(|s| !s.trim().is_empty())
     {
-        return Some(genre.to_string());
+        return serde_json::to_string(genre).ok();
     }
 
     let transport_url = option.get("transportUrl").and_then(Value::as_str)?;
@@ -721,7 +721,7 @@ pub(crate) fn resolve_feed_option_genre_json(
         .and_then(Value::as_str);
 
     let resolved = default_genre.or(if is_required { first_option } else { None })?;
-    Some(resolved.to_string())
+    serde_json::to_string(resolved).ok()
 }
 
 #[cfg(test)]
