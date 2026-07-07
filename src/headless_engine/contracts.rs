@@ -1,4 +1,5 @@
 use crate::runtime::EffectEnvelope;
+use crate::types::Profile;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -141,7 +142,7 @@ pub(super) enum AppAction {
         profile: Option<Value>,
     },
     #[serde(rename = "profileActivated")]
-    ProfileActivated { profile: Value },
+    ProfileActivated { profile: Profile },
     #[serde(rename = "homeLoadRequested")]
     HomeLoadRequested {
         profile: Option<Value>,

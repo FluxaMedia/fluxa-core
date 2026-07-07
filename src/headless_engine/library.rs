@@ -127,7 +127,7 @@ pub(super) fn set_active_profile_id(engine: &mut HeadlessEngine, id: &str) {
 
 pub(super) fn dispatch_profile_activated(
     engine: &mut HeadlessEngine,
-    profile: Value,
+    profile: crate::types::Profile,
 ) -> Vec<EffectEnvelope> {
     profile::activate(engine, profile);
     vec![]

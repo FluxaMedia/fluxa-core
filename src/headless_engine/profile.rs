@@ -2,6 +2,7 @@ use super::home;
 use super::library;
 use super::HeadlessEngine;
 use crate::constants::GUEST_PROFILE_ID;
+use crate::types::Profile;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -17,16 +18,18 @@ pub(super) struct ProfileState {
     pub(super) active_profile_id: Value,
 }
 
-pub(super) fn activate(engine: &mut HeadlessEngine, profile: Value) {
-    let id = profile["id"]
-        .as_str()
+pub(super) fn activate(engine: &mut HeadlessEngine, profile: Profile) {
+    let id = profile
+        .id
+        .as_deref()
         .filter(|value| !value.is_empty())
         .unwrap_or(GUEST_PROFILE_ID)
         .to_string();
-    engine.state.profile.active = profile.clone();
+    let profile_value = profile.to_value();
+    engine.state.profile.active = profile_value.clone();
     engine.state.profile.active_profile_id = Value::String(id.clone());
     library::set_active_profile_id(engine, &id);
-    home::mirror_active_profile(engine, profile);
+    home::mirror_active_profile(engine, profile_value);
 }
 
 pub(super) fn update_active(engine: &mut HeadlessEngine, profile: Value) {

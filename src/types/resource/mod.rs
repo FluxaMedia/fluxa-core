@@ -1,8 +1,13 @@
 use serde::{Deserialize, Serialize};
+use serde_json::{Map, Value};
 use std::collections::HashMap;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+// `extra` catches any field an addon sends that isn't modeled above. Effect
+// payloads echo these objects back to the platform verbatim, so a field this
+// struct doesn't know about must still survive a decode/encode round trip
+// instead of silently vanishing.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
 pub struct MetaItem {
     pub id: String,
     #[serde(rename = "type")]
@@ -29,10 +34,12 @@ pub struct MetaItem {
     pub videos: Option<Vec<Video>>,
     pub links: Option<Vec<Link>>,
     pub behavior_hints: Option<MetaBehaviorHints>,
+    #[serde(flatten)]
+    pub extra: Map<String, Value>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
 pub struct Video {
     pub id: String,
     pub title: Option<String>,
@@ -45,10 +52,12 @@ pub struct Video {
     pub trailer: Option<String>,
     pub trailers: Option<Vec<Stream>>,
     pub overview: Option<String>,
+    #[serde(flatten)]
+    pub extra: Map<String, Value>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
 pub struct Stream {
     pub url: Option<String>,
     pub yt_id: Option<String>,
@@ -73,6 +82,8 @@ pub struct Stream {
     pub subtitle_tracks: Option<Vec<SubtitleTrack>>,
     pub headers: Option<HashMap<String, String>>,
     pub behavior_hints: Option<StreamBehaviorHints>,
+    #[serde(flatten)]
+    pub extra: Map<String, Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
