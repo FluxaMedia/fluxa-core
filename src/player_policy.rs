@@ -246,10 +246,12 @@ pub(crate) fn player_buffer_targets_json(request_json: &str) -> Option<String> {
         (base_forward_ms, base_back_ms)
     };
 
-    let cache_bytes = request
-        .cache_size_mb
-        .map(|mb| mb.clamp(10, 2000) * 1_000_000)
-        .unwrap_or(100 * 1_000_000i64);
+    const UNLIMITED_CACHE_BYTES: i64 = 64_000 * 1_000_000;
+    let cache_bytes = match request.cache_size_mb {
+        Some(mb) if mb < 0 => UNLIMITED_CACHE_BYTES,
+        Some(mb) => mb.clamp(10, 2000) * 1_000_000,
+        None => 100 * 1_000_000,
+    };
 
     serde_json::to_string(&json!({
         "forwardBufferMs": forward_ms as i64,
@@ -1075,6 +1077,15 @@ mod tests {
             torrent_result["forwardBufferMs"].as_i64().unwrap()
                 < direct_result["forwardBufferMs"].as_i64().unwrap()
         );
+    }
+
+    #[test]
+    fn buffer_targets_negative_cache_size_means_unbounded() {
+        let result: Value = serde_json::from_str(
+            &player_buffer_targets_json(r#"{"cacheSizeMb":-1}"#).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(result["cacheSizeBytes"].as_i64().unwrap(), 64_000 * 1_000_000);
     }
 
     #[test]
