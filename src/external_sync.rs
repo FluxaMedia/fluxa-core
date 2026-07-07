@@ -1091,7 +1091,9 @@ mod tests {
             {"status":"PLANNING","media":{"id":6,"title":{"english":"Other"}}}
         ]"#;
         let plan = anilist_entries_to_sync(
-            serde_json::from_str::<Vec<Value>>(entries).unwrap().as_slice(),
+            serde_json::from_str::<Vec<Value>>(entries)
+                .unwrap()
+                .as_slice(),
             0,
         );
         assert_eq!(plan["watching"][0]["lastVideoId"], "anilist:5:1:3");
@@ -1106,9 +1108,10 @@ mod tests {
 
     #[test]
     fn merge_by_id_overlays_incoming_fields_onto_local_items() {
-        let local: Vec<Value> =
-            serde_json::from_str(r#"[{"id":"a","name":"Old","poster":"p"},{"id":"b","name":"Keep"}]"#)
-                .unwrap();
+        let local: Vec<Value> = serde_json::from_str(
+            r#"[{"id":"a","name":"Old","poster":"p"},{"id":"b","name":"Keep"}]"#,
+        )
+        .unwrap();
         let incoming: Vec<Value> =
             serde_json::from_str(r#"[{"id":"a","name":"New"},{"id":"c","name":"Added"}]"#).unwrap();
         let merged = merge_library_items_by_id(&local, &incoming);

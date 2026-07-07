@@ -538,11 +538,10 @@ async fn ensure_torrent(
     let lock_timeout = metadata_timeout
         .checked_add(Duration::from_secs(5))
         .unwrap_or(metadata_timeout);
-    let _add_guard =
-        match tokio::time::timeout(lock_timeout, state.add_lock.lock()).await {
-            Ok(guard) => guard,
-            Err(_) => return Err("torrent add already in progress".to_string()),
-        };
+    let _add_guard = match tokio::time::timeout(lock_timeout, state.add_lock.lock()).await {
+        Ok(guard) => guard,
+        Err(_) => return Err("torrent add already in progress".to_string()),
+    };
     if let Some(id) = lookup_known_link(state, Some(link)) {
         let details = state
             .api
@@ -717,7 +716,11 @@ async fn status_response(
     let streamed_size = streamed_size_for(state, id, focus_file);
     let progress_loaded_size = loaded_size.max(streamed_size).min(preload_size);
     let stat = match stats.as_ref().map(|stats| stats.state) {
-        Some(TorrentStatsState::Live) if progress_loaded_size >= preload_size && preload_size > 0 => 3,
+        Some(TorrentStatsState::Live)
+            if progress_loaded_size >= preload_size && preload_size > 0 =>
+        {
+            3
+        }
         Some(TorrentStatsState::Live) => 2,
         Some(TorrentStatsState::Initializing) => 0,
         Some(TorrentStatsState::Paused) => 1,

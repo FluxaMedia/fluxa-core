@@ -251,8 +251,14 @@ pub(crate) fn tmdb_people_images_from_credits(credits: &Value, links: &[Value]) 
     }
 
     let empty: Vec<Value> = Vec::new();
-    let cast = credits.get("cast").and_then(Value::as_array).unwrap_or(&empty);
-    let crew = credits.get("crew").and_then(Value::as_array).unwrap_or(&empty);
+    let cast = credits
+        .get("cast")
+        .and_then(Value::as_array)
+        .unwrap_or(&empty);
+    let crew = credits
+        .get("crew")
+        .and_then(Value::as_array)
+        .unwrap_or(&empty);
 
     let mut images = serde_json::Map::new();
     for person in cast.iter().chain(crew.iter()) {

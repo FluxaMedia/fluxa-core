@@ -4,6 +4,15 @@
 // the exhaustive JNI surface, so keep dead-code checking strict there and avoid
 // warning noise for the partial compatibility builds.
 #![cfg_attr(not(feature = "native"), allow(dead_code))]
+#![cfg_attr(
+    test,
+    allow(
+        clippy::unwrap_used,
+        clippy::expect_used,
+        clippy::indexing_slicing,
+        clippy::panic
+    )
+)]
 
 #[cfg(feature = "uniffi-bindings")]
 uniffi::setup_scaffolding!();

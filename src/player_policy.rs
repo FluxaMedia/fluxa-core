@@ -442,7 +442,11 @@ pub(crate) fn dv_proxy_plan_json(request_json: &str) -> Option<String> {
     let container = detect_container(&req.url);
 
     if is_hls || is_dash {
-        if is_hls && matches!(profile, DvProfile::P7) && req.fallback_mode == "convert_dv81" && req.device_has_dv_decoder {
+        if is_hls
+            && matches!(profile, DvProfile::P7)
+            && req.fallback_mode == "convert_dv81"
+            && req.device_has_dv_decoder
+        {
             return plan_rich(
                 "hls_rpu_convert",
                 "p7_hls_segment_rpu_convert",
@@ -452,7 +456,14 @@ pub(crate) fn dv_proxy_plan_json(request_json: &str) -> Option<String> {
                 &[],
             );
         }
-        return plan_rich("none", "manifest_handled", profile.label(), "none", "high", &[]);
+        return plan_rich(
+            "none",
+            "manifest_handled",
+            profile.label(),
+            "none",
+            "high",
+            &[],
+        );
     }
 
     // Hard safety gates: profiles with no HDR base layer cannot be safely

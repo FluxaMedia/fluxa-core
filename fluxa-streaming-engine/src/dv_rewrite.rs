@@ -357,7 +357,7 @@ fn serve_hls_manifest_rewritten(
     manifest_url: &str,
     request: &crate::local_stream::ParsedLocalRequest,
 ) {
-    let mut upstream = match fetch_arbitrary_url(
+    let upstream = match fetch_arbitrary_url(
         &config.client,
         manifest_url,
         &config.headers,

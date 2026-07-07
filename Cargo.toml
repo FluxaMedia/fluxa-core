@@ -17,6 +17,15 @@ codegen-units = 1
 strip = "debuginfo"
 panic = "unwind"
 
+[workspace.lints.rust]
+unsafe_op_in_unsafe_fn = "warn"
+
+[workspace.lints.clippy]
+unwrap_used = "warn"
+expect_used = "warn"
+indexing_slicing = "warn"
+panic = "warn"
+
 [package]
 name = "fluxa_core"
 version = "0.1.0"
@@ -24,6 +33,9 @@ edition = "2021"
 
 [lib]
 crate-type = ["cdylib", "rlib"]
+
+[lints]
+workspace = true
 
 [[bin]]
 name = "uniffi-bindgen"

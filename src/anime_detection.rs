@@ -184,7 +184,8 @@ pub(crate) fn detect_anime_playback(
         }
     }
 
-    if genres.iter().any(|g| normalize(g) == "animation") && matches_any(&all_text, JAPANESE_SIGNALS)
+    if genres.iter().any(|g| normalize(g) == "animation")
+        && matches_any(&all_text, JAPANESE_SIGNALS)
     {
         confidence += 45;
         reasons.push("animation with Japanese signal");
