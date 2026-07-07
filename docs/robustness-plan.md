@@ -225,16 +225,20 @@ Statics move to `OnceLock`; the preference-derived ones get a one-entry cache ke
 the preference string (a `Mutex<Option<(String, Regex)>>` is enough — the preference
 changes once per settings edit, not per stream).
 
-### 11. Desktop pays JSON tax it doesn't owe
+### 11. Desktop pays JSON tax it doesn't owe — RESOLVED, already fixed on the desktop side
 
-`fluxa-desktop` links this crate natively yet still calls `core_invoke(method,
-args_json)` — serialize on the Tauri side, parse here, serialize the result, parse it
-back. For the 8 `FluxaCore` methods plus the hottest `core_invoke` calls (dispatch,
-completeEffect, stream ranking), expose typed Rust signatures
-(`fn dispatch(&self, action: AppAction) -> DispatchResult`) and let desktop call them
-directly. The JSON path stays for Swift/WASM, where it's the genuine boundary. Verify
-against `fluxa-desktop/src-tauri` call sites before adding anything to `FluxaCore`
-(per CLAUDE.md rule).
+Verified against `fluxa-desktop/src-tauri` call sites (2026-07) per the CLAUDE.md rule, and
+this section's premise no longer holds. The hottest paths — `dispatchAction`,
+`completeEffect`, `getSnapshot` in `src/core/engine.ts` — already go through dedicated Tauri
+commands (`engine_dispatch`, `engine_complete_effect`, `engine_snapshot` in
+`src-tauri/src/lib.rs`) that call `FluxaCore::headless_engine_dispatch_json` etc. directly in
+Rust, not through `core_invoke`. `FluxaCore` has also grown from the "8 methods" this doc
+assumed to 21 (cast/AirPlay/Chromecast/Roku helpers included), all with real desktop call
+sites. The one remaining `core_invoke` Tauri command is a generic fallback for the long tail
+of infrequent methods (`playbackPreparePlan`, `preferencesSchema`, etc.) — writing a
+dedicated Tauri command per method there would be pure boilerplate, since Tauri IPC already
+serializes args as JSON crossing the JS↔Rust boundary regardless of whether the command is
+generic or dedicated; there's no double-parse to eliminate. Nothing left to do here.
 
 ### 12. Measure before and after
 
