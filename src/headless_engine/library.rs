@@ -341,7 +341,7 @@ pub(super) fn complete(
         "readLibraryState" => {
             if generation == engine.state.runtime.get(GenerationKey::Library) {
                 engine.state.library.is_loading = false;
-                if result.status == "ok" {
+                if result.status.is_ok() {
                     engine.state.library.watchlist = result
                         .value
                         .get("watchlist")
@@ -380,7 +380,7 @@ pub(super) fn complete(
         }
         "writeLibraryCommand" => {
             if generation == engine.state.runtime.get(GenerationKey::Library) {
-                if result.status == "ok" {
+                if result.status.is_ok() {
                     engine.state.library.last_write = result.value.clone();
                     engine.state.library.last_write_error = Value::Null;
                     if let Some(value) = engine
@@ -408,7 +408,7 @@ pub(super) fn complete(
         }
         "writeFeedback" => {
             if generation == engine.state.runtime.get(GenerationKey::Library) {
-                if result.status == "ok" {
+                if result.status.is_ok() {
                     detail::set_feedback(
                         engine,
                         result.value.get("feedback").cloned().unwrap_or(Value::Null),
@@ -421,7 +421,7 @@ pub(super) fn complete(
         }
         "clearPlaybackProgress" => {
             if generation == engine.state.runtime.get(GenerationKey::Library) {
-                if result.status == "ok" {
+                if result.status.is_ok() {
                     detail::clear_saved_playback(engine);
                     engine.state.library.last_write_error = Value::Null;
                     // Remove the dropped item from home.continueWatching so stale state
@@ -437,7 +437,7 @@ pub(super) fn complete(
         }
         "writePlaybackProgress" => {
             if generation == engine.state.runtime.get(GenerationKey::Library) {
-                if result.status == "ok" {
+                if result.status.is_ok() {
                     engine.state.library.saved_playback_progress =
                         engine.state.library.pending_playback_progress.clone();
                     engine.state.library.pending_playback_progress = Value::Null;
@@ -449,7 +449,7 @@ pub(super) fn complete(
         }
         "syncWatchedState" => {
             if generation == engine.state.runtime.get(GenerationKey::Library) {
-                if result.status == "ok" {
+                if result.status.is_ok() {
                     engine.state.library.last_watched_sync = result.value.clone();
                     engine.state.library.last_watched_sync_error = Value::Null;
                 } else {

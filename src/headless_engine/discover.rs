@@ -107,7 +107,7 @@ pub(super) fn complete(
         "runDiscover" => {
             if generation == engine.state.runtime.get(GenerationKey::Discover) {
                 engine.state.discover.is_loading = false;
-                if result.status == "ok" {
+                if result.status.is_ok() {
                     engine.state.discover.results = result
                         .value
                         .get("results")
@@ -126,7 +126,7 @@ pub(super) fn complete(
         }
         "readDiscoverCatalogFilters" => {
             if generation == engine.state.runtime.get(GenerationKey::Discover) {
-                if result.status == "ok" {
+                if result.status.is_ok() {
                     engine.state.discover.catalogs = result
                         .value
                         .get("catalogs")

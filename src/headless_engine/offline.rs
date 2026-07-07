@@ -56,7 +56,7 @@ pub(super) fn complete(
     result: &EffectResultInput,
 ) -> Vec<EffectEnvelope> {
     if generation == engine.state.runtime.get(GenerationKey::Offline) {
-        if result.status == "ok" {
+        if result.status.is_ok() {
             engine.state.offline.last_enqueued = result.value.clone();
             engine.state.offline.error = Value::Null;
         } else {

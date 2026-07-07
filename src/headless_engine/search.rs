@@ -63,7 +63,7 @@ pub(super) fn complete(
 ) -> Vec<EffectEnvelope> {
     if generation == engine.state.runtime.get(GenerationKey::Search) {
         engine.state.search.is_loading = false;
-        if result.status == "ok" {
+        if result.status.is_ok() {
             engine.state.search.results = result
                 .value
                 .get("results")

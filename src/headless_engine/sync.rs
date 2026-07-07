@@ -97,7 +97,7 @@ pub(super) fn complete(
         "runExternalSync" => {
             if generation == engine.state.runtime.get(GenerationKey::Sync) {
                 engine.state.sync.is_loading = false;
-                if result.status == "ok" {
+                if result.status.is_ok() {
                     engine.state.sync.snapshot = result.value.clone();
                     engine.state.sync.error = Value::Null;
                 } else {
@@ -108,7 +108,7 @@ pub(super) fn complete(
         "syncExternalIntegration" => {
             if generation == engine.state.runtime.get(GenerationKey::Sync) {
                 engine.state.sync.is_loading = false;
-                if result.status == "ok" {
+                if result.status.is_ok() {
                     let updated_profile =
                         result.value.get("profile").cloned().unwrap_or(Value::Null);
                     engine.state.sync.snapshot =

@@ -454,6 +454,17 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_coreC
 }
 
 #[no_mangle]
+pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_drainCoreErrorLogJsonNative(
+    mut env: JNIEnv<'_>,
+    _class: JObject<'_>,
+) -> JStringReturn {
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        write_jstring(&mut env, Some(crate::log_sink::drain_core_log_json()))
+    }))
+    .unwrap_or(ptr::null_mut())
+}
+
+#[no_mangle]
 pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_headlessDirectPlaybackPolicyJsonNative(
     mut env: JNIEnv<'_>,
     _class: JObject<'_>,

@@ -136,6 +136,7 @@ fn route_engine_lifecycle(method: &str, args_json: &str) -> Outcome {
         "engine.destroy" => Ok(json!(headless_engine::destroy_headless_engine(handle(
             args_json
         )?))),
+        "core.drainErrorLog" => opt_json(Some(crate::log_sink::drain_core_log_json())),
 
         // App state (parallel to headless engine, used by Android)
         "app.create" => Ok(json!(app_state::create_app_core_state(args_json) as i64)),

@@ -16,6 +16,7 @@ mod settings;
 mod state;
 mod sync;
 
+use crate::core_error::{CoreError, LogAndDiscard};
 use crate::runtime::{EffectEnvelope, EffectKind};
 use contracts::{AppAction, DispatchResult, StatePatch};
 use serde::{Deserialize, Serialize};
@@ -86,10 +87,23 @@ pub fn headless_engine_snapshot_json(handle: u64) -> Option<String> {
 }
 
 pub fn headless_engine_dispatch_json(handle: u64, action_json: &str) -> Option<String> {
-    let action: AppAction = serde_json::from_str(action_json).ok()?;
+    let action: AppAction = serde_json::from_str(action_json)
+        .map_err(|e| CoreError::BadInput {
+            context: "headless_engine_dispatch_json",
+            detail: e.to_string(),
+        })
+        .log_discard()?;
     let (before, after, visible_effects) = {
         let mut map = lock_engines();
-        let engine = map.get_mut(&handle)?;
+        let engine = match map.get_mut(&handle) {
+            Some(engine) => engine,
+            None => {
+                return CoreError::NotFound {
+                    context: "headless_engine_dispatch_json",
+                }
+                .log_and_none()
+            }
+        };
         engine.expire_stale_pending_effects(Instant::now());
         let before = engine.state.clone();
         let effects = engine.dispatch(action);
@@ -99,14 +113,24 @@ pub fn headless_engine_dispatch_json(handle: u64, action_json: &str) -> Option<S
     result_patch_json(&before, &after, visible_effects)
 }
 
-pub fn headless_engine_complete_effect_json(
-    handle: u64,
-    result_json: &str,
-) -> Option<String> {
-    let result: EffectResultInput = serde_json::from_str(result_json).ok()?;
+pub fn headless_engine_complete_effect_json(handle: u64, result_json: &str) -> Option<String> {
+    let result: EffectResultInput = serde_json::from_str(result_json)
+        .map_err(|e| CoreError::BadInput {
+            context: "headless_engine_complete_effect_json",
+            detail: e.to_string(),
+        })
+        .log_discard()?;
     let (before, after, visible_effects) = {
         let mut map = lock_engines();
-        let engine = map.get_mut(&handle)?;
+        let engine = match map.get_mut(&handle) {
+            Some(engine) => engine,
+            None => {
+                return CoreError::NotFound {
+                    context: "headless_engine_complete_effect_json",
+                }
+                .log_and_none()
+            }
+        };
         engine.expire_stale_pending_effects(Instant::now());
         let before = engine.state.clone();
         let effects = engine.complete_effect(result);

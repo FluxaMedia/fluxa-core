@@ -214,7 +214,7 @@ pub(super) fn complete(
 ) -> Vec<EffectEnvelope> {
     match effect_type {
         "refreshContinueWatching" => {
-            if result.status == "ok" {
+            if result.status.is_ok() {
                 if let Some(cw) = result.value.get("continueWatching") {
                     engine.state.home.continue_watching = cw.clone();
                 }
@@ -223,7 +223,7 @@ pub(super) fn complete(
         "readHomeBootstrap" => {
             if generation == engine.state.runtime.get(GenerationKey::Home) {
                 engine.state.home.is_loading = false;
-                if result.status == "ok" {
+                if result.status.is_ok() {
                     engine.state.home.categories = result
                         .value
                         .get("categories")
@@ -263,7 +263,7 @@ pub(super) fn complete(
         "prepareDirectPlayback" => {
             if generation == engine.state.runtime.get(GenerationKey::PlaybackPrep) {
                 engine.state.home.is_direct_loading = false;
-                if result.status == "ok" {
+                if result.status.is_ok() {
                     player::complete_direct_playback(engine, result.value.clone(), Value::Null);
                 } else {
                     player::complete_direct_playback(
@@ -277,7 +277,7 @@ pub(super) fn complete(
         "fetchCatalogPage" => {
             if generation == engine.state.runtime.get(GenerationKey::Home) {
                 engine.state.home.paging.is_loading = false;
-                if result.status == "ok" {
+                if result.status.is_ok() {
                     engine.state.home.paging.items = result
                         .value
                         .get("items")

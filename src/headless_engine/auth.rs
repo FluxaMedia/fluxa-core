@@ -120,7 +120,7 @@ pub(super) fn complete(
         "runAuthFlow" => {
             if generation == engine.state.runtime.get(GenerationKey::Auth) {
                 engine.state.auth.is_loading = false;
-                if result.status == "ok" {
+                if result.status.is_ok() {
                     engine.state.auth.result = result.value.clone();
                     engine.state.auth.error = Value::Null;
                 } else {
@@ -131,7 +131,7 @@ pub(super) fn complete(
         "exchangeAuthCode" | "refreshAuthToken" => {
             if generation == engine.state.runtime.get(GenerationKey::Auth) {
                 engine.state.auth.is_loading = false;
-                if result.status == "ok" {
+                if result.status.is_ok() {
                     engine.state.auth.result = result.value.clone();
                     if let Some(updated_profile) = result.value.get("profile").cloned() {
                         profile::update_active(engine, updated_profile);

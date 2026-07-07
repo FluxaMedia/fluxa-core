@@ -72,6 +72,11 @@ pub fn core_capabilities_json(portable: bool) -> String {
 }
 
 #[uniffi::export]
+pub fn drain_core_error_log_json() -> String {
+    guard(String::new(), crate::log_sink::drain_core_log_json)
+}
+
+#[uniffi::export]
 pub fn create_app_core_state_json(initial_json: String) -> i64 {
     guard(0, || app_state::create_app_core_state(&initial_json) as i64)
 }

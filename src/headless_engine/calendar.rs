@@ -85,7 +85,7 @@ pub(super) fn complete(
         return vec![];
     }
     engine.state.calendar.is_loading = false;
-    if result.status == "ok" {
+    if result.status.is_ok() {
         let items = result
             .value
             .get("items")

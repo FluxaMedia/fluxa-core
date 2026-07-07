@@ -1,3 +1,4 @@
+use crate::core_error::{CoreError, LogAndDiscard};
 use serde::Deserialize;
 use serde_json::{json, Value};
 
@@ -66,7 +67,12 @@ struct SourceSidebarRequest {
 }
 
 pub(crate) fn player_backend_selection_json(request_json: &str) -> Option<String> {
-    let request = serde_json::from_str::<BackendSelectionRequest>(request_json).ok()?;
+    let request = serde_json::from_str::<BackendSelectionRequest>(request_json)
+        .map_err(|e| CoreError::BadInput {
+            context: "player_backend_selection_json",
+            detail: e.to_string(),
+        })
+        .log_discard()?;
     let preferred = request.preferred_player.as_deref().unwrap_or("internal");
     let stream = &request.stream;
 
@@ -136,7 +142,12 @@ pub(crate) fn player_backend_selection_json(request_json: &str) -> Option<String
 }
 
 pub(crate) fn torrent_fallback_file_policy_json(request_json: &str) -> Option<String> {
-    let request = serde_json::from_str::<TorrentFallbackRequest>(request_json).ok()?;
+    let request = serde_json::from_str::<TorrentFallbackRequest>(request_json)
+        .map_err(|e| CoreError::BadInput {
+            context: "torrent_fallback_file_policy_json",
+            detail: e.to_string(),
+        })
+        .log_discard()?;
     let rejected = request.rejected_index;
     let video_id = request.video_id.as_deref().unwrap_or("");
 
@@ -209,7 +220,12 @@ pub(crate) fn torrent_fallback_file_policy_json(request_json: &str) -> Option<St
 
 /// Return safe buffer and cache targets for ExoPlayer given preferences and stream type.
 pub(crate) fn player_buffer_targets_json(request_json: &str) -> Option<String> {
-    let request = serde_json::from_str::<BufferTargetsRequest>(request_json).ok()?;
+    let request = serde_json::from_str::<BufferTargetsRequest>(request_json)
+        .map_err(|e| CoreError::BadInput {
+            context: "player_buffer_targets_json",
+            detail: e.to_string(),
+        })
+        .log_discard()?;
     let mobile_data_usage = request.mobile_data_usage.as_deref().unwrap_or("medium");
 
     // On mobile data, reduce buffers
@@ -245,7 +261,12 @@ pub(crate) fn player_buffer_targets_json(request_json: &str) -> Option<String> {
 
 /// Return the retry/fallback policy given an error code and retry history.
 pub(crate) fn player_retry_policy_json(request_json: &str) -> Option<String> {
-    let request = serde_json::from_str::<RetryPolicyRequest>(request_json).ok()?;
+    let request = serde_json::from_str::<RetryPolicyRequest>(request_json)
+        .map_err(|e| CoreError::BadInput {
+            context: "player_retry_policy_json",
+            detail: e.to_string(),
+        })
+        .log_discard()?;
     let error_code = request.error_code.as_str();
     let retry_count = request.retry_count;
 
@@ -300,7 +321,12 @@ pub(crate) fn player_retry_policy_json(request_json: &str) -> Option<String> {
 
 /// Build the source sidebar option state: which streams to show and which is selected.
 pub(crate) fn player_source_sidebar_plan_json(request_json: &str) -> Option<String> {
-    let request = serde_json::from_str::<SourceSidebarRequest>(request_json).ok()?;
+    let request = serde_json::from_str::<SourceSidebarRequest>(request_json)
+        .map_err(|e| CoreError::BadInput {
+            context: "player_source_sidebar_plan_json",
+            detail: e.to_string(),
+        })
+        .log_discard()?;
     let current_index = request.current_stream_index.clamp(0, i32::MAX);
     let streams_by_addon: std::collections::BTreeMap<String, Vec<(usize, &Value)>> = request
         .streams
@@ -418,7 +444,12 @@ impl DvProfile {
 ///   safety        — "high" | "medium" | "low" | "none"
 ///   limitations   — list of known caveats for this action
 pub(crate) fn dv_proxy_plan_json(request_json: &str) -> Option<String> {
-    let req = serde_json::from_str::<DvProxyPlanRequest>(request_json).ok()?;
+    let req = serde_json::from_str::<DvProxyPlanRequest>(request_json)
+        .map_err(|e| CoreError::BadInput {
+            context: "dv_proxy_plan_json",
+            detail: e.to_string(),
+        })
+        .log_discard()?;
 
     if req.fallback_mode == "off" {
         return plan_rich("none", "user_disabled", "unknown", "none", "high", &[]);

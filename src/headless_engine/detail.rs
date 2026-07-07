@@ -454,7 +454,7 @@ pub(super) fn complete(
         "fetchMetaDetail" => {
             if generation == engine.state.runtime.get(GenerationKey::Detail) {
                 engine.state.detail.is_loading = false;
-                if result.status == "ok" {
+                if result.status.is_ok() {
                     engine.state.detail.trailers = normalize_meta_trailers(&result.value);
                     engine.state.detail.meta = result.value.clone();
                     engine.state.detail.error = Value::Null;
@@ -465,7 +465,7 @@ pub(super) fn complete(
         }
         "readPlaybackProgress" => {
             if generation == engine.state.runtime.get(GenerationKey::Detail) {
-                engine.state.detail.saved_playback = if result.status == "ok" {
+                engine.state.detail.saved_playback = if result.status.is_ok() {
                     result.value.clone()
                 } else {
                     Value::Null
@@ -474,7 +474,7 @@ pub(super) fn complete(
         }
         "readDetailLocalState" => {
             if generation == engine.state.runtime.get(GenerationKey::Detail) {
-                if result.status == "ok" {
+                if result.status.is_ok() {
                     engine.state.detail.saved_playback = result
                         .value
                         .get("savedPlayback")
@@ -509,7 +509,7 @@ pub(super) fn complete(
         }
         "fetchDetailSecondary" => {
             if generation == engine.state.runtime.get(GenerationKey::Detail) {
-                if result.status == "ok" {
+                if result.status.is_ok() {
                     engine.state.detail.watched_video_ids = result
                         .value
                         .get("watchedVideoIds")
@@ -544,7 +544,7 @@ pub(super) fn complete(
         }
         "prefetchDetailStreams" => {
             if generation == engine.state.runtime.get(GenerationKey::Detail) {
-                if result.status == "ok" {
+                if result.status.is_ok() {
                     engine.state.detail.last_prefetch = result.value.clone();
                 } else {
                     engine.state.detail.last_prefetch_error = normalize_error(result.error.clone());
@@ -554,7 +554,7 @@ pub(super) fn complete(
         "fetchDetailStreams" => {
             if generation == engine.state.runtime.get(GenerationKey::DetailStreams) {
                 engine.state.detail.is_loading_streams = false;
-                if result.status == "ok" {
+                if result.status.is_ok() {
                     engine.state.detail.streams = result
                         .value
                         .get("streams")
@@ -587,7 +587,7 @@ pub(super) fn complete(
         }
         "fetchMetaDetailLookup" => {
             if generation == engine.state.runtime.get(GenerationKey::Lookup) {
-                if result.status == "ok" {
+                if result.status.is_ok() {
                     engine.state.lookup = LookupState {
                         trailers: normalize_meta_trailers(&result.value),
                         meta_detail: result.value.clone(),
@@ -605,7 +605,7 @@ pub(super) fn complete(
         "fetchSeasonEpisodes" => {
             if generation == engine.state.runtime.get(GenerationKey::Detail) {
                 engine.state.detail.season_loading = Value::Null;
-                if result.status == "ok" {
+                if result.status.is_ok() {
                     engine.state.detail.season_episodes = result
                         .value
                         .get("episodes")

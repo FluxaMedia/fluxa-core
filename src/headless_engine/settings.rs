@@ -44,7 +44,7 @@ pub(super) fn complete(
     result: &EffectResultInput,
 ) -> Vec<EffectEnvelope> {
     if generation == engine.state.runtime.get(GenerationKey::Settings) {
-        if result.status != "ok" {
+        if !result.status.is_ok() {
             engine.state.settings.last_write_error = normalize_error(result.error.clone());
         } else {
             engine.state.settings.last_write_error = Value::Null;

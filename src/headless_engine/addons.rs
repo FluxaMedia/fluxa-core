@@ -117,7 +117,7 @@ pub(super) fn complete(
     match effect_type {
         "fetchAddonManifest" => {
             if generation == engine.state.runtime.get(GenerationKey::Addon) {
-                if result.status == "ok" {
+                if result.status.is_ok() {
                     let manifest = result.value.clone();
                     let id = manifest["transportUrl"]
                         .as_str()
@@ -135,7 +135,7 @@ pub(super) fn complete(
         }
         "refreshInstalledAddons" => {
             if generation == engine.state.runtime.get(GenerationKey::Addon) {
-                if result.status == "ok" {
+                if result.status.is_ok() {
                     let addons = result
                         .value
                         .get("addons")
@@ -151,7 +151,7 @@ pub(super) fn complete(
         }
         "fetchAddonResource" => {
             if generation == engine.state.runtime.get(GenerationKey::Addon) {
-                if result.status == "ok" {
+                if result.status.is_ok() {
                     engine.state.addons.last_resource_result = result.value.clone();
                     engine.state.addons.error = Value::Null;
                 } else {

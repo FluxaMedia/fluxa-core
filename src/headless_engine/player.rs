@@ -540,7 +540,7 @@ pub(super) fn complete(
         "loadStreams" => {
             if generation == engine.state.runtime.get(GenerationKey::Player) {
                 let pending = engine.state.player.pending_stream_load.clone();
-                if result.status == "ok" {
+                if result.status.is_ok() {
                     dispatch_streams_loaded(
                         engine,
                         result.value.as_array().cloned().unwrap_or_default(),
@@ -564,7 +564,7 @@ pub(super) fn complete(
         }
         "startTorrentStream" => {
             if generation == engine.state.runtime.get(GenerationKey::Player) {
-                if result.status == "ok" {
+                if result.status.is_ok() {
                     engine.state.player.resolved_url =
                         result.value.get("url").cloned().unwrap_or(Value::Null);
                     engine.state.player.is_buffering = false;
@@ -578,7 +578,7 @@ pub(super) fn complete(
         }
         "enqueueTraktScrobble" => {
             if generation == engine.state.runtime.get(GenerationKey::Player) {
-                if result.status == "ok" {
+                if result.status.is_ok() {
                     engine.state.player.last_scrobble = result.value.clone();
                     engine.state.player.player_error = Value::Null;
                 } else {
@@ -588,14 +588,14 @@ pub(super) fn complete(
         }
         "stopTorrent" => {
             if generation == engine.state.runtime.get(GenerationKey::Player)
-                && result.status != "ok"
+                && !result.status.is_ok()
             {
                 engine.state.player.stop_torrent_warning = normalize_error(result.error.clone());
             }
         }
         "fetchIntroSegments" => {
             if generation == engine.state.runtime.get(GenerationKey::Intro) {
-                if result.status == "ok" {
+                if result.status.is_ok() {
                     engine.state.player.intro_segments = result.value.clone();
                     engine.state.player.player_error = Value::Null;
                 } else {
@@ -606,7 +606,7 @@ pub(super) fn complete(
         }
         "resolveIntroImdbId" => {
             if generation == engine.state.runtime.get(GenerationKey::Intro) {
-                if result.status == "ok" {
+                if result.status.is_ok() {
                     engine.state.player.intro_imdb_id = result.value.clone();
                     engine.state.player.player_error = Value::Null;
                 } else {
@@ -618,7 +618,7 @@ pub(super) fn complete(
         "fetchSubtitles" => {
             if generation == engine.state.runtime.get(GenerationKey::Player) {
                 engine.state.player.subtitle_loading = false;
-                if result.status == "ok" {
+                if result.status.is_ok() {
                     engine.state.player.subtitles = result
                         .value
                         .get("subtitles")
@@ -633,7 +633,7 @@ pub(super) fn complete(
         "prefetchNextEpisodeStreams" => {
             // Only accept if the prefetch generation is still current (player hasn't moved on).
             if generation == engine.state.runtime.get(GenerationKey::Player) {
-                if result.status == "ok" {
+                if result.status.is_ok() {
                     let prefetched_video_id = engine.state.player.prefetching_next_video_id.clone();
                     engine.state.player.prefetched_next_episode = serde_json::json!({
                         "videoId": prefetched_video_id,

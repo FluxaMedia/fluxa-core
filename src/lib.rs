@@ -40,6 +40,7 @@ pub mod core_api;
 mod core_api;
 #[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
 pub mod core_contract;
+mod core_error;
 #[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
 mod data_policy;
 #[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
@@ -58,6 +59,7 @@ mod home_ranking;
 mod intro_segments;
 #[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
 mod library_state;
+pub mod log_sink;
 #[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
 mod offline_download;
 #[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]

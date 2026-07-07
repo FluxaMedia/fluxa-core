@@ -313,13 +313,25 @@ pub(super) enum AppAction {
     },
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) enum EffectStatus {
+    Ok,
+    Error,
+    Cancelled,
+}
+
+impl EffectStatus {
+    pub(crate) fn is_ok(self) -> bool {
+        matches!(self, EffectStatus::Ok)
+    }
+}
+
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct EffectResultInput {
-    #[serde(default)]
     pub effect_id: String,
-    #[serde(default)]
-    pub status: String,
+    pub status: EffectStatus,
     #[serde(default)]
     pub value: Value,
     #[serde(default)]
