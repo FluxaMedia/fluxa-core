@@ -3,9 +3,28 @@ use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::sync::Mutex;
 
-const STREAM_SOURCE_MODE_FIRST: &str = "first";
-const STREAM_SOURCE_MODE_REGEX: &str = "regex";
 const VIDEO_FILE_EXTENSIONS: [&str; 7] = [".mkv", ".mp4", ".avi", ".webm", ".m4v", ".mov", ".ts"];
+
+// Any value the platform sends that isn't "regex"/"first" behaves as "manual" —
+// this mirrors the pre-existing catch-all match arm, just moved to the one
+// place the raw string gets parsed instead of being re-compared everywhere.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(crate) enum SourceSelectionMode {
+    Regex,
+    First,
+    #[default]
+    Manual,
+}
+
+impl From<&str> for SourceSelectionMode {
+    fn from(value: &str) -> Self {
+        match value {
+            "regex" => SourceSelectionMode::Regex,
+            "first" => SourceSelectionMode::First,
+            _ => SourceSelectionMode::Manual,
+        }
+    }
+}
 
 pub(crate) fn stream_behavior_text<'a>(stream: &'a Value, key: &str) -> Option<&'a str> {
     stream
@@ -860,7 +879,7 @@ fn select_stream_index_inner(
     initial_stream_index: i32,
     saved_url: Option<&str>,
     saved_title: Option<&str>,
-    source_selection_mode: &str,
+    source_selection_mode: SourceSelectionMode,
     regex_pattern: Option<&str>,
     preferred_binge_group: Option<&str>,
 ) -> i32 {
@@ -877,7 +896,7 @@ fn select_stream_index_inner(
     }
 
     match source_selection_mode {
-        STREAM_SOURCE_MODE_REGEX => {
+        SourceSelectionMode::Regex => {
             let Some(pattern) = regex_pattern.filter(|value| !value.trim().is_empty()) else {
                 return manual_stream_index(
                     streams,
@@ -908,12 +927,12 @@ fn select_stream_index_inner(
                 return index as i32;
             }
         }
-        STREAM_SOURCE_MODE_FIRST => {
+        SourceSelectionMode::First => {
             if let Some(index) = index_of_first_playable(streams, current_video_id, |_| true) {
                 return index as i32;
             }
         }
-        _ => {}
+        SourceSelectionMode::Manual => {}
     }
 
     manual_stream_index(
@@ -932,7 +951,7 @@ pub(crate) fn select_stream_index(
     initial_stream_index: i32,
     saved_url: Option<&str>,
     saved_title: Option<&str>,
-    source_selection_mode: &str,
+    source_selection_mode: SourceSelectionMode,
     regex_pattern: Option<&str>,
     preferred_binge_group: Option<&str>,
 ) -> i32 {
@@ -958,7 +977,7 @@ pub(crate) fn select_stream_index_values(
     initial_stream_index: i32,
     saved_url: Option<&str>,
     saved_title: Option<&str>,
-    source_selection_mode: &str,
+    source_selection_mode: SourceSelectionMode,
     regex_pattern: Option<&str>,
     preferred_binge_group: Option<&str>,
 ) -> i32 {

@@ -138,7 +138,7 @@ pub(crate) fn dispatch(
                 initial_stream_index,
                 saved_url.as_deref(),
                 saved_title.as_deref(),
-                source_selection_mode.as_deref().unwrap_or("manual"),
+                source_selection_mode.as_deref().unwrap_or("manual").into(),
                 regex_pattern.as_deref(),
                 preferred_binge_group.as_deref(),
             )

@@ -374,6 +374,17 @@ pub fn player_source_sidebar_plan_json(request_json: &str) -> Option<String> {
     .ok()
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum DvFallbackMode {
+    Off,
+    #[default]
+    Auto,
+    Dv8,
+    ConvertDv81,
+    Hdr10,
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct DvProxyPlanRequest {
@@ -381,17 +392,12 @@ struct DvProxyPlanRequest {
     stream: Value,
     #[serde(default)]
     url: String,
-    /// "off" | "hdr10" | "dv8" | "auto"
-    #[serde(default = "default_auto")]
-    fallback_mode: String,
+    #[serde(default)]
+    fallback_mode: DvFallbackMode,
     #[serde(default)]
     device_has_dv_decoder: bool,
     #[serde(default)]
     device_has_dv_display: bool,
-}
-
-fn default_auto() -> String {
-    "auto".to_string()
 }
 
 /// Per-stream Dolby Vision profile classification.
@@ -451,7 +457,7 @@ pub(crate) fn dv_proxy_plan_json(request_json: &str) -> Option<String> {
         })
         .log_discard()?;
 
-    if req.fallback_mode == "off" {
+    if req.fallback_mode == DvFallbackMode::Off {
         return plan_rich("none", "user_disabled", "unknown", "none", "high", &[]);
     }
 
@@ -464,7 +470,7 @@ pub(crate) fn dv_proxy_plan_json(request_json: &str) -> Option<String> {
     }
 
     let native_passthrough = req.device_has_dv_decoder
-        && (req.device_has_dv_display || req.fallback_mode != "convert_dv81");
+        && (req.device_has_dv_display || req.fallback_mode != DvFallbackMode::ConvertDv81);
     if native_passthrough {
         return plan_rich("none", "hw_dv_decoder", "unknown", "DV", "high", &[]);
     }
@@ -475,7 +481,7 @@ pub(crate) fn dv_proxy_plan_json(request_json: &str) -> Option<String> {
     if is_hls || is_dash {
         if is_hls
             && matches!(profile, DvProfile::P7)
-            && req.fallback_mode == "convert_dv81"
+            && req.fallback_mode == DvFallbackMode::ConvertDv81
             && req.device_has_dv_decoder
         {
             return plan_rich(
@@ -535,7 +541,7 @@ pub(crate) fn dv_proxy_plan_json(request_json: &str) -> Option<String> {
         _ => {}
     }
 
-    let mode = req.fallback_mode.as_str();
+    let mode = req.fallback_mode;
 
     let (action, compat, safety, reason, limitations): (&str, &str, &str, &str, Vec<&str>) =
         match profile {
@@ -543,14 +549,14 @@ pub(crate) fn dv_proxy_plan_json(request_json: &str) -> Option<String> {
                 // convert_dv81 + DV decoder (no display): RPU conversion for Annex-B + fMP4.
                 // Without a DV decoder, conversion would produce DV8.1 that nothing can decode;
                 // fall through to dvcc_strip (handled by the catch-all arm below).
-                ("convert_dv81", _) if req.device_has_dv_decoder => (
+                (DvFallbackMode::ConvertDv81, _) if req.device_has_dv_decoder => (
                     "rpu_convert",
                     "DV8",
                     "medium",
                     "p7_rpu_convert_to_dv81",
                     vec![],
                 ),
-                ("dv8", DvContainer::RawHevc) => (
+                (DvFallbackMode::Dv8, DvContainer::RawHevc) => (
                     "rpu_convert",
                     "DV8",
                     "medium",
@@ -558,7 +564,7 @@ pub(crate) fn dv_proxy_plan_json(request_json: &str) -> Option<String> {
                     vec!["annexb_only"],
                 ),
                 // Auto mode + DV-capable display: keep DV via RPU conversion.
-                ("auto", DvContainer::RawHevc) if req.device_has_dv_display => (
+                (DvFallbackMode::Auto, DvContainer::RawHevc) if req.device_has_dv_display => (
                     "rpu_convert",
                     "DV8",
                     "medium",
@@ -566,7 +572,7 @@ pub(crate) fn dv_proxy_plan_json(request_json: &str) -> Option<String> {
                     vec!["annexb_only"],
                 ),
                 // dv8 mode requested but container is not Annex-B.
-                ("dv8", _) => (
+                (DvFallbackMode::Dv8, _) => (
                     "dvcc_strip",
                     "HDR10",
                     "medium",

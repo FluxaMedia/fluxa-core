@@ -947,7 +947,9 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_selec
                     read_jstring(&mut env, &saved_title)
                         .filter(|value| !value.is_empty())
                         .as_deref(),
-                    &read_jstring(&mut env, &source_selection_mode)?,
+                    read_jstring(&mut env, &source_selection_mode)?
+                        .as_str()
+                        .into(),
                     read_jstring(&mut env, &regex_pattern)
                         .filter(|value| !value.is_empty())
                         .as_deref(),
