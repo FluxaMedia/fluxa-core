@@ -69,6 +69,16 @@ pub(super) fn value_array_is_empty(value: &Value) -> bool {
     value.as_array().map(Vec::is_empty).unwrap_or(true)
 }
 
+pub(super) fn with_normalized_meta_trailers(mut meta: Value) -> Value {
+    let trailers = normalize_meta_trailers(&meta);
+    if !value_array_is_empty(&trailers) {
+        if let Some(obj) = meta.as_object_mut() {
+            obj.insert("trailers".to_string(), trailers);
+        }
+    }
+    meta
+}
+
 pub(super) fn normalize_meta_trailers(meta: &Value) -> Value {
     let trailers = meta["trailers"]
         .as_array()

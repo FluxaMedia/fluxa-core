@@ -1,4 +1,4 @@
-use super::helpers::{active_profile_id, error_code, normalize_error};
+use super::helpers::{active_profile_id, error_code, normalize_error, with_normalized_meta_trailers};
 use super::player;
 use super::state::GenerationKey;
 use super::{EffectResultInput, HeadlessEngine};
@@ -88,6 +88,19 @@ struct RefreshContinueWatchingPayload {
     profile_id: String,
     profile: Value,
     language: String,
+}
+
+fn normalize_categories_trailers(mut categories: Value) -> Value {
+    if let Some(cats) = categories.as_array_mut() {
+        for category in cats {
+            if let Some(items) = category.get_mut("items").and_then(Value::as_array_mut) {
+                for item in items {
+                    *item = with_normalized_meta_trailers(item.take());
+                }
+            }
+        }
+    }
+    categories
 }
 
 pub(super) fn dispatch_refresh_continue_watching(
@@ -228,6 +241,7 @@ pub(super) fn complete(
                         .value
                         .get("categories")
                         .cloned()
+                        .map(normalize_categories_trailers)
                         .unwrap_or_else(|| serde_json::json!([]));
                     engine.state.home.continue_watching = result
                         .value
@@ -253,6 +267,7 @@ pub(super) fn complete(
                         .value
                         .get("billboard")
                         .cloned()
+                        .map(with_normalized_meta_trailers)
                         .unwrap_or(Value::Null);
                     engine.state.home.error = Value::Null;
                 } else {
