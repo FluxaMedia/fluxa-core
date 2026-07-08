@@ -1,4 +1,6 @@
-use super::helpers::{active_profile_id, error_code, normalize_error, with_normalized_meta_trailers};
+use super::helpers::{
+    active_profile_id, error_code, normalize_error, with_normalized_meta_trailers,
+};
 use super::player;
 use super::state::GenerationKey;
 use super::{EffectResultInput, HeadlessEngine};

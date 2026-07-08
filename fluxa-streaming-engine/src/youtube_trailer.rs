@@ -203,7 +203,9 @@ fn watch_config_path(cache_dir: &str) -> PathBuf {
 }
 
 fn load_watch_config(path: &PathBuf) -> Option<WatchConfig> {
-    fs::read_to_string(path).ok().and_then(|contents| serde_json::from_str(&contents).ok())
+    fs::read_to_string(path)
+        .ok()
+        .and_then(|contents| serde_json::from_str(&contents).ok())
 }
 
 fn save_watch_config(path: &PathBuf, config: &WatchConfig) {
@@ -227,7 +229,11 @@ fn extract_json_string_field(html: &str, key: &str) -> Option<String> {
     Some(rest[..end].to_string())
 }
 
-fn fetch_watch_config(client: &reqwest::blocking::Client, cache_dir: &str, force_refresh: bool) -> WatchConfig {
+fn fetch_watch_config(
+    client: &reqwest::blocking::Client,
+    cache_dir: &str,
+    force_refresh: bool,
+) -> WatchConfig {
     let path = watch_config_path(cache_dir);
     if !force_refresh {
         if let Some(config) = load_watch_config(&path) {
