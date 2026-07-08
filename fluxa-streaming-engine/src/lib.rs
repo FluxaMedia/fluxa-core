@@ -19,4 +19,6 @@ pub mod bindings;
 #[cfg(feature = "native")]
 pub use torrent_engine::{start_torrent_server, stop_torrent_server};
 #[cfg(feature = "native")]
-pub use youtube_trailer::{resolve_youtube_trailer_json, resolve_youtube_trailer_stream_url};
+pub use youtube_trailer::{
+    prewarm_youtube_watch_config, resolve_youtube_trailer_json, resolve_youtube_trailer_stream_url,
+};

@@ -272,6 +272,11 @@ fn save_cache(path: &PathBuf, cache: &TrailerCache) {
     }
 }
 
+pub fn prewarm_youtube_watch_config(cache_dir: &str) {
+    let client = build_proxy_client();
+    fetch_watch_config(&client, cache_dir, false);
+}
+
 pub fn resolve_youtube_trailer_stream_url(video_id: &str, cache_dir: &str) -> Option<String> {
     let json = resolve_youtube_trailer_json(video_id, cache_dir)?;
     let parsed: serde_json::Value = serde_json::from_str(&json).ok()?;
