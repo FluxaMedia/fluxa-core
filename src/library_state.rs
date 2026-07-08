@@ -629,9 +629,13 @@ fn apply_next_episode_badge(
         "lastEpisodeSeason": next.get("season").cloned().unwrap_or(Value::Null),
         "lastEpisodeNumber": next.get("episode").or_else(|| next.get("number")).cloned().unwrap_or(Value::Null),
         "lastEpisodeThumbnail": next.get("thumbnail")
-            .filter(|v| !v.is_null())
+            .filter(|v| v.as_str().map_or(!v.is_null(), |s| !s.trim().is_empty()))
             .cloned()
-            .or_else(|| if !is_new_target { candidate.get("lastEpisodeThumbnail").cloned().filter(|v| !v.is_null()) } else { None })
+            .or_else(|| if !is_new_target {
+                candidate.get("lastEpisodeThumbnail").cloned().filter(|v| v.as_str().map_or(!v.is_null(), |s| !s.trim().is_empty()))
+            } else {
+                None
+            })
             .unwrap_or(Value::Null),
         "continueWatchingBadge": badge,
         "newEpisodeReleasedAt": released_str,
