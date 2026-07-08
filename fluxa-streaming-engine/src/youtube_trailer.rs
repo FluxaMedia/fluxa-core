@@ -10,12 +10,29 @@ const INNERTUBE_URL: &str = "https://www.youtube.com/youtubei/v1/player";
 const INNERTUBE_API_KEY: &str = "AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8";
 const CACHE_TTL_SECS: u64 = 6 * 60 * 60;
 const CACHE_FILE_NAME: &str = "youtube_trailer_cache.json";
+const WATCH_CONFIG_FILE_NAME: &str = "youtube_watch_config.json";
+const WATCH_CONFIG_TTL_SECS: u64 = 3 * 60 * 60;
 
 struct ClientContext {
     x_youtube_client_name: &'static str,
     client_version: &'static str,
     user_agent: &'static str,
     client_json: fn() -> serde_json::Value,
+}
+
+fn android_vr_client_json() -> serde_json::Value {
+    json!({
+        "clientName": "ANDROID_VR",
+        "clientVersion": "1.56.21",
+        "deviceMake": "Oculus",
+        "deviceModel": "Quest 3",
+        "osName": "Android",
+        "osVersion": "12",
+        "platform": "MOBILE",
+        "androidSdkVersion": 32,
+        "hl": "en",
+        "gl": "US",
+    })
 }
 
 fn android_client_json() -> serde_json::Value {
@@ -46,6 +63,12 @@ fn ios_client_json() -> serde_json::Value {
 }
 
 const CLIENT_CONTEXTS: &[ClientContext] = &[
+    ClientContext {
+        x_youtube_client_name: "28",
+        client_version: "1.56.21",
+        user_agent: "com.google.android.apps.youtube.vr.oculus/1.56.21 (Linux; U; Android 12; en_US; Quest 3; Build/SQ3A.220605.009.A1) gzip",
+        client_json: android_vr_client_json,
+    },
     ClientContext {
         x_youtube_client_name: "3",
         client_version: "21.02.35",
@@ -168,6 +191,74 @@ fn cache_path(cache_dir: &str) -> PathBuf {
     PathBuf::from(cache_dir).join(CACHE_FILE_NAME)
 }
 
+#[derive(Serialize, Deserialize, Clone, Default)]
+struct WatchConfig {
+    api_key: String,
+    visitor_data: Option<String>,
+    fetched_at: u64,
+}
+
+fn watch_config_path(cache_dir: &str) -> PathBuf {
+    PathBuf::from(cache_dir).join(WATCH_CONFIG_FILE_NAME)
+}
+
+fn load_watch_config(path: &PathBuf) -> Option<WatchConfig> {
+    fs::read_to_string(path).ok().and_then(|contents| serde_json::from_str(&contents).ok())
+}
+
+fn save_watch_config(path: &PathBuf, config: &WatchConfig) {
+    if let Ok(json) = serde_json::to_string(config) {
+        let _ = fs::write(path, json);
+    }
+}
+
+fn extract_json_string_field(html: &str, key: &str) -> Option<String> {
+    let needle = format!("\"{key}\":\"");
+    let start = html.find(&needle)? + needle.len();
+    let rest = &html[start..];
+    let mut end = 0;
+    let bytes = rest.as_bytes();
+    while end < bytes.len() {
+        if bytes[end] == b'"' && (end == 0 || bytes[end - 1] != b'\\') {
+            break;
+        }
+        end += 1;
+    }
+    Some(rest[..end].to_string())
+}
+
+fn fetch_watch_config(client: &reqwest::blocking::Client, cache_dir: &str, force_refresh: bool) -> WatchConfig {
+    let path = watch_config_path(cache_dir);
+    if !force_refresh {
+        if let Some(config) = load_watch_config(&path) {
+            if now_secs().saturating_sub(config.fetched_at) < WATCH_CONFIG_TTL_SECS {
+                return config;
+            }
+        }
+    }
+
+    let response = client
+        .get("https://www.youtube.com/watch?v=dQw4w9WgXcQ&hl=en")
+        .header("Accept-Language", "en-US,en;q=0.9")
+        .send()
+        .ok()
+        .filter(|r| r.status().is_success())
+        .and_then(|r| r.text().ok());
+
+    let Some(html) = response else {
+        return load_watch_config(&path).unwrap_or_default();
+    };
+
+    let config = WatchConfig {
+        api_key: extract_json_string_field(&html, "INNERTUBE_API_KEY")
+            .unwrap_or_else(|| INNERTUBE_API_KEY.to_string()),
+        visitor_data: extract_json_string_field(&html, "VISITOR_DATA"),
+        fetched_at: now_secs(),
+    };
+    save_watch_config(&path, &config);
+    config
+}
+
 fn load_cache(path: &PathBuf) -> TrailerCache {
     fs::read_to_string(path)
         .ok()
@@ -213,59 +304,77 @@ pub fn resolve_youtube_trailer_json(video_id: &str, cache_dir: &str) -> Option<S
     }
 
     let client = build_proxy_client();
+    let watch_config = fetch_watch_config(&client, cache_dir, false);
+    let mut outcome = try_all_clients(&client, video_id, &watch_config);
+    if matches!(outcome, PlayerOutcome::GeoBlocked | PlayerOutcome::Failed) {
+        let refreshed_config = fetch_watch_config(&client, cache_dir, true);
+        outcome = try_all_clients(&client, video_id, &refreshed_config);
+    }
+
+    match outcome {
+        PlayerOutcome::Ok(stream) => {
+            cache.entries.insert(
+                video_id.to_string(),
+                CacheEntry {
+                    url: stream.stream_url.clone(),
+                    subtitles: stream.subtitles.clone(),
+                    fetched_at: now_secs(),
+                },
+            );
+            save_cache(&path, &cache);
+            Some(
+                json!({
+                    "status": "ok",
+                    "streamUrl": stream.stream_url,
+                    "subtitles": stream.subtitles,
+                })
+                .to_string(),
+            )
+        }
+        PlayerOutcome::GeoBlocked => Some(json!({ "status": "geo_blocked" }).to_string()),
+        PlayerOutcome::Failed => Some(json!({ "status": "failed" }).to_string()),
+    }
+}
+
+fn try_all_clients(
+    client: &reqwest::blocking::Client,
+    video_id: &str,
+    watch_config: &WatchConfig,
+) -> PlayerOutcome {
     let mut last_outcome = PlayerOutcome::Failed;
     for ctx in CLIENT_CONTEXTS {
-        match fetch_player_stream(&client, video_id, ctx) {
-            PlayerOutcome::Ok(stream) => {
-                cache.entries.insert(
-                    video_id.to_string(),
-                    CacheEntry {
-                        url: stream.stream_url.clone(),
-                        subtitles: stream.subtitles.clone(),
-                        fetched_at: now_secs(),
-                    },
-                );
-                save_cache(&path, &cache);
-                return Some(
-                    json!({
-                        "status": "ok",
-                        "streamUrl": stream.stream_url,
-                        "subtitles": stream.subtitles,
-                    })
-                    .to_string(),
-                );
-            }
+        match fetch_player_stream(client, video_id, ctx, watch_config) {
+            PlayerOutcome::Ok(stream) => return PlayerOutcome::Ok(stream),
             outcome => last_outcome = outcome,
         }
     }
-
-    let status = match last_outcome {
-        PlayerOutcome::GeoBlocked => "geo_blocked",
-        _ => "failed",
-    };
-    Some(json!({ "status": status }).to_string())
+    last_outcome
 }
 
 fn fetch_player_stream(
     client: &reqwest::blocking::Client,
     video_id: &str,
     ctx: &ClientContext,
+    watch_config: &WatchConfig,
 ) -> PlayerOutcome {
     let body = json!({
         "videoId": video_id,
+        "contentCheckOk": true,
+        "racyCheckOk": true,
         "context": { "client": (ctx.client_json)() },
     });
 
-    let url = format!("{INNERTUBE_URL}?key={INNERTUBE_API_KEY}");
-    let response = match client
+    let url = format!("{INNERTUBE_URL}?key={}", watch_config.api_key);
+    let mut request = client
         .post(url)
         .header("Content-Type", "application/json")
         .header("User-Agent", ctx.user_agent)
         .header("X-YouTube-Client-Name", ctx.x_youtube_client_name)
-        .header("X-YouTube-Client-Version", ctx.client_version)
-        .json(&body)
-        .send()
-    {
+        .header("X-YouTube-Client-Version", ctx.client_version);
+    if let Some(visitor_data) = &watch_config.visitor_data {
+        request = request.header("X-Goog-Visitor-Id", visitor_data);
+    }
+    let response = match request.json(&body).send() {
         Ok(response) => response,
         Err(_) => return PlayerOutcome::Failed,
     };
@@ -304,13 +413,13 @@ fn fetch_player_stream(
             subtitles,
         });
     }
-    if let Some(url) = best_mp4(streaming.formats) {
+    if let Some(url) = best_mp4(streaming.adaptive_formats) {
         return PlayerOutcome::Ok(TrailerStream {
             stream_url: url,
             subtitles,
         });
     }
-    if let Some(url) = best_mp4(streaming.adaptive_formats) {
+    if let Some(url) = best_mp4(streaming.formats) {
         return PlayerOutcome::Ok(TrailerStream {
             stream_url: url,
             subtitles,
