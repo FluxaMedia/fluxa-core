@@ -104,8 +104,6 @@ struct StreamingData {
     adaptive_formats: Option<Vec<Format>>,
     #[serde(rename = "hlsManifestUrl")]
     hls_manifest_url: Option<String>,
-    #[serde(rename = "dashManifestUrl")]
-    dash_manifest_url: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -114,6 +112,10 @@ struct Format {
     #[serde(rename = "mimeType")]
     mime_type: Option<String>,
     bitrate: Option<i64>,
+    width: Option<i64>,
+    height: Option<i64>,
+    #[serde(rename = "audioQuality")]
+    audio_quality: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -158,7 +160,16 @@ struct SubtitleTrack {
 
 struct TrailerStream {
     stream_url: String,
+    audio_url: Option<String>,
     subtitles: Vec<SubtitleTrack>,
+    kind: TrailerStreamKind,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum TrailerStreamKind {
+    Hls,
+    AdaptivePair,
+    MuxedMp4,
 }
 
 enum PlayerOutcome {
@@ -175,6 +186,8 @@ struct TrailerCache {
 #[derive(Serialize, Deserialize, Clone)]
 struct CacheEntry {
     url: String,
+    #[serde(default, rename = "audioUrl")]
+    audio_url: Option<String>,
     #[serde(default)]
     subtitles: Vec<SubtitleTrack>,
     fetched_at: u64,
@@ -307,6 +320,7 @@ pub fn resolve_youtube_trailer_json(video_id: &str, cache_dir: &str) -> Option<S
                 json!({
                     "status": "ok",
                     "streamUrl": entry.url,
+                    "audioUrl": entry.audio_url,
                     "subtitles": entry.subtitles,
                 })
                 .to_string(),
@@ -328,6 +342,7 @@ pub fn resolve_youtube_trailer_json(video_id: &str, cache_dir: &str) -> Option<S
                 video_id.to_string(),
                 CacheEntry {
                     url: stream.stream_url.clone(),
+                    audio_url: stream.audio_url.clone(),
                     subtitles: stream.subtitles.clone(),
                     fetched_at: now_secs(),
                 },
@@ -337,6 +352,7 @@ pub fn resolve_youtube_trailer_json(video_id: &str, cache_dir: &str) -> Option<S
                 json!({
                     "status": "ok",
                     "streamUrl": stream.stream_url,
+                    "audioUrl": stream.audio_url,
                     "subtitles": stream.subtitles,
                 })
                 .to_string(),
@@ -353,13 +369,30 @@ fn try_all_clients(
     watch_config: &WatchConfig,
 ) -> PlayerOutcome {
     let mut last_outcome = PlayerOutcome::Failed;
+    let mut adaptive_fallback: Option<TrailerStream> = None;
+    let mut muxed_fallback: Option<TrailerStream> = None;
     for ctx in CLIENT_CONTEXTS {
         match fetch_player_stream(client, video_id, ctx, watch_config) {
-            PlayerOutcome::Ok(stream) => return PlayerOutcome::Ok(stream),
+            PlayerOutcome::Ok(stream) if stream.kind == TrailerStreamKind::Hls => {
+                return PlayerOutcome::Ok(stream);
+            }
+            PlayerOutcome::Ok(stream) if stream.kind == TrailerStreamKind::AdaptivePair => {
+                if adaptive_fallback.is_none() {
+                    adaptive_fallback = Some(stream);
+                }
+            }
+            PlayerOutcome::Ok(stream) => {
+                if muxed_fallback.is_none() {
+                    muxed_fallback = Some(stream);
+                }
+            }
             outcome => last_outcome = outcome,
         }
     }
-    last_outcome
+    adaptive_fallback
+        .or(muxed_fallback)
+        .map(PlayerOutcome::Ok)
+        .unwrap_or(last_outcome)
 }
 
 fn fetch_player_stream(
@@ -413,43 +446,208 @@ fn fetch_player_stream(
         return PlayerOutcome::Failed;
     };
     if let Some(url) = streaming.hls_manifest_url {
+        let stream_url = best_hls_stream_url(client, &url).unwrap_or(url);
         return PlayerOutcome::Ok(TrailerStream {
-            stream_url: url,
+            stream_url,
+            audio_url: None,
             subtitles,
+            kind: TrailerStreamKind::Hls,
         });
     }
-    if let Some(url) = streaming.dash_manifest_url {
+    if let Some((stream_url, audio_url)) = best_adaptive_pair(streaming.adaptive_formats) {
         return PlayerOutcome::Ok(TrailerStream {
-            stream_url: url,
+            stream_url,
+            audio_url: Some(audio_url),
             subtitles,
+            kind: TrailerStreamKind::AdaptivePair,
         });
     }
-    if let Some(url) = best_mp4(streaming.adaptive_formats) {
+    if let Some(url) = best_muxed_mp4(streaming.formats) {
         return PlayerOutcome::Ok(TrailerStream {
             stream_url: url,
+            audio_url: None,
             subtitles,
-        });
-    }
-    if let Some(url) = best_mp4(streaming.formats) {
-        return PlayerOutcome::Ok(TrailerStream {
-            stream_url: url,
-            subtitles,
+            kind: TrailerStreamKind::MuxedMp4,
         });
     }
     PlayerOutcome::Failed
 }
 
-fn best_mp4(formats: Option<Vec<Format>>) -> Option<String> {
+fn best_hls_stream_url(client: &reqwest::blocking::Client, manifest_url: &str) -> Option<String> {
+    let text = client
+        .get(manifest_url)
+        .header(
+            "Accept",
+            "application/vnd.apple.mpegurl, application/x-mpegURL, */*",
+        )
+        .send()
+        .ok()?
+        .error_for_status()
+        .ok()?
+        .text()
+        .ok()?;
+    select_hls_variant_url(manifest_url, &text)
+}
+
+fn select_hls_variant_url(master_url: &str, manifest: &str) -> Option<String> {
+    let mut pending_stream_inf: Option<&str> = None;
+    let mut best: Option<(i64, i64, String)> = None;
+
+    for line in manifest
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+    {
+        if let Some(attrs) = line.strip_prefix("#EXT-X-STREAM-INF:") {
+            pending_stream_inf = Some(attrs);
+            continue;
+        }
+        if line.starts_with('#') {
+            continue;
+        }
+        let Some(attrs) = pending_stream_inf.take() else {
+            continue;
+        };
+        if !hls_variant_has_muxed_audio(attrs) {
+            continue;
+        }
+        let pixels = hls_resolution_pixels(attrs);
+        let bandwidth = hls_attr_i64(attrs, "BANDWIDTH").unwrap_or(0);
+        let url = absolutize_hls_url(master_url, line)?;
+        let score = (pixels, bandwidth, url);
+        if best
+            .as_ref()
+            .map_or(true, |current| (score.0, score.1) > (current.0, current.1))
+        {
+            best = Some(score);
+        }
+    }
+
+    best.map(|(_, _, url)| url)
+}
+
+fn hls_variant_has_muxed_audio(attrs: &str) -> bool {
+    !hls_has_attr(attrs, "AUDIO")
+        && hls_attr_value(attrs, "CODECS").map_or(false, |codecs| codecs.contains("mp4a."))
+}
+
+fn hls_resolution_pixels(attrs: &str) -> i64 {
+    let Some(resolution) = hls_attr_value(attrs, "RESOLUTION") else {
+        return 0;
+    };
+    let Some((width, height)) = resolution.split_once('x') else {
+        return 0;
+    };
+    let width = width.trim().parse::<i64>().unwrap_or(0);
+    let height = height.trim().parse::<i64>().unwrap_or(0);
+    width.saturating_mul(height)
+}
+
+fn hls_attr_i64(attrs: &str, key: &str) -> Option<i64> {
+    hls_attr_value(attrs, key)?.parse::<i64>().ok()
+}
+
+fn hls_has_attr(attrs: &str, key: &str) -> bool {
+    hls_attr_value(attrs, key).is_some()
+}
+
+fn hls_attr_value<'a>(attrs: &'a str, key: &str) -> Option<&'a str> {
+    let needle = format!("{key}=");
+    let start = attrs.find(&needle)? + needle.len();
+    let rest = &attrs[start..];
+    if let Some(stripped) = rest.strip_prefix('"') {
+        let end = stripped.find('"')?;
+        return Some(&stripped[..end]);
+    }
+    let end = rest.find(',').unwrap_or(rest.len());
+    Some(rest[..end].trim())
+}
+
+fn absolutize_hls_url(master_url: &str, uri: &str) -> Option<String> {
+    if uri.starts_with("http://") || uri.starts_with("https://") {
+        return Some(uri.to_string());
+    }
+    reqwest::Url::parse(master_url)
+        .ok()?
+        .join(uri)
+        .ok()
+        .map(|url| url.to_string())
+}
+
+fn best_muxed_mp4(formats: Option<Vec<Format>>) -> Option<String> {
     formats?
         .into_iter()
-        .filter(|f| {
-            f.url.is_some()
-                && f.mime_type
-                    .as_deref()
-                    .map_or(false, |m: &str| m.starts_with("video/mp4"))
+        .filter(|f| f.url.is_some() && f.is_muxed_mp4())
+        .max_by_key(|f| {
+            (
+                f.height.unwrap_or(0),
+                f.width.unwrap_or(0),
+                f.bitrate.unwrap_or(0),
+            )
         })
-        .max_by_key(|f| f.bitrate.unwrap_or(0))
         .and_then(|f| f.url)
+}
+
+impl Format {
+    fn is_muxed_mp4(&self) -> bool {
+        let Some(mime_type) = self.mime_type.as_deref() else {
+            return false;
+        };
+        mime_type.starts_with("video/mp4")
+            && (self.audio_quality.is_some() || mime_type.contains("mp4a."))
+    }
+}
+
+fn best_adaptive_pair(formats: Option<Vec<Format>>) -> Option<(String, String)> {
+    let formats = formats?;
+    let video = formats
+        .iter()
+        .filter(|f| f.is_adaptive_video_mp4())
+        .max_by_key(|f| {
+            (
+                f.height.unwrap_or(0),
+                f.width.unwrap_or(0),
+                f.video_codec_score(),
+                f.bitrate.unwrap_or(0),
+            )
+        })?;
+    let audio = formats
+        .iter()
+        .filter(|f| f.is_adaptive_audio_mp4())
+        .max_by_key(|f| f.bitrate.unwrap_or(0))?;
+    Some((video.url.clone()?, audio.url.clone()?))
+}
+
+impl Format {
+    fn is_adaptive_video_mp4(&self) -> bool {
+        let Some(mime_type) = self.mime_type.as_deref() else {
+            return false;
+        };
+        self.url.is_some()
+            && self.audio_quality.is_none()
+            && self.height.unwrap_or(0) > 0
+            && mime_type.starts_with("video/mp4")
+    }
+
+    fn is_adaptive_audio_mp4(&self) -> bool {
+        let Some(mime_type) = self.mime_type.as_deref() else {
+            return false;
+        };
+        self.url.is_some() && self.audio_quality.is_some() && mime_type.starts_with("audio/mp4")
+    }
+
+    fn video_codec_score(&self) -> i64 {
+        let mime_type = self.mime_type.as_deref().unwrap_or_default();
+        if mime_type.contains("avc1") {
+            3
+        } else if mime_type.contains("hvc1") || mime_type.contains("hev1") {
+            2
+        } else if mime_type.contains("av01") {
+            1
+        } else {
+            0
+        }
+    }
 }
 
 fn extract_subtitles(captions: Option<&Captions>) -> Vec<SubtitleTrack> {
@@ -487,4 +685,90 @@ fn extract_subtitles(captions: Option<&Captions>) -> Vec<SubtitleTrack> {
             })
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn select_hls_variant_prefers_highest_muxed_stream() {
+        let manifest = r#"
+#EXTM3U
+#EXT-X-STREAM-INF:BANDWIDTH=1200000,CODECS="avc1.4d401e,mp4a.40.2",RESOLUTION=854x480
+low.m3u8
+#EXT-X-STREAM-INF:BANDWIDTH=5800000,CODECS="avc1.640028,mp4a.40.2",RESOLUTION=1920x1080
+high.m3u8
+#EXT-X-STREAM-INF:BANDWIDTH=3000000,CODECS="avc1.4d401f,mp4a.40.2",RESOLUTION=1280x720
+mid.m3u8
+"#;
+
+        assert_eq!(
+            select_hls_variant_url("https://video.example/master.m3u8", manifest).as_deref(),
+            Some("https://video.example/high.m3u8")
+        );
+    }
+
+    #[test]
+    fn select_hls_variant_skips_separate_audio_streams() {
+        let manifest = r#"
+#EXTM3U
+#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="audio",NAME="English",URI="audio.m3u8"
+#EXT-X-STREAM-INF:BANDWIDTH=9000000,CODECS="avc1.640028",RESOLUTION=1920x1080,AUDIO="audio"
+video-only.m3u8
+#EXT-X-STREAM-INF:BANDWIDTH=3000000,CODECS="avc1.4d401f,mp4a.40.2",RESOLUTION=1280x720
+safe.m3u8
+"#;
+
+        assert_eq!(
+            select_hls_variant_url("https://video.example/master.m3u8", manifest).as_deref(),
+            Some("https://video.example/safe.m3u8")
+        );
+    }
+
+    #[test]
+    fn best_adaptive_pair_selects_highest_video_and_best_audio() {
+        let formats = vec![
+            Format {
+                url: Some("https://video.example/360.mp4".to_string()),
+                mime_type: Some("video/mp4; codecs=\"avc1.42001E\"".to_string()),
+                bitrate: Some(500_000),
+                width: Some(640),
+                height: Some(360),
+                audio_quality: None,
+            },
+            Format {
+                url: Some("https://video.example/1080.mp4".to_string()),
+                mime_type: Some("video/mp4; codecs=\"avc1.640028\"".to_string()),
+                bitrate: Some(4_000_000),
+                width: Some(1920),
+                height: Some(1080),
+                audio_quality: None,
+            },
+            Format {
+                url: Some("https://video.example/audio-low.m4a".to_string()),
+                mime_type: Some("audio/mp4; codecs=\"mp4a.40.2\"".to_string()),
+                bitrate: Some(96_000),
+                width: None,
+                height: None,
+                audio_quality: Some("AUDIO_QUALITY_LOW".to_string()),
+            },
+            Format {
+                url: Some("https://video.example/audio-high.m4a".to_string()),
+                mime_type: Some("audio/mp4; codecs=\"mp4a.40.2\"".to_string()),
+                bitrate: Some(128_000),
+                width: None,
+                height: None,
+                audio_quality: Some("AUDIO_QUALITY_MEDIUM".to_string()),
+            },
+        ];
+
+        assert_eq!(
+            best_adaptive_pair(Some(formats)),
+            Some((
+                "https://video.example/1080.mp4".to_string(),
+                "https://video.example/audio-high.m4a".to_string()
+            ))
+        );
+    }
 }
