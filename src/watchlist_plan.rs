@@ -161,14 +161,6 @@ pub(crate) fn playback_progress_merge_plan_json(request_json: &str) -> Option<St
             .unwrap_or(Value::Null)
     };
 
-    let last_episode_name = if video_changed {
-        incoming
-            .get("lastEpisodeName")
-            .cloned()
-            .unwrap_or(Value::Null)
-    } else {
-        resolve_field("lastEpisodeName")
-    };
     let resolve_episode_field = |key: &str| -> Value {
         if video_changed {
             incoming.get(key).cloned().unwrap_or(Value::Null)
@@ -182,10 +174,10 @@ pub(crate) fn playback_progress_merge_plan_json(request_json: &str) -> Option<St
         "timeOffset": incoming.get("timeOffset").cloned().unwrap_or(Value::Null),
         "duration": incoming.get("duration").cloned().unwrap_or(Value::Null),
         "lastStreamIndex": resolve_field("lastStreamIndex"),
-        "lastEpisodeName": last_episode_name,
+        "lastEpisodeName": resolve_field("lastEpisodeName"),
         "lastEpisodeSeason": resolve_episode_field("lastEpisodeSeason"),
         "lastEpisodeNumber": resolve_episode_field("lastEpisodeNumber"),
-        "lastEpisodeThumbnail": resolve_episode_field("lastEpisodeThumbnail"),
+        "lastEpisodeThumbnail": resolve_field("lastEpisodeThumbnail"),
         "lastStreamUrl": resolve_field("lastStreamUrl"),
         "lastStreamTitle": resolve_field("lastStreamTitle"),
         "continueWatchingPoster": resolve_field("continueWatchingPoster"),
