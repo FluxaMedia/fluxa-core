@@ -156,16 +156,28 @@ pub(super) fn dispatch_load(
         generation,
         ..HomeState::default()
     };
-    vec![engine.effect(
-        EffectKind::ReadHomeBootstrap,
-        generation,
-        ReadHomeBootstrapPayload {
-            profile_id,
-            profile: profile_value,
-            language: language.unwrap_or_else(|| "en".to_string()),
-            force: force.unwrap_or(false),
-        },
-    )]
+    let language_value = language.unwrap_or_else(|| "en".to_string());
+    vec![
+        engine.effect(
+            EffectKind::ReadHomeBootstrap,
+            generation,
+            ReadHomeBootstrapPayload {
+                profile_id: profile_id.clone(),
+                profile: profile_value.clone(),
+                language: language_value.clone(),
+                force: force.unwrap_or(false),
+            },
+        ),
+        engine.effect(
+            EffectKind::RefreshContinueWatching,
+            generation,
+            RefreshContinueWatchingPayload {
+                profile_id,
+                profile: profile_value,
+                language: language_value,
+            },
+        ),
+    ]
 }
 
 pub(super) fn dispatch_direct_playback(
