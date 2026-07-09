@@ -27,71 +27,108 @@ fn cache_value(root: &Value, key: &str) -> Value {
         .unwrap_or(Value::Null)
 }
 
+pub(crate) enum ParsedAddonBody {
+    Error(String),
+    Success { payload: Value, root: Value },
+}
+
+pub(crate) fn parse_addon_body(
+    resource: &str,
+    url: &str,
+    status_code: i32,
+    body: Option<&str>,
+) -> ParsedAddonBody {
+    if !(200..=299).contains(&status_code) {
+        return ParsedAddonBody::Error(
+            json!({
+                "kind": "network_error",
+                "url": url,
+                "statusCode": status_code
+            })
+            .to_string(),
+        );
+    }
+
+    let Some(body) = body.map(str::trim).filter(|value| !value.is_empty()) else {
+        return ParsedAddonBody::Error(
+            json!({
+                "kind": "empty",
+                "url": url,
+                "statusCode": status_code
+            })
+            .to_string(),
+        );
+    };
+
+    let root: Value = match serde_json::from_str(body) {
+        Ok(root) => root,
+        Err(error) => {
+            return ParsedAddonBody::Error(
+                json!({
+                    "kind": "parse_error",
+                    "url": url,
+                    "statusCode": status_code,
+                    "error": error.to_string()
+                })
+                .to_string(),
+            )
+        }
+    };
+
+    let Some(payload) = resource_payload(resource, &root) else {
+        return ParsedAddonBody::Error(
+            json!({
+                "kind": "empty",
+                "url": url,
+                "statusCode": status_code
+            })
+            .to_string(),
+        );
+    };
+
+    if payload_is_empty(&payload) {
+        return ParsedAddonBody::Error(
+            json!({
+                "kind": "empty",
+                "url": url,
+                "statusCode": status_code
+            })
+            .to_string(),
+        );
+    }
+
+    ParsedAddonBody::Success { payload, root }
+}
+
 pub(crate) fn parse_addon_resource_result_json(
     resource: &str,
     url: &str,
     status_code: i32,
     body: Option<&str>,
 ) -> String {
-    if !(200..=299).contains(&status_code) {
-        return json!({
-            "kind": "network_error",
+    match parse_addon_body(resource, url, status_code, body) {
+        ParsedAddonBody::Error(json_str) => json_str,
+        ParsedAddonBody::Success { payload, root } => json!({
+            "kind": "success",
             "url": url,
-            "statusCode": status_code
+            "statusCode": status_code,
+            "cacheMaxAge": cache_value(&root, "cacheMaxAge"),
+            "staleRevalidate": cache_value(&root, "staleRevalidate"),
+            "staleError": cache_value(&root, "staleError"),
+            "valueJson": payload.to_string()
         })
-        .to_string();
+        .to_string(),
     }
+}
 
-    let Some(body) = body.map(str::trim).filter(|value| !value.is_empty()) else {
-        return json!({
-            "kind": "empty",
-            "url": url,
-            "statusCode": status_code
-        })
-        .to_string();
-    };
-
-    let root: Value = match serde_json::from_str(body) {
-        Ok(root) => root,
-        Err(error) => {
-            return json!({
-                "kind": "parse_error",
-                "url": url,
-                "statusCode": status_code,
-                "error": error.to_string()
-            })
-            .to_string()
-        }
-    };
-
-    let Some(payload) = resource_payload(resource, &root) else {
-        return json!({
-            "kind": "empty",
-            "url": url,
-            "statusCode": status_code
-        })
-        .to_string();
-    };
-
-    if payload_is_empty(&payload) {
-        return json!({
-            "kind": "empty",
-            "url": url,
-            "statusCode": status_code
-        })
-        .to_string();
+pub(crate) fn wrap_addon_resource_response_value(resource: &str, payload: Value) -> Value {
+    match resource {
+        "catalog" | "metas" => json!({ "metas": payload }),
+        "stream" | "streams" => json!({ "streams": payload }),
+        "meta" => json!({ "meta": payload }),
+        "subtitle" | "subtitles" => json!({ "subtitles": payload }),
+        _ => payload,
     }
-
-    json!({
-        "kind": "success",
-        "url": url,
-        "statusCode": status_code,
-        "cacheMaxAge": cache_value(&root, "cacheMaxAge"),
-        "staleRevalidate": cache_value(&root, "staleRevalidate"),
-        "staleError": cache_value(&root, "staleError"),
-        "valueJson": payload.to_string()
-    })
-    .to_string()
 }
 
 pub(crate) fn normalize_addon_subtitles_json(subtitles_json: &str, resource_url: &str) -> String {

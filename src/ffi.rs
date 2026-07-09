@@ -312,11 +312,23 @@ fn route_resource_plan(method: &str, args_json: &str) -> Outcome {
                 args.get("itemResource").and_then(Value::as_str),
             )))
         }
-        "wrapAddonResourceResponse" => {
+        "parseAndPlanAddonResource" => {
             let args = object(args_json)?;
-            into_json(platform_plan::wrap_addon_resource_response(
+            let body = args.get("body").and_then(Value::as_str).map(str::to_string);
+            let status_code = field(&args, "statusCode")?
+                .as_i64()
+                .ok_or_else(|| fail(ErrorKind::InvalidArgs, "statusCode must be a number"))?
+                as i32;
+            let addon_name = args.get("addonName").and_then(Value::as_str).map(str::to_string);
+            let season = args.get("season").and_then(Value::as_i64);
+            into_json(platform_plan::parse_and_plan_addon_resource_json(
                 field_str(&args, "resource")?,
-                field_str(&args, "payloadJson")?,
+                field_str(&args, "url")?,
+                status_code,
+                body.as_deref(),
+                field_str(&args, "kind")?,
+                addon_name.as_deref(),
+                season,
             ))
         }
 

@@ -267,44 +267,12 @@ pub(crate) fn resource_fetch_plan_json(request_json: &str) -> Option<String> {
 
 pub(crate) fn resource_parse_plan_json(request_json: &str) -> Option<String> {
     let request = serde_json::from_str::<ResourceParseRequest>(request_json).ok()?;
-    let response = request.response;
-    let value = match request.kind.as_str() {
-        "catalogPage" | "discover" | "search" => {
-            json!({ "items": response.get("metas").and_then(Value::as_array).cloned().unwrap_or_default() })
-        }
-        "metaDetail" => json!({ "meta": response.get("meta").cloned().unwrap_or(Value::Null) }),
-        "streams" => {
-            let streams = response
-                .get("streams")
-                .and_then(Value::as_array)
-                .cloned()
-                .unwrap_or_default();
-            let normalized = addon_streams_with_provider_json(
-                &Value::Array(streams).to_string(),
-                request.addon_name.as_deref().unwrap_or(""),
-            );
-            json!({ "streams": serde_json::from_str::<Value>(&normalized).unwrap_or(Value::Array(vec![])) })
-        }
-        "seasonEpisodes" => {
-            let videos = response
-                .get("meta")
-                .and_then(|meta| meta.get("videos"))
-                .and_then(Value::as_array)
-                .cloned()
-                .unwrap_or_default()
-                .into_iter()
-                .filter(|video| {
-                    request.season.is_none()
-                        || video.get("season").and_then(Value::as_i64) == request.season
-                })
-                .collect::<Vec<_>>();
-            json!({ "episodes": videos })
-        }
-        "subtitles" => {
-            json!({ "subtitles": response.get("subtitles").and_then(Value::as_array).cloned().unwrap_or_default() })
-        }
-        _ => response,
-    };
+    let value = resource_parse_plan_value(
+        &request.kind,
+        request.response,
+        request.addon_name.as_deref(),
+        request.season,
+    );
     serde_json::to_string(&value).ok()
 }
 
@@ -741,23 +709,119 @@ pub(crate) fn resource_kind_to_resource(
     .to_string()
 }
 
-/// Wraps an addon resource payload in the conventional response envelope
-/// used by `coreResourceParsePlan`.
-pub(crate) fn wrap_addon_resource_response(resource: &str, payload_json: &str) -> String {
-    let payload: Value = serde_json::from_str(payload_json).unwrap_or(Value::Null);
-    let wrapped = match resource {
-        "catalog" | "metas" => json!({ "metas": payload }),
-        "stream" | "streams" => json!({ "streams": payload }),
-        "meta" => json!({ "meta": payload }),
-        "subtitle" | "subtitles" => json!({ "subtitles": payload }),
-        _ => payload,
-    };
-    serde_json::to_string(&wrapped).unwrap_or_else(|_| "{}".to_string())
+fn resource_parse_plan_value(
+    kind: &str,
+    response: Value,
+    addon_name: Option<&str>,
+    season: Option<i64>,
+) -> Value {
+    match kind {
+        "catalogPage" | "discover" | "search" => {
+            json!({ "items": response.get("metas").and_then(Value::as_array).cloned().unwrap_or_default() })
+        }
+        "metaDetail" => json!({ "meta": response.get("meta").cloned().unwrap_or(Value::Null) }),
+        "streams" => {
+            let streams = response
+                .get("streams")
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default();
+            let normalized = addon_streams_with_provider_json(
+                &Value::Array(streams).to_string(),
+                addon_name.unwrap_or(""),
+            );
+            json!({ "streams": serde_json::from_str::<Value>(&normalized).unwrap_or(Value::Array(vec![])) })
+        }
+        "seasonEpisodes" => {
+            let videos = response
+                .get("meta")
+                .and_then(|meta| meta.get("videos"))
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default()
+                .into_iter()
+                .filter(|video| season.is_none() || video.get("season").and_then(Value::as_i64) == season)
+                .collect::<Vec<_>>();
+            json!({ "episodes": videos })
+        }
+        "subtitles" => {
+            json!({ "subtitles": response.get("subtitles").and_then(Value::as_array).cloned().unwrap_or_default() })
+        }
+        _ => response,
+    }
+}
+
+pub(crate) fn parse_and_plan_addon_resource_json(
+    resource: &str,
+    url: &str,
+    status_code: i32,
+    body: Option<&str>,
+    kind: &str,
+    addon_name: Option<&str>,
+    season: Option<i64>,
+) -> String {
+    match crate::addon_resource::parse_addon_body(resource, url, status_code, body) {
+        crate::addon_resource::ParsedAddonBody::Error(err_json) => err_json,
+        crate::addon_resource::ParsedAddonBody::Success { payload, .. } => {
+            let wrapped = crate::addon_resource::wrap_addon_resource_response_value(resource, payload);
+            let value = resource_parse_plan_value(kind, wrapped, addon_name, season);
+            json!({ "kind": "success", "value": value }).to_string()
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parse_and_plan_addon_resource_matches_the_three_call_pipeline_for_discover() {
+        let body = r#"{"metas":[{"id":"tt1","name":"A"},{"id":"tt2","name":"B"}]}"#;
+
+        let combined = parse_and_plan_addon_resource_json(
+            "catalog",
+            "https://addon.example/catalog/movie/top.json",
+            200,
+            Some(body),
+            "discover",
+            None,
+            None,
+        );
+        let combined: Value = serde_json::from_str(&combined).expect("combined result");
+        assert_eq!(combined["kind"], "success");
+        assert_eq!(
+            combined["value"]["items"],
+            json!([{"id":"tt1","name":"A"},{"id":"tt2","name":"B"}])
+        );
+
+        let step1 = crate::addon_resource::parse_addon_resource_result_json(
+            "catalog",
+            "https://addon.example/catalog/movie/top.json",
+            200,
+            Some(body),
+        );
+        let step1: Value = serde_json::from_str(&step1).expect("step1 result");
+        let value_json = step1["valueJson"].as_str().expect("valueJson");
+        let step2 = crate::addon_resource::wrap_addon_resource_response_value(
+            "catalog",
+            serde_json::from_str(value_json).unwrap(),
+        );
+        let step3 = resource_parse_plan_json(
+            &json!({ "kind": "discover", "response": step2 }).to_string(),
+        )
+        .expect("step3 result");
+        let step3: Value = serde_json::from_str(&step3).expect("step3 value");
+
+        assert_eq!(combined["value"], step3);
+    }
+
+    #[test]
+    fn parse_and_plan_addon_resource_reports_empty_without_crashing() {
+        let combined =
+            parse_and_plan_addon_resource_json("catalog", "url", 200, Some(r#"{"metas":[]}"#), "discover", None, None);
+        let combined: Value = serde_json::from_str(&combined).expect("combined result");
+        assert_eq!(combined["kind"], "empty");
+    }
 
     #[test]
     fn detail_episode_plan_picks_selected_episode_season_over_default() {

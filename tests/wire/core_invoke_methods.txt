@@ -57,6 +57,7 @@ normalizeLibraryDocument
 normalizeManifestUrl
 offlineDownloadPlan
 parseAddonResourceResult
+parseAndPlanAddonResource
 parseAniskipResults
 parseIntroDbSegments
 parseManifest
@@ -111,4 +112,3 @@ traktWatchedToIds
 traktWatchlistToItems
 uniqueIntroSegments
 watchlistTogglePlan
-wrapAddonResourceResponse
