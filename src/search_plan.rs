@@ -373,6 +373,7 @@ pub(crate) fn discover_sort_plan_json(request_json: &str) -> Option<String> {
         .iter()
         .filter(|item| {
             let type_ok = content_type.is_empty()
+                || content_type == "anime"
                 || item
                     .get("type")
                     .and_then(Value::as_str)
