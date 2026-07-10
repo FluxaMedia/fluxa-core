@@ -80,6 +80,8 @@ mod repository_flow;
 mod search_plan;
 mod stream_policy;
 #[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
+mod subtitle_sync;
+#[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
 mod tmdb_plan;
 #[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
 mod watchlist_plan;

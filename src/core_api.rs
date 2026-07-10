@@ -1,6 +1,6 @@
 use crate::stream_policy;
 #[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
-use crate::{cast_protocol, headless_engine, offline_download, player_policy};
+use crate::{cast_protocol, headless_engine, offline_download, player_policy, subtitle_sync};
 
 pub struct FluxaCore;
 
@@ -54,6 +54,11 @@ impl FluxaCore {
         guard(None, || {
             player_policy::player_buffer_targets_json(request_json)
         })
+    }
+
+    #[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
+    pub fn subtitle_sync_estimate_json(request_json: &str) -> Option<String> {
+        guard(None, || subtitle_sync::estimate_subtitle_delay_json(request_json))
     }
 
     #[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
