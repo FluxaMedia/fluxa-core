@@ -1,4 +1,6 @@
-use crate::addon_protocol::{build_resource_url, supports_resource};
+use crate::addon_protocol::{
+    build_resource_url, catalog_supports_extra as manifest_catalog_supports_extra, supports_resource,
+};
 use crate::content_identity::parse_extra_args_json;
 use crate::repository_flow::addon_streams_with_provider_json;
 use crate::stream_policy::stream_playback_info_json;
@@ -152,9 +154,10 @@ pub(crate) fn resource_fetch_plan_json(request_json: &str) -> Option<String> {
             for catalog in discover_catalog_options(
                 &request.addons,
                 request.content_type.as_deref().unwrap_or(""),
-                genre,
             ) {
-                let extra = genre.map(|value| json!({"genre": value}).to_string());
+                let extra = genre
+                    .filter(|_| catalog.supports_genre)
+                    .map(|value| json!({"genre": value}).to_string());
                 requests.push(json!({
                         "url": build_resource_url(
                             &catalog.transport_url,
@@ -519,18 +522,9 @@ fn addon_display_name(addon: &Value) -> String {
 }
 
 fn catalog_supports_extra(catalog: &Value, name: &str) -> bool {
-    catalog
-        .get("extra")
-        .and_then(Value::as_array)
-        .is_some_and(|extra| {
-            extra
-                .iter()
-                .any(|item| item.get("name").and_then(Value::as_str) == Some(name))
-        })
-        || catalog
-            .get("extraSupported")
-            .and_then(Value::as_array)
-            .is_some_and(|extra| extra.iter().any(|item| item.as_str() == Some(name)))
+    serde_json::to_string(catalog)
+        .ok()
+        .is_some_and(|json| manifest_catalog_supports_extra(&json, name))
 }
 
 fn catalog_supports_search(catalog: &Value) -> bool {
@@ -556,13 +550,10 @@ struct DiscoverCatalog {
     transport_url: String,
     content_type: String,
     id: String,
+    supports_genre: bool,
 }
 
-fn discover_catalog_options(
-    addons: &[Value],
-    selected_type: &str,
-    genre: Option<&str>,
-) -> Vec<DiscoverCatalog> {
+fn discover_catalog_options(addons: &[Value], selected_type: &str) -> Vec<DiscoverCatalog> {
     let mut options = Vec::new();
     for addon in addons {
         let Some(transport_url) = addon_transport_url(addon) else {
@@ -578,14 +569,12 @@ fn discover_catalog_options(
             if !selected_type.is_empty() && content_type != selected_type {
                 continue;
             }
-            if genre.is_some() && !catalog_supports_extra(&catalog, "genre") {
-                continue;
-            }
             options.push(DiscoverCatalog {
                 key: format!("{}:{}", transport_url, id),
                 transport_url: transport_url.to_string(),
                 content_type: content_type.to_string(),
                 id: id.to_string(),
+                supports_genre: catalog_supports_extra(&catalog, "genre"),
             });
         }
     }
