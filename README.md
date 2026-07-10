@@ -43,7 +43,7 @@ Dolby Vision / HDR10+ stream rewriting.
 | Platform | Repo | How it links |
 | --- | --- | --- |
 | Android (mobile + TV) | [Fluxa](https://github.com/KhooLy/Fluxa) | JNI (primary, ~157 functions) + a small UniFFI surface |
-| Desktop (Linux/macOS/Windows) | [FluxaDesktop](https://github.com/KhooLy/FluxaDesktop) | Plain Rust dependency — calls `FluxaCore`/`core_invoke` directly, no FFI marshaling |
+| Desktop (Linux/macOS/Windows) | [FluxaDesktop](https://github.com/FluxaMedia/fluxa-desktop) | Plain Rust dependency — calls `FluxaCore`/`core_invoke` directly, no FFI marshaling |
 | iOS / tvOS | not in this workspace | UniFFI (`bindings/uniffi.rs`) |
 | webOS | not in this workspace | WASM (`bindings/wasm.rs`, `wasm` feature) |
 
@@ -73,7 +73,7 @@ Full architecture notes, the effect catalog, and the wire-format reference live 
 ## Building from source
 
 ```bash
-git clone https://github.com/KhooLy/fluxa-core.git
+git clone https://github.com/FluxaMedia/fluxa-core.git
 cd fluxa-core
 cargo build                  # default (native) features — what Android uses
 cargo test --lib             # ~190 tests, fast
@@ -112,16 +112,16 @@ docs/                   architecture, effects reference, integration guide
 ## Related projects
 
 - [Fluxa for Android](https://github.com/KhooLy/Fluxa) — the Android counterpart consuming this crate
-- [FluxaDesktop](https://github.com/KhooLy/FluxaDesktop) — the desktop counterpart consuming this crate
+- [FluxaDesktop](https://github.com/FluxaMedia/fluxa-desktop) — the desktop counterpart consuming this crate
 
 <!-- MARKDOWN LINKS -->
-[contributors-shield]: https://img.shields.io/github/contributors/KhooLy/fluxa-core.svg?style=for-the-badge
-[contributors-url]: https://github.com/KhooLy/fluxa-core/graphs/contributors
-[forks-shield]: https://img.shields.io/github/forks/KhooLy/fluxa-core.svg?style=for-the-badge
-[forks-url]: https://github.com/KhooLy/fluxa-core/network/members
-[stars-shield]: https://img.shields.io/github/stars/KhooLy/fluxa-core.svg?style=for-the-badge
-[stars-url]: https://github.com/KhooLy/fluxa-core/stargazers
-[issues-shield]: https://img.shields.io/github/issues/KhooLy/fluxa-core.svg?style=for-the-badge
-[issues-url]: https://github.com/KhooLy/fluxa-core/issues
-[license-shield]: https://img.shields.io/github/license/KhooLy/fluxa-core.svg?style=for-the-badge
-[license-url]: https://github.com/KhooLy/fluxa-core/blob/master/LICENSE
+[contributors-shield]: https://img.shields.io/github/contributors/FluxaMedia/fluxa-core.svg?style=for-the-badge
+[contributors-url]: https://github.com/FluxaMedia/fluxa-core/graphs/contributors
+[forks-shield]: https://img.shields.io/github/forks/FluxaMedia/fluxa-core.svg?style=for-the-badge
+[forks-url]: https://github.com/FluxaMedia/fluxa-core/network/members
+[stars-shield]: https://img.shields.io/github/stars/FluxaMedia/fluxa-core.svg?style=for-the-badge
+[stars-url]: https://github.com/FluxaMedia/fluxa-core/stargazers
+[issues-shield]: https://img.shields.io/github/issues/FluxaMedia/fluxa-core.svg?style=for-the-badge
+[issues-url]: https://github.com/FluxaMedia/fluxa-core/issues
+[license-shield]: https://img.shields.io/github/license/FluxaMedia/fluxa-core.svg?style=for-the-badge
+[license-url]: https://github.com/FluxaMedia/fluxa-core/blob/master/LICENSE
