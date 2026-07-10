@@ -560,8 +560,10 @@ pub(super) fn complete(
                         .get("streams")
                         .cloned()
                         .unwrap_or_else(|| serde_json::json!([]));
-                    engine.state.detail.selected_addon = Value::Null;
-                    engine.state.detail.visible_streams = engine.state.detail.streams.clone();
+                    engine.state.detail.visible_streams = visible_streams(
+                        &engine.state.detail.streams,
+                        engine.state.detail.selected_addon.as_str(),
+                    );
                     engine.state.detail.available_addons = result
                         .value
                         .get("availableAddons")
