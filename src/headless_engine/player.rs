@@ -1,4 +1,5 @@
 use super::helpers::{error_code, normalize_error};
+use super::library;
 use super::state::GenerationKey;
 use super::{EffectResultInput, HeadlessEngine};
 use crate::player_flow::{self, PlayerFlowAction, PlayerFlowState};
@@ -107,6 +108,25 @@ impl PlayerState {
             ..Self::default()
         }
     }
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct OutgoingProgress {
+    time_offset: i64,
+    duration: i64,
+    last_stream_index: Option<i32>,
+    last_episode_name: Option<String>,
+    last_episode_season: Option<i64>,
+    last_episode_number: Option<i64>,
+    last_episode_thumbnail: Option<String>,
+    last_stream_url: Option<String>,
+    last_stream_title: Option<String>,
+    last_audio_language: Option<String>,
+    last_subtitle_language: Option<String>,
+    #[serde(default)]
+    meta: Value,
+    scrobble_trakt_pause: Option<bool>,
 }
 
 #[derive(Serialize)]
@@ -276,7 +296,34 @@ pub(super) fn dispatch_load_streams(
     year: Option<i32>,
     language: Option<String>,
     profile: Option<Value>,
+    outgoing_progress: Option<Value>,
 ) -> Vec<EffectEnvelope> {
+    let mut save_effects = Vec::new();
+    if let (Some(outgoing_video_id), Some(raw)) = (current_video_id.clone(), outgoing_progress) {
+        if outgoing_video_id != initial_video_id.clone().unwrap_or_default() {
+            if let Ok(progress) = serde_json::from_value::<OutgoingProgress>(raw) {
+                save_effects.extend(library::dispatch_save_progress(
+                    engine,
+                    profile.clone(),
+                    progress.meta,
+                    progress.time_offset,
+                    progress.duration,
+                    Some(outgoing_video_id),
+                    progress.last_stream_index,
+                    progress.last_episode_name,
+                    progress.last_episode_season,
+                    progress.last_episode_number,
+                    progress.last_episode_thumbnail,
+                    progress.last_stream_url,
+                    progress.last_stream_title,
+                    progress.last_audio_language,
+                    progress.last_subtitle_language,
+                    progress.scrobble_trakt_pause,
+                ));
+            }
+        }
+    }
+
     let generation = engine.bump_generation(GenerationKey::Player);
     let mut initial_streams = initial_streams.unwrap_or_default();
     let initial_stream_index = initial_stream_index.unwrap_or(0);
@@ -328,34 +375,32 @@ pub(super) fn dispatch_load_streams(
     let pending_value = serde_json::to_value(&pending).unwrap_or(Value::Null);
     engine.state.player.pending_stream_load = pending_value.clone();
 
-    effects
-        .into_iter()
-        .map(|effect| {
-            let mut payload = serde_json::to_value(&effect).unwrap_or(Value::Null);
-            let kind = payload
-                .get("type")
-                .and_then(Value::as_str)
-                .unwrap_or("unknown")
-                .to_string();
-            if kind == "loadStreams" {
-                if let Value::Object(map) = &mut payload {
-                    map.insert(
-                        "initialStreams".to_string(),
-                        pending_value["initialStreams"].clone(),
-                    );
-                    map.insert("title".to_string(), pending_value["title"].clone());
-                    map.insert(
-                        "originalName".to_string(),
-                        pending_value["originalName"].clone(),
-                    );
-                    map.insert("year".to_string(), pending_value["year"].clone());
-                    map.insert("language".to_string(), pending_value["language"].clone());
-                    map.insert("profile".to_string(), pending_value["profile"].clone());
-                }
+    save_effects.extend(effects.into_iter().map(|effect| {
+        let mut payload = serde_json::to_value(&effect).unwrap_or(Value::Null);
+        let kind = payload
+            .get("type")
+            .and_then(Value::as_str)
+            .unwrap_or("unknown")
+            .to_string();
+        if kind == "loadStreams" {
+            if let Value::Object(map) = &mut payload {
+                map.insert(
+                    "initialStreams".to_string(),
+                    pending_value["initialStreams"].clone(),
+                );
+                map.insert("title".to_string(), pending_value["title"].clone());
+                map.insert(
+                    "originalName".to_string(),
+                    pending_value["originalName"].clone(),
+                );
+                map.insert("year".to_string(), pending_value["year"].clone());
+                map.insert("language".to_string(), pending_value["language"].clone());
+                map.insert("profile".to_string(), pending_value["profile"].clone());
             }
-            engine.effect_raw(&kind, generation, payload)
-        })
-        .collect()
+        }
+        engine.effect_raw(&kind, generation, payload)
+    }));
+    save_effects
 }
 
 #[allow(clippy::too_many_arguments)]

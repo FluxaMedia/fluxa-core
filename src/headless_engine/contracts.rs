@@ -111,6 +111,7 @@ pub(super) enum AppAction {
         year: Option<i32>,
         language: Option<String>,
         profile: Option<Value>,
+        outgoing_progress: Option<Value>,
     },
     #[serde(rename = "playerStreamsLoaded")]
     PlayerStreamsLoaded {

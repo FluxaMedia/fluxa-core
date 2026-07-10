@@ -267,6 +267,7 @@ impl HeadlessEngine {
                 year,
                 language,
                 profile,
+                outgoing_progress,
             } => player::dispatch_load_streams(
                 self,
                 content_type,
@@ -285,6 +286,7 @@ impl HeadlessEngine {
                 year,
                 language,
                 profile,
+                outgoing_progress,
             ),
             AppAction::PlayerStreamsLoaded {
                 streams,
@@ -962,6 +964,39 @@ mod tests {
             completed["state"]["player"]["currentStreams"][0]["title"],
             "A"
         );
+        assert!(destroy_headless_engine(handle));
+    }
+
+    #[test]
+    fn player_load_streams_saves_outgoing_episode_progress_before_switching() {
+        let handle = create_headless_engine("{}");
+        let requested: Value = serde_json::from_str(
+            &headless_engine_dispatch_json(
+                handle,
+                &json!({
+                    "type": "playerLoadStreamsRequested",
+                    "contentType": "series",
+                    "id": "tt1",
+                    "currentVideoId": "tt1:1:5",
+                    "initialVideoId": "tt1:1:6",
+                    "outgoingProgress": {
+                        "timeOffset": 1200000,
+                        "duration": 1300000,
+                        "lastEpisodeSeason": 1,
+                        "lastEpisodeNumber": 5
+                    }
+                })
+                .to_string(),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+
+        let effects = requested["effects"].as_array().unwrap();
+        assert!(effects.iter().any(|e| e["type"] == "writePlaybackProgress"
+            && e["payload"]["progress"]["lastVideoId"] == "tt1:1:5"
+            && e["payload"]["progress"]["lastEpisodeNumber"] == 5));
+        assert!(effects.iter().any(|e| e["type"] == "loadStreams"));
         assert!(destroy_headless_engine(handle));
     }
 
