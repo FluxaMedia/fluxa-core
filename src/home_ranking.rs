@@ -961,11 +961,6 @@ fn folder_tile(folder_id: &str, folder_title: &str, folder: &Map<String, Value>)
         .get("heroBackdropUrl")
         .and_then(Value::as_str)
         .unwrap_or(img_url);
-    let focus_gif_enabled = folder
-        .get("focusGifEnabled")
-        .and_then(Value::as_bool)
-        .unwrap_or(true);
-
     let mut tile = json!({
         "id": folder_id,
         "type": "catalog_folder",
@@ -980,10 +975,8 @@ fn folder_tile(folder_id: &str, folder_title: &str, folder: &Map<String, Value>)
     if let Some(info) = folder.get("catalogTitle").and_then(Value::as_str) {
         tile["releaseInfo"] = Value::String(info.to_string());
     }
-    if focus_gif_enabled {
-        if let Some(gif) = folder.get("focusGifUrl").and_then(Value::as_str) {
-            tile["focusGifUrl"] = Value::String(gif.to_string());
-        }
+    if let Some(gif) = folder.get("focusGifUrl").and_then(Value::as_str) {
+        tile["focusGifUrl"] = Value::String(gif.to_string());
     }
     tile
 }
@@ -1006,6 +999,8 @@ mod tests {
                             "id": "f1",
                             "title": "Action",
                             "coverImageUrl": "https://img.example/cover.jpg",
+                            "focusGifUrl": "https://img.example/focus.gif",
+                            "focusGifEnabled": false,
                             "catalogSources": [{ "catalogId": "top", "type": "movie" }],
                         }
                     ],
@@ -1037,6 +1032,10 @@ mod tests {
         assert_eq!(
             pinned[0]["items"][0]["poster"],
             "https://img.example/cover.jpg"
+        );
+        assert_eq!(
+            pinned[0]["items"][0]["focusGifUrl"],
+            "https://img.example/focus.gif"
         );
 
         let hidden = result["hiddenFolderCategories"].as_array().unwrap();
