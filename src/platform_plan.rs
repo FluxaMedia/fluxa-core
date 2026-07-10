@@ -152,6 +152,7 @@ pub(crate) fn resource_fetch_plan_json(request_json: &str) -> Option<String> {
             for catalog in discover_catalog_options(
                 &request.addons,
                 request.content_type.as_deref().unwrap_or(""),
+                genre,
             ) {
                 let extra = genre.map(|value| json!({"genre": value}).to_string());
                 requests.push(json!({
@@ -517,19 +518,23 @@ fn addon_display_name(addon: &Value) -> String {
         .to_string()
 }
 
-fn catalog_supports_search(catalog: &Value) -> bool {
+fn catalog_supports_extra(catalog: &Value, name: &str) -> bool {
     catalog
         .get("extra")
         .and_then(Value::as_array)
         .is_some_and(|extra| {
             extra
                 .iter()
-                .any(|item| item.get("name").and_then(Value::as_str) == Some("search"))
+                .any(|item| item.get("name").and_then(Value::as_str) == Some(name))
         })
         || catalog
             .get("extraSupported")
             .and_then(Value::as_array)
-            .is_some_and(|extra| extra.iter().any(|item| item.as_str() == Some("search")))
+            .is_some_and(|extra| extra.iter().any(|item| item.as_str() == Some(name)))
+}
+
+fn catalog_supports_search(catalog: &Value) -> bool {
+    catalog_supports_extra(catalog, "search")
 }
 
 fn search_category_name(addon: &Value, catalog: &Value, content_type: &str) -> String {
@@ -553,7 +558,11 @@ struct DiscoverCatalog {
     id: String,
 }
 
-fn discover_catalog_options(addons: &[Value], selected_type: &str) -> Vec<DiscoverCatalog> {
+fn discover_catalog_options(
+    addons: &[Value],
+    selected_type: &str,
+    genre: Option<&str>,
+) -> Vec<DiscoverCatalog> {
     let mut options = Vec::new();
     for addon in addons {
         let Some(transport_url) = addon_transport_url(addon) else {
@@ -567,6 +576,9 @@ fn discover_catalog_options(addons: &[Value], selected_type: &str) -> Vec<Discov
                 continue;
             };
             if !selected_type.is_empty() && content_type != selected_type {
+                continue;
+            }
+            if genre.is_some() && !catalog_supports_extra(&catalog, "genre") {
                 continue;
             }
             options.push(DiscoverCatalog {
