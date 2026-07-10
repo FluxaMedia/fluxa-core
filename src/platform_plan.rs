@@ -740,7 +740,9 @@ fn resource_parse_plan_value(
                 .cloned()
                 .unwrap_or_default()
                 .into_iter()
-                .filter(|video| season.is_none() || video.get("season").and_then(Value::as_i64) == season)
+                .filter(|video| {
+                    season.is_none() || video.get("season").and_then(Value::as_i64) == season
+                })
                 .collect::<Vec<_>>();
             json!({ "episodes": videos })
         }
@@ -763,7 +765,8 @@ pub(crate) fn parse_and_plan_addon_resource_json(
     match crate::addon_resource::parse_addon_body(resource, url, status_code, body) {
         crate::addon_resource::ParsedAddonBody::Error(err_json) => err_json,
         crate::addon_resource::ParsedAddonBody::Success { payload, .. } => {
-            let wrapped = crate::addon_resource::wrap_addon_resource_response_value(resource, payload);
+            let wrapped =
+                crate::addon_resource::wrap_addon_resource_response_value(resource, payload);
             let value = resource_parse_plan_value(kind, wrapped, addon_name, season);
             json!({ "kind": "success", "value": value }).to_string()
         }
@@ -806,10 +809,9 @@ mod tests {
             "catalog",
             serde_json::from_str(value_json).unwrap(),
         );
-        let step3 = resource_parse_plan_json(
-            &json!({ "kind": "discover", "response": step2 }).to_string(),
-        )
-        .expect("step3 result");
+        let step3 =
+            resource_parse_plan_json(&json!({ "kind": "discover", "response": step2 }).to_string())
+                .expect("step3 result");
         let step3: Value = serde_json::from_str(&step3).expect("step3 value");
 
         assert_eq!(combined["value"], step3);
@@ -817,8 +819,15 @@ mod tests {
 
     #[test]
     fn parse_and_plan_addon_resource_reports_empty_without_crashing() {
-        let combined =
-            parse_and_plan_addon_resource_json("catalog", "url", 200, Some(r#"{"metas":[]}"#), "discover", None, None);
+        let combined = parse_and_plan_addon_resource_json(
+            "catalog",
+            "url",
+            200,
+            Some(r#"{"metas":[]}"#),
+            "discover",
+            None,
+            None,
+        );
         let combined: Value = serde_json::from_str(&combined).expect("combined result");
         assert_eq!(combined["kind"], "empty");
     }
