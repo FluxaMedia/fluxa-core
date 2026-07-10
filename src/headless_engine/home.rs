@@ -262,7 +262,11 @@ pub(super) fn complete(
         "readHomeBootstrap" => {
             if generation == engine.state.runtime.get(GenerationKey::Home) {
                 if result.status.is_ok() {
-                    let stale = result.value.get("stale").and_then(Value::as_bool).unwrap_or(false);
+                    let stale = result
+                        .value
+                        .get("stale")
+                        .and_then(Value::as_bool)
+                        .unwrap_or(false);
                     if let Some(categories) = result.value.get("categories").cloned() {
                         engine.state.home.categories = normalize_categories_trailers(categories);
                     }

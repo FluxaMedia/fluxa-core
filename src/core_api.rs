@@ -58,7 +58,9 @@ impl FluxaCore {
 
     #[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
     pub fn subtitle_sync_estimate_json(request_json: &str) -> Option<String> {
-        guard(None, || subtitle_sync::estimate_subtitle_delay_json(request_json))
+        guard(None, || {
+            subtitle_sync::estimate_subtitle_delay_json(request_json)
+        })
     }
 
     #[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]

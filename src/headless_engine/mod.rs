@@ -1123,7 +1123,8 @@ mod tests {
         assert_eq!(cached["state"]["home"]["categories"][0]["id"], "cached");
 
         let refresh: Value = serde_json::from_str(
-            &headless_engine_dispatch_json(handle, r#"{"type":"homeLoadRequested","force":true}"#).unwrap(),
+            &headless_engine_dispatch_json(handle, r#"{"type":"homeLoadRequested","force":true}"#)
+                .unwrap(),
         )
         .unwrap();
         assert_eq!(refresh["state"]["home"]["isLoading"], true);
