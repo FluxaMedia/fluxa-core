@@ -347,6 +347,7 @@ fn route_stream_policy(method: &str, args_json: &str) -> Outcome {
         // args_json IS the stream/request JSON
         "streamPlaybackInfo" => opt_json(stream_policy::stream_playback_info_json(args_json)),
         "torrentRuntimeInfo" => opt_json(stream_policy::torrent_runtime_info_json(args_json)),
+        "torrentStatusInfo" => opt_json(stream_policy::torrent_status_info_json(args_json)),
         "findPreferredSubtitleIndex" => {
             let args = object(args_json)?;
             let last = args
