@@ -346,7 +346,7 @@ async fn torrents(
                         &state,
                         request.link.as_deref(),
                         request.title.as_deref(),
-                        None,
+                        request.file_id,
                         Duration::from_secs(45),
                     )
                     .await
@@ -528,6 +528,9 @@ async fn ensure_torrent(
             .api
             .api_torrent_details(TorrentIdOrHash::Id(id))
             .map_err(|error| format!("{error:#}"))?;
+        if let Some(file_id) = only_file {
+            prioritize_stream_file(state, id, file_id).await;
+        }
         return Ok((id, details));
     }
 
@@ -547,6 +550,9 @@ async fn ensure_torrent(
             .api
             .api_torrent_details(TorrentIdOrHash::Id(id))
             .map_err(|error| format!("{error:#}"))?;
+        if let Some(file_id) = only_file {
+            prioritize_stream_file(state, id, file_id).await;
+        }
         return Ok((id, details));
     }
 
