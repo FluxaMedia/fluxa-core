@@ -1100,6 +1100,39 @@ mod tests {
     }
 
     #[test]
+    fn forced_home_refresh_keeps_stale_categories_visible() {
+        let handle = create_headless_engine("{}");
+        let initial: Value = serde_json::from_str(
+            &headless_engine_dispatch_json(handle, r#"{"type":"homeLoadRequested"}"#).unwrap(),
+        )
+        .unwrap();
+        let cached: Value = serde_json::from_str(
+            &headless_engine_complete_effect_json(
+                handle,
+                &json!({
+                    "effectId": initial["effects"][0]["id"],
+                    "status": "ok",
+                    "value": { "stale": true, "categories": [{ "id": "cached" }] }
+                })
+                .to_string(),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(cached["state"]["home"]["isStale"], true);
+        assert_eq!(cached["state"]["home"]["categories"][0]["id"], "cached");
+
+        let refresh: Value = serde_json::from_str(
+            &headless_engine_dispatch_json(handle, r#"{"type":"homeLoadRequested","force":true}"#).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(refresh["state"]["home"]["isLoading"], true);
+        assert_eq!(refresh["state"]["home"]["isStale"], false);
+        assert_eq!(refresh["state"]["home"]["categories"][0]["id"], "cached");
+        assert!(destroy_headless_engine(handle));
+    }
+
+    #[test]
     fn home_load_refreshes_continue_watching_badges_without_blocking_bootstrap() {
         let handle = create_headless_engine("{}");
         let requested: Value = serde_json::from_str(

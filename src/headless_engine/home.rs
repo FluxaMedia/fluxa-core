@@ -12,6 +12,7 @@ use serde_json::Value;
 #[serde(rename_all = "camelCase", default)]
 pub(super) struct HomeState {
     is_loading: bool,
+    is_stale: bool,
     categories: Value,
     continue_watching: Value,
     user_addons: Value,
@@ -30,6 +31,7 @@ impl Default for HomeState {
     fn default() -> Self {
         Self {
             is_loading: false,
+            is_stale: false,
             categories: serde_json::json!([]),
             continue_watching: serde_json::json!([]),
             user_addons: serde_json::json!([]),
@@ -151,11 +153,21 @@ pub(super) fn dispatch_load(
     let generation = engine.bump_generation(GenerationKey::Home);
     let profile_value = profile.unwrap_or_else(|| engine.state.profile.active.clone());
     let profile_id = active_profile_id(&engine.state, &profile_value);
-    *engine.state.home = HomeState {
-        is_loading: true,
-        generation,
-        ..HomeState::default()
-    };
+    let force = force.unwrap_or(false);
+    if force {
+        let mut home = (*engine.state.home).clone();
+        home.is_loading = true;
+        home.is_stale = false;
+        home.error = Value::Null;
+        home.generation = generation;
+        *engine.state.home = home;
+    } else {
+        *engine.state.home = HomeState {
+            is_loading: true,
+            generation,
+            ..HomeState::default()
+        };
+    }
     let language_value = language.unwrap_or_else(|| "en".to_string());
     vec![
         engine.effect(
@@ -165,7 +177,7 @@ pub(super) fn dispatch_load(
                 profile_id: profile_id.clone(),
                 profile: profile_value.clone(),
                 language: language_value.clone(),
-                force: force.unwrap_or(false),
+                force,
             },
         ),
         engine.effect(
@@ -249,42 +261,32 @@ pub(super) fn complete(
         }
         "readHomeBootstrap" => {
             if generation == engine.state.runtime.get(GenerationKey::Home) {
-                engine.state.home.is_loading = false;
                 if result.status.is_ok() {
-                    engine.state.home.categories = result
-                        .value
-                        .get("categories")
-                        .cloned()
-                        .map(normalize_categories_trailers)
-                        .unwrap_or_else(|| serde_json::json!([]));
-                    engine.state.home.continue_watching = result
-                        .value
-                        .get("continueWatching")
-                        .cloned()
-                        .unwrap_or_else(|| serde_json::json!([]));
-                    engine.state.home.watchlist = result
-                        .value
-                        .get("watchlist")
-                        .cloned()
-                        .unwrap_or_else(|| serde_json::json!([]));
-                    engine.state.home.user_addons = result
-                        .value
-                        .get("userAddons")
-                        .cloned()
-                        .unwrap_or_else(|| serde_json::json!([]));
-                    engine.state.home.metadata_feeds = result
-                        .value
-                        .get("metadataFeeds")
-                        .cloned()
-                        .unwrap_or_else(|| serde_json::json!([]));
-                    engine.state.home.billboard = result
-                        .value
-                        .get("billboard")
-                        .cloned()
-                        .map(with_normalized_meta_trailers)
-                        .unwrap_or(Value::Null);
+                    let stale = result.value.get("stale").and_then(Value::as_bool).unwrap_or(false);
+                    if let Some(categories) = result.value.get("categories").cloned() {
+                        engine.state.home.categories = normalize_categories_trailers(categories);
+                    }
+                    if let Some(continue_watching) = result.value.get("continueWatching").cloned() {
+                        engine.state.home.continue_watching = continue_watching;
+                    }
+                    if let Some(watchlist) = result.value.get("watchlist").cloned() {
+                        engine.state.home.watchlist = watchlist;
+                    }
+                    if let Some(user_addons) = result.value.get("userAddons").cloned() {
+                        engine.state.home.user_addons = user_addons;
+                    }
+                    if let Some(metadata_feeds) = result.value.get("metadataFeeds").cloned() {
+                        engine.state.home.metadata_feeds = metadata_feeds;
+                    }
+                    if let Some(billboard) = result.value.get("billboard").cloned() {
+                        engine.state.home.billboard = with_normalized_meta_trailers(billboard);
+                    }
+                    engine.state.home.is_stale = stale;
+                    engine.state.home.is_loading = stale;
                     engine.state.home.error = Value::Null;
                 } else {
+                    engine.state.home.is_loading = false;
+                    engine.state.home.is_stale = false;
                     engine.state.home.error = normalize_error(result.error.clone());
                 }
             }
