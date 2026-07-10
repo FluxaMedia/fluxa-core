@@ -161,22 +161,14 @@ pub(crate) fn playback_progress_merge_plan_json(request_json: &str) -> Option<St
             .unwrap_or(Value::Null)
     };
 
-    let resolve_episode_field = |key: &str| -> Value {
-        if video_changed {
-            incoming.get(key).cloned().unwrap_or(Value::Null)
-        } else {
-            resolve_field(key)
-        }
-    };
-
     serde_json::to_string(&json!({
         "lastVideoId": resolve_field("lastVideoId"),
         "timeOffset": incoming.get("timeOffset").cloned().unwrap_or(Value::Null),
         "duration": incoming.get("duration").cloned().unwrap_or(Value::Null),
         "lastStreamIndex": resolve_field("lastStreamIndex"),
         "lastEpisodeName": resolve_field("lastEpisodeName"),
-        "lastEpisodeSeason": resolve_episode_field("lastEpisodeSeason"),
-        "lastEpisodeNumber": resolve_episode_field("lastEpisodeNumber"),
+        "lastEpisodeSeason": resolve_field("lastEpisodeSeason"),
+        "lastEpisodeNumber": resolve_field("lastEpisodeNumber"),
         "lastEpisodeThumbnail": resolve_field("lastEpisodeThumbnail"),
         "lastStreamUrl": resolve_field("lastStreamUrl"),
         "lastStreamTitle": resolve_field("lastStreamTitle"),
@@ -478,6 +470,21 @@ mod tests {
         assert_eq!(result["timeOffset"], 2000);
         assert_eq!(result["lastStreamUrl"], "http://old");
         assert_eq!(result["videoChanged"], false);
+    }
+
+    #[test]
+    fn progress_merge_keeps_prior_episode_number_on_video_change_with_incomplete_incoming() {
+        let result: Value = serde_json::from_str(
+            &playback_progress_merge_plan_json(
+                r#"{"existing":{"lastVideoId":"v1","lastEpisodeSeason":1,"lastEpisodeNumber":5,"lastEpisodeName":"Old Name"},"incoming":{"lastVideoId":"v2","timeOffset":0,"duration":5000}}"#,
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(result["videoChanged"], true);
+        assert_eq!(result["lastEpisodeSeason"], 1);
+        assert_eq!(result["lastEpisodeNumber"], 5);
+        assert_eq!(result["lastEpisodeName"], "Old Name");
     }
 }
 
