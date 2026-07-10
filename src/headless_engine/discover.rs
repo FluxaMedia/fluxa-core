@@ -11,6 +11,7 @@ pub(super) struct DiscoverState {
     content_type: String,
     filters: Value,
     is_loading: bool,
+    catalogs_loading: bool,
     results: Value,
     result_sources: Value,
     catalogs: Value,
@@ -54,6 +55,7 @@ pub(super) fn dispatch_discover(
         content_type: content_type.clone(),
         filters: filters_value.clone(),
         is_loading: true,
+        catalogs_loading: engine.state.discover.catalogs_loading,
         results: serde_json::json!([]),
         result_sources: Value::Null,
         catalogs: engine.state.discover.catalogs.clone(),
@@ -86,6 +88,7 @@ pub(super) fn dispatch_catalog_filters(
     let profile_id = active_profile_id(&engine.state, &profile_value);
     engine.state.discover.content_type = content_type.clone();
     engine.state.discover.catalogs = serde_json::json!([]);
+    engine.state.discover.catalogs_loading = true;
     vec![engine.effect(
         EffectKind::ReadDiscoverCatalogFilters,
         generation,
@@ -128,6 +131,7 @@ pub(super) fn complete(
         }
         "readDiscoverCatalogFilters" => {
             if generation == engine.state.runtime.get(GenerationKey::Discover) {
+                engine.state.discover.catalogs_loading = false;
                 if result.status.is_ok() {
                     engine.state.discover.catalogs = result
                         .value
