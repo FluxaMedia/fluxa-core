@@ -131,45 +131,34 @@ fn discover_catalog_label(raw_name: Option<&str>, id: &str) -> String {
     }
 }
 
-fn catalog_extra_options(catalog: &Value, extra_name: &str) -> Vec<String> {
+fn catalog_extras(catalog: &Value) -> Vec<Value> {
     catalog
         .get("extra")
         .and_then(Value::as_array)
         .into_iter()
         .flatten()
-        .filter(|extra| {
-            extra
-                .get("name")
-                .and_then(Value::as_str)
-                .is_some_and(|name| name.eq_ignore_ascii_case(extra_name))
-        })
-        .flat_map(|extra| {
-            extra
+        .filter_map(|extra| {
+            let name = extra.get("name").and_then(Value::as_str)?.trim();
+            if name.is_empty() {
+                return None;
+            }
+            let options = extra
                 .get("options")
                 .and_then(Value::as_array)
-                .cloned()
-                .unwrap_or_default()
+                .into_iter()
+                .flatten()
+                .filter_map(|option| option.as_str().map(str::trim).map(str::to_string))
+                .filter(|option| !option.is_empty())
+                .collect::<Vec<_>>();
+            (!options.is_empty()).then(|| {
+                json!({
+                    "name": name,
+                    "options": options,
+                    "isRequired": catalog_requires_extra(catalog, name)
+                })
+            })
         })
-        .filter_map(|value| value.as_str().map(str::trim).map(str::to_string))
-        .filter(|value| !value.is_empty())
         .collect()
-}
-
-fn catalog_genres(catalog: &Value) -> Vec<String> {
-    let mut genres = catalog
-        .get("genres")
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-        .filter_map(|value| value.as_str().map(str::trim).map(str::to_string))
-        .filter(|value| !value.is_empty())
-        .collect::<Vec<_>>();
-    for option in catalog_extra_options(catalog, "genre") {
-        if !genres.contains(&option) {
-            genres.push(option);
-        }
-    }
-    genres
 }
 
 fn manifest_supports_catalog(manifest: &Value) -> bool {
@@ -276,11 +265,6 @@ pub(crate) fn discover_catalog_options_json(
             continue;
         }
         let transport_url = addon_transport_url(&addon);
-        let source_key = manifest
-            .get("id")
-            .and_then(Value::as_str)
-            .filter(|value| !value.is_empty())
-            .unwrap_or(transport_url);
         for catalog in manifest
             .get("catalogs")
             .and_then(Value::as_array)
@@ -304,24 +288,28 @@ pub(crate) fn discover_catalog_options_json(
             else {
                 continue;
             };
-            if catalog_has_required_extra_except(catalog, &["genre"]) {
+            let extras = catalog_extras(catalog);
+            let supported_extra_names = extras
+                .iter()
+                .filter_map(|extra| extra.get("name").and_then(Value::as_str))
+                .collect::<Vec<_>>();
+            if catalog_has_required_extra_except(catalog, &supported_extra_names) {
                 continue;
             }
-            let label = discover_catalog_label(catalog.get("name").and_then(Value::as_str), id);
-            let genres = catalog_genres(catalog);
+            let catalog_label =
+                discover_catalog_label(catalog.get("name").and_then(Value::as_str), id);
             options.push(json!({
                 "key": format!(
                     "discover:{}:{}:{}",
-                    content_identity::stable_feed_part(source_key),
+                    content_identity::stable_feed_part(transport_url),
                     content_identity::stable_feed_part(type_value),
-                    content_identity::stable_feed_part(&label)
+                    content_identity::stable_feed_part(id)
                 ),
-                "label": label,
+                "label": format!("{}: {}", addon_manifest_name(&addon), catalog_label),
                 "transportUrl": transport_url,
                 "type": type_value,
                 "id": id,
-                "genres": genres,
-                "requiresGenre": catalog_requires_extra(catalog, "genre")
+                "extras": extras
             }));
         }
     }

@@ -390,7 +390,6 @@ fn route_search_plan(method: &str, args_json: &str) -> Outcome {
                 field_str(&args, "selectedType")?,
             ))
         }
-        "discoverSortPlan" => opt_json(search_plan::discover_sort_plan_json(args_json)),
         "librarySortPlan" => opt_json(search_plan::library_sort_plan_json(args_json)),
         "detailSeriesLookupId" => Ok(Value::String(search_plan::detail_series_lookup_id(
             &arg_str(args_json, "id")?,

@@ -1,7 +1,8 @@
 use crate::addon_protocol::{
-    build_resource_url, catalog_supports_extra as manifest_catalog_supports_extra, supports_resource,
+    build_resource_url, catalog_supports_extra as manifest_catalog_supports_extra,
+    supports_resource,
 };
-use crate::content_identity::parse_extra_args_json;
+use crate::content_identity::{parse_extra_args_json, stable_feed_part};
 use crate::repository_flow::addon_streams_with_provider_json;
 use crate::stream_policy::stream_playback_info_json;
 use serde::Deserialize;
@@ -22,6 +23,8 @@ struct ResourceFetchPlanRequest {
     content_type: Option<String>,
     #[serde(default)]
     catalog_id: Option<String>,
+    #[serde(default)]
+    catalog_key: Option<String>,
     #[serde(default)]
     id: Option<String>,
     #[serde(default)]
@@ -150,25 +153,44 @@ pub(crate) fn resource_fetch_plan_json(request_json: &str) -> Option<String> {
             }
         }
         "discover" => {
-            let genre = request.genre.as_deref();
-            for catalog in discover_catalog_options(
-                &request.addons,
-                request.content_type.as_deref().unwrap_or(""),
-            ) {
-                let extra = genre
-                    .filter(|_| catalog.supports_genre)
-                    .map(|value| json!({"genre": value}).to_string());
-                requests.push(json!({
-                        "url": build_resource_url(
-                            &catalog.transport_url,
-                            "catalog",
-                            &catalog.content_type,
-                            &catalog.id,
-                            extra.as_deref()
-                        ),
-                    "kind": "discover",
-                    "catalogKey": catalog.key
-                }));
+            let catalog_key = request.catalog_key.as_deref()?;
+            for addon in &request.addons {
+                let Some(transport_url) = addon_transport_url(addon) else {
+                    continue;
+                };
+                for catalog in addon_catalogs(addon) {
+                    let Some(content_type) = catalog.get("type").and_then(Value::as_str) else {
+                        continue;
+                    };
+                    let Some(id) = catalog.get("id").and_then(Value::as_str) else {
+                        continue;
+                    };
+                    let key = format!(
+                        "discover:{}:{}:{}",
+                        stable_feed_part(transport_url),
+                        stable_feed_part(content_type),
+                        stable_feed_part(id),
+                    );
+                    if key != catalog_key {
+                        continue;
+                    }
+                    let extra = request
+                        .extra
+                        .iter()
+                        .filter(|(name, _)| catalog_supports_extra(&catalog, name))
+                        .map(|(name, value)| (name.clone(), value.clone()))
+                        .collect::<Map<_, _>>();
+                    let extra = (!extra.is_empty()).then(|| Value::Object(extra).to_string());
+                    requests.push(json!({
+                        "url": build_resource_url(transport_url, "catalog", content_type, id, extra.as_deref()),
+                        "kind": "discover",
+                        "catalogKey": key
+                    }));
+                    break;
+                }
+                if !requests.is_empty() {
+                    break;
+                }
             }
         }
         "metaDetail" => {
@@ -543,42 +565,6 @@ fn search_category_name(addon: &Value, catalog: &Value, content_type: &str) -> S
             other => other,
         });
     format!("{addon_name} - {catalog_name}")
-}
-
-struct DiscoverCatalog {
-    key: String,
-    transport_url: String,
-    content_type: String,
-    id: String,
-    supports_genre: bool,
-}
-
-fn discover_catalog_options(addons: &[Value], selected_type: &str) -> Vec<DiscoverCatalog> {
-    let mut options = Vec::new();
-    for addon in addons {
-        let Some(transport_url) = addon_transport_url(addon) else {
-            continue;
-        };
-        for catalog in addon_catalogs(addon) {
-            let Some(content_type) = catalog.get("type").and_then(Value::as_str) else {
-                continue;
-            };
-            let Some(id) = catalog.get("id").and_then(Value::as_str) else {
-                continue;
-            };
-            if !selected_type.is_empty() && content_type != selected_type {
-                continue;
-            }
-            options.push(DiscoverCatalog {
-                key: format!("{}:{}", transport_url, id),
-                transport_url: transport_url.to_string(),
-                content_type: content_type.to_string(),
-                id: id.to_string(),
-                supports_genre: catalog_supports_extra(&catalog, "genre"),
-            });
-        }
-    }
-    options
 }
 
 fn playback_title(meta: Option<&Value>, episode: Option<&Value>, stream: &Value) -> Value {
