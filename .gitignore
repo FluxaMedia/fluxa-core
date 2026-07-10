@@ -1,5 +1,6 @@
 /target/
 CLAUDE.md
+AGENTS.md
 *.pdb
 stremio-addon-api/
 fluxa-streaming-engine/resources/ffmpeg/
