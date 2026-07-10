@@ -61,6 +61,7 @@ struct EngineState {
     output_dir: PathBuf,
     preload_size: Arc<Mutex<u64>>,
     known_links: Arc<Mutex<HashMap<String, usize>>>,
+    prioritized_files: Arc<Mutex<HashMap<usize, usize>>>,
     stream_progress: Arc<Mutex<HashMap<String, u64>>>,
     access_token: Arc<String>,
     // Serializes the check-then-add sequence in ensure_torrent so two
@@ -190,6 +191,7 @@ pub fn start_torrent_server(
                 output_dir: thread_cache_dir,
                 preload_size: Arc::new(Mutex::new(10 * 1024 * 1024)),
                 known_links: Arc::new(Mutex::new(HashMap::new())),
+                prioritized_files: Arc::new(Mutex::new(HashMap::new())),
                 stream_progress: Arc::new(Mutex::new(HashMap::new())),
                 access_token: Arc::new(thread_access_token),
                 add_lock: Arc::new(AsyncMutex::new(())),
@@ -801,6 +803,20 @@ fn largest_file_id(details: &TorrentDetailsResponse) -> Option<usize> {
 }
 
 async fn prioritize_stream_file(state: &EngineState, torrent_id: usize, file_id: usize) {
+    let should_update = state
+        .prioritized_files
+        .lock()
+        .map(|mut files| match files.get(&torrent_id) {
+            Some(current) if *current == file_id => false,
+            _ => {
+                files.insert(torrent_id, file_id);
+                true
+            }
+        })
+        .unwrap_or(true);
+    if !should_update {
+        return;
+    }
     let only_files = HashSet::from([file_id]);
     let _ = state
         .api
