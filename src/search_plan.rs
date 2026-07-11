@@ -308,7 +308,7 @@ pub(crate) fn discover_catalog_options_json(
                     content_identity::stable_feed_part(type_value),
                     content_identity::stable_feed_part(id)
                 ),
-                "label": format!("{}: {}", addon_manifest_name(&addon), catalog_label),
+                "label": catalog_label,
                 "transportUrl": transport_url,
                 "type": type_value,
                 "id": id,
