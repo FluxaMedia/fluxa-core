@@ -772,7 +772,7 @@ pub(crate) fn resolve_next_episode_json(
     let videos: Vec<Value> = serde_json::from_str(videos_json).ok()?;
     let filtered: Vec<&Value> = videos
         .iter()
-        .filter(|v| released_only || is_episode_released(v, now_ms))
+        .filter(|v| !released_only || is_episode_released(v, now_ms))
         .collect();
     let next = first_episode_after(
         &filtered.into_iter().cloned().collect::<Vec<_>>(),

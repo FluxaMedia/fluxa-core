@@ -99,14 +99,20 @@ pub fn start_torrent_server(
     {
         let mut guard = torrent_server_handle().lock().ok()?;
         if let Some(mut handle) = guard.take() {
+            let teardown_start = std::time::Instant::now();
             if let Some(stop) = handle.stop.take() {
                 let _ = stop.send(());
             }
             if let Some(thread) = handle.thread.take() {
                 let _ = thread.join();
             }
+            debug_log(format!(
+                "[TorrServer] previous server torn down in {:?}",
+                teardown_start.elapsed()
+            ));
         }
     }
+    let bootstrap_start = std::time::Instant::now();
 
     let cache_dir = PathBuf::from(cache_dir);
     std::fs::create_dir_all(&cache_dir).ok()?;
@@ -218,6 +224,10 @@ pub fn start_torrent_server(
 
     match ready_rx.recv_timeout(Duration::from_secs(20)) {
         Ok(Ok(port)) => {
+            debug_log(format!(
+                "[TorrServer] new server bootstrapped in {:?}",
+                bootstrap_start.elapsed()
+            ));
             let generation = TORRENT_GENERATION.fetch_add(1, Ordering::SeqCst) + 1;
             *torrent_server_handle().lock().ok()? = Some(TorrentServerHandle {
                 generation,
