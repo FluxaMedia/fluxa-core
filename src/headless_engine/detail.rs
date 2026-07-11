@@ -336,9 +336,15 @@ pub(super) fn dispatch_streams_appended(
     engine: &mut HeadlessEngine,
     streams: Vec<Value>,
     available_addons: Vec<String>,
+    generation: Option<u64>,
 ) -> Vec<EffectEnvelope> {
     if !engine.state.detail.is_loading_streams {
         return vec![];
+    }
+    if let Some(generation) = generation {
+        if generation != engine.state.runtime.get(GenerationKey::DetailStreams) {
+            return vec![];
+        }
     }
     let mut merged: Vec<Value> = engine
         .state

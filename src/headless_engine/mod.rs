@@ -214,7 +214,8 @@ impl HeadlessEngine {
             AppAction::DetailStreamsAppended {
                 streams,
                 available_addons,
-            } => detail::dispatch_streams_appended(self, streams, available_addons),
+                generation,
+            } => detail::dispatch_streams_appended(self, streams, available_addons, generation),
             AppAction::DetailSelectedAddonChanged { addon } => {
                 detail::dispatch_selected_addon_changed(self, addon)
             }

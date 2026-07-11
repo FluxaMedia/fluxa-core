@@ -62,6 +62,7 @@ pub(super) enum AppAction {
     DetailStreamsAppended {
         streams: Vec<Value>,
         available_addons: Vec<String>,
+        generation: Option<u64>,
     },
     #[serde(rename = "detailSelectedAddonChanged")]
     DetailSelectedAddonChanged { addon: Option<String> },
