@@ -1514,6 +1514,54 @@ mod tests {
     }
 
     #[test]
+    fn discover_prefetches_two_pages_without_blocking_the_initial_results() {
+        let handle = create_headless_engine(
+            r#"{"discover":{"catalogs":[{"key":"top","transportUrl":"https://addon.example/manifest.json","id":"top","type":"movie"}]}}"#,
+        );
+        let discover: Value = serde_json::from_str(
+            &headless_engine_dispatch_json(
+                handle,
+                r#"{"type":"discoverRequested","contentType":"movie","filters":{"catalogKey":"top","extra":{"genre":"action"}}}"#,
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        let first_page: Value = serde_json::from_str(
+            &headless_engine_complete_effect_json(
+                handle,
+                &json!({
+                    "effectId": discover["effects"][0]["id"].as_str().unwrap(),
+                    "status": "ok",
+                    "value": { "results": [{ "id": "tt1" }] }
+                })
+                .to_string(),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(first_page["state"]["discover"]["results"].as_array().unwrap().len(), 1);
+        assert_eq!(first_page["effects"][0]["type"], "fetchDiscoverPage");
+        assert_eq!(first_page["effects"][0]["payload"]["skip"], 20);
+
+        let second_page: Value = serde_json::from_str(
+            &headless_engine_complete_effect_json(
+                handle,
+                &json!({
+                    "effectId": first_page["effects"][0]["id"].as_str().unwrap(),
+                    "status": "ok",
+                    "value": { "items": [{ "id": "tt2" }] }
+                })
+                .to_string(),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(second_page["state"]["discover"]["results"].as_array().unwrap().len(), 2);
+        assert_eq!(second_page["effects"][0]["payload"]["skip"], 40);
+        assert!(destroy_headless_engine(handle));
+    }
+
+    #[test]
     fn detail_player_sync_auth_settings_calendar_and_offline_are_core_actions() {
         let handle = create_headless_engine(r#"{"profile":{"activeProfileId":"p1"}}"#);
 

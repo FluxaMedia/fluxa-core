@@ -19,6 +19,8 @@ pub(super) struct DiscoverState {
     error: Value,
     generation: u64,
     paging: DiscoverPaging,
+    #[serde(skip)]
+    initial_paging: InitialDiscoverPaging,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Deserialize, Serialize)]
@@ -27,6 +29,16 @@ pub(super) struct DiscoverPaging {
     is_loading: bool,
     items: Value,
     error: Value,
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+struct InitialDiscoverPaging {
+    transport_url: String,
+    content_type: String,
+    catalog_id: String,
+    genre: Option<String>,
+    next_skip: i32,
+    remaining_pages: u8,
 }
 
 #[derive(Serialize)]
@@ -47,6 +59,41 @@ struct RunDiscoverPayload {
     profile_id: String,
     profile: Value,
     language: String,
+}
+
+fn selected_catalog_page_source(catalogs: &Value, catalog_key: Option<&str>) -> (Option<String>, Option<String>) {
+    let Some(catalog_key) = catalog_key else {
+        return (None, None);
+    };
+    let Some(catalog) = catalogs.as_array().and_then(|catalogs| {
+        catalogs.iter().find(|catalog| catalog.get("key").and_then(Value::as_str) == Some(catalog_key))
+    }) else {
+        return (None, None);
+    };
+    (
+        catalog.get("transportUrl").and_then(Value::as_str).map(str::to_owned),
+        catalog.get("id").and_then(Value::as_str).map(str::to_owned),
+    )
+}
+
+fn initial_paging(filters: &Value, catalogs: &Value, content_type: &str) -> InitialDiscoverPaging {
+    let catalog_key = filters.get("catalogKey").and_then(Value::as_str);
+    let (transport_url, catalog_id) = selected_catalog_page_source(catalogs, catalog_key);
+    match (transport_url, catalog_id) {
+        (Some(transport_url), Some(catalog_id)) => InitialDiscoverPaging {
+            transport_url,
+            content_type: content_type.to_string(),
+            catalog_id,
+            genre: filters
+                .get("extra")
+                .and_then(|extra| extra.get("genre"))
+                .and_then(Value::as_str)
+                .map(str::to_owned),
+            next_skip: 20,
+            remaining_pages: 2,
+        },
+        _ => InitialDiscoverPaging::default(),
+    }
 }
 
 #[derive(Serialize)]
@@ -71,6 +118,7 @@ pub(super) fn dispatch_discover(
     let profile_value = profile.unwrap_or_else(|| engine.state.profile.active.clone());
     let profile_id = active_profile_id(&engine.state, &profile_value);
     let filters_value = filters.unwrap_or(Value::Null);
+    let initial_paging = initial_paging(&filters_value, &engine.state.discover.catalogs, &content_type);
     *engine.state.discover = DiscoverState {
         content_type: content_type.clone(),
         filters: filters_value.clone(),
@@ -83,6 +131,7 @@ pub(super) fn dispatch_discover(
         error: Value::Null,
         generation,
         paging: DiscoverPaging::default(),
+        initial_paging,
     };
     vec![engine.effect(
         EffectKind::RunDiscover,
@@ -131,6 +180,7 @@ pub(super) fn dispatch_discover_page(
     skip: Option<i32>,
     genre: Option<String>,
 ) -> Vec<EffectEnvelope> {
+    engine.state.discover.initial_paging = InitialDiscoverPaging::default();
     let generation = engine.bump_generation(GenerationKey::DiscoverPaging);
     engine.state.discover.paging = DiscoverPaging {
         is_loading: true,
@@ -145,6 +195,39 @@ pub(super) fn dispatch_discover_page(
             content_type,
             catalog_id,
             skip: skip.unwrap_or(0).max(0),
+            genre,
+        },
+    )]
+}
+
+fn dispatch_next_initial_page(engine: &mut HeadlessEngine) -> Vec<EffectEnvelope> {
+    let initial_paging = &mut engine.state.discover.initial_paging;
+    if initial_paging.remaining_pages == 0 {
+        *initial_paging = InitialDiscoverPaging::default();
+        return vec![];
+    }
+    let transport_url = initial_paging.transport_url.clone();
+    let content_type = initial_paging.content_type.clone();
+    let catalog_id = initial_paging.catalog_id.clone();
+    let genre = initial_paging.genre.clone();
+    let skip = initial_paging.next_skip;
+    initial_paging.next_skip += 20;
+    initial_paging.remaining_pages -= 1;
+
+    let generation = engine.bump_generation(GenerationKey::DiscoverPaging);
+    engine.state.discover.paging = DiscoverPaging {
+        is_loading: true,
+        items: Value::Null,
+        error: Value::Null,
+    };
+    vec![engine.effect(
+        EffectKind::FetchDiscoverPage,
+        generation,
+        FetchDiscoverPagePayload {
+            transport_url: Some(transport_url),
+            content_type,
+            catalog_id,
+            skip,
             genre,
         },
     )]
@@ -172,6 +255,7 @@ pub(super) fn complete(
                         .cloned()
                         .unwrap_or_else(|| serde_json::json!({}));
                     engine.state.discover.error = Value::Null;
+                    return dispatch_next_initial_page(engine);
                 } else {
                     engine.state.discover.error = normalize_error(result.error.clone());
                 }
@@ -201,14 +285,22 @@ pub(super) fn complete(
             if generation == engine.state.runtime.get(GenerationKey::DiscoverPaging) {
                 engine.state.discover.paging.is_loading = false;
                 if result.status.is_ok() {
-                    engine.state.discover.paging.items = result
+                    let items = result
                         .value
                         .get("items")
                         .cloned()
                         .unwrap_or_else(|| serde_json::json!([]));
+                    engine.state.discover.paging.items = items.clone();
                     engine.state.discover.paging.error = Value::Null;
+                    if !engine.state.discover.initial_paging.transport_url.is_empty() {
+                        if let Some(results) = engine.state.discover.results.as_array_mut() {
+                            results.extend(items.as_array().into_iter().flatten().cloned());
+                        }
+                        return dispatch_next_initial_page(engine);
+                    }
                 } else {
                     engine.state.discover.paging.error = normalize_error(result.error.clone());
+                    engine.state.discover.initial_paging = InitialDiscoverPaging::default();
                 }
             }
         }
