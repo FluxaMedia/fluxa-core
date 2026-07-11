@@ -40,6 +40,7 @@ pub(super) struct DetailState {
     last_prefetch_error: Value,
     resolved_request_id: Value,
     streams_error: Value,
+    failed_addons: Value,
     error: Value,
     generation: u64,
     #[serde(skip)]
@@ -78,6 +79,7 @@ impl Default for DetailState {
             last_prefetch_error: Value::Null,
             resolved_request_id: Value::Null,
             streams_error: Value::Null,
+            failed_addons: serde_json::json!([]),
             error: Value::Null,
             generation: 0,
             streams_request_key: String::new(),
@@ -328,6 +330,7 @@ pub(super) fn dispatch_streams(
     engine.state.detail.selected_addon = Value::Null;
     engine.state.detail.available_addons = serde_json::json!([]);
     engine.state.detail.loading_addon_names = serde_json::json!([]);
+    engine.state.detail.failed_addons = serde_json::json!([]);
     vec![engine.effect(
         EffectKind::FetchDetailStreams,
         generation,
@@ -586,6 +589,11 @@ pub(super) fn complete(
                         .cloned()
                         .unwrap_or_else(|| serde_json::json!([]));
                     engine.state.detail.loading_addon_names = serde_json::json!([]);
+                    engine.state.detail.failed_addons = result
+                        .value
+                        .get("failedAddons")
+                        .cloned()
+                        .unwrap_or_else(|| serde_json::json!([]));
                     engine.state.detail.resolved_request_id = result
                         .value
                         .get("resolvedRequestId")

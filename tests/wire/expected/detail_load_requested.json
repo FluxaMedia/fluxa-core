@@ -27,6 +27,7 @@
       "availableAddons": [],
       "contentType": "movie",
       "error": null,
+      "failedAddons": [],
       "fanartArtwork": null,
       "feedback": null,
       "generation": 1,
