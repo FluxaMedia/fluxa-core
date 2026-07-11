@@ -442,6 +442,7 @@ fn route_player_policy(method: &str, args_json: &str) -> Outcome {
                 field_str(&args, "streamsJson")?,
                 field_str(&args, "currentStreamJson")?,
                 field_str(&args, "prefsJson")?,
+                field_str(&args, "nextVideoId")?,
             ))
         }
 

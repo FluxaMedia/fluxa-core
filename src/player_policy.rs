@@ -941,6 +941,7 @@ pub(crate) fn select_next_episode_stream_json(
     streams_json: &str,
     current_stream_json: &str,
     prefs_json: &str,
+    next_video_id: &str,
 ) -> Option<String> {
     let streams: Vec<Value> = serde_json::from_str(streams_json).ok()?;
     if streams.is_empty() {
@@ -948,6 +949,25 @@ pub(crate) fn select_next_episode_stream_json(
     }
     let current: Value = serde_json::from_str(current_stream_json).ok()?;
     let prefs: Value = serde_json::from_str(prefs_json).unwrap_or(Value::Null);
+
+    let episode_ok = |s: &Value| -> bool {
+        let field = |key: &str| -> String {
+            s.get(key)
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string()
+        };
+        let behavior_hints = s.get("behaviorHints");
+        let filename = behavior_hints
+            .and_then(|h| h.get("filename"))
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string();
+        crate::content_identity::stream_matches_episode(
+            next_video_id,
+            &[field("title"), field("name"), field("description"), filename],
+        )
+    };
 
     let try_binge = prefs
         .get("tryBingeGroup")
@@ -974,6 +994,7 @@ pub(crate) fn select_next_episode_stream_json(
                     .and_then(|h| h.get("bingeGroup"))
                     .and_then(Value::as_str)
                     == Some(group)
+                    && episode_ok(s)
             });
             if let Some(s) = matched {
                 return serde_json::to_string(s).ok();
@@ -1001,13 +1022,20 @@ pub(crate) fn select_next_episode_stream_json(
                 .collect::<Vec<_>>()
                 .join(" ")
             };
-            if let Some(matched) = streams.iter().find(|s| re.is_match(&stream_text(s))) {
+            if let Some(matched) = streams
+                .iter()
+                .find(|s| re.is_match(&stream_text(s)) && episode_ok(s))
+            {
                 return serde_json::to_string(matched).ok();
             }
         }
     }
 
-    streams.first().and_then(|s| serde_json::to_string(s).ok())
+    streams
+        .iter()
+        .find(|s| episode_ok(s))
+        .or_else(|| streams.first())
+        .and_then(|s| serde_json::to_string(s).ok())
 }
 
 #[cfg(test)]
