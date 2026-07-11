@@ -235,6 +235,14 @@ pub(super) enum AppAction {
         profile: Option<Value>,
         language: Option<String>,
     },
+    #[serde(rename = "discoverPageRequested")]
+    DiscoverPageRequested {
+        transport_url: Option<String>,
+        content_type: String,
+        catalog_id: String,
+        skip: Option<i32>,
+        genre: Option<String>,
+    },
     #[serde(rename = "catalogPageRequested")]
     CatalogPageRequested {
         category_id: String,

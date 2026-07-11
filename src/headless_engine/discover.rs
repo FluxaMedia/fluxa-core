@@ -18,6 +18,25 @@ pub(super) struct DiscoverState {
     genres: Value,
     error: Value,
     generation: u64,
+    paging: DiscoverPaging,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub(super) struct DiscoverPaging {
+    is_loading: bool,
+    items: Value,
+    error: Value,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct FetchDiscoverPagePayload {
+    transport_url: Option<String>,
+    content_type: String,
+    catalog_id: String,
+    skip: i32,
+    genre: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -48,6 +67,7 @@ pub(super) fn dispatch_discover(
     language: Option<String>,
 ) -> Vec<EffectEnvelope> {
     let generation = engine.bump_generation(GenerationKey::Discover);
+    engine.bump_generation(GenerationKey::DiscoverPaging);
     let profile_value = profile.unwrap_or_else(|| engine.state.profile.active.clone());
     let profile_id = active_profile_id(&engine.state, &profile_value);
     let filters_value = filters.unwrap_or(Value::Null);
@@ -62,6 +82,7 @@ pub(super) fn dispatch_discover(
         genres: engine.state.discover.genres.clone(),
         error: Value::Null,
         generation,
+        paging: DiscoverPaging::default(),
     };
     vec![engine.effect(
         EffectKind::RunDiscover,
@@ -98,6 +119,33 @@ pub(super) fn dispatch_catalog_filters(
             profile_id,
             profile: profile_value,
             language: language.unwrap_or_else(|| "en".to_string()),
+        },
+    )]
+}
+
+pub(super) fn dispatch_discover_page(
+    engine: &mut HeadlessEngine,
+    transport_url: Option<String>,
+    content_type: String,
+    catalog_id: String,
+    skip: Option<i32>,
+    genre: Option<String>,
+) -> Vec<EffectEnvelope> {
+    let generation = engine.bump_generation(GenerationKey::DiscoverPaging);
+    engine.state.discover.paging = DiscoverPaging {
+        is_loading: true,
+        items: Value::Null,
+        error: Value::Null,
+    };
+    vec![engine.effect(
+        EffectKind::FetchDiscoverPage,
+        generation,
+        FetchDiscoverPagePayload {
+            transport_url,
+            content_type,
+            catalog_id,
+            skip: skip.unwrap_or(0).max(0),
+            genre,
         },
     )]
 }
@@ -146,6 +194,21 @@ pub(super) fn complete(
                     engine.state.discover.error = Value::Null;
                 } else {
                     engine.state.discover.error = normalize_error(result.error.clone());
+                }
+            }
+        }
+        "fetchDiscoverPage" => {
+            if generation == engine.state.runtime.get(GenerationKey::DiscoverPaging) {
+                engine.state.discover.paging.is_loading = false;
+                if result.status.is_ok() {
+                    engine.state.discover.paging.items = result
+                        .value
+                        .get("items")
+                        .cloned()
+                        .unwrap_or_else(|| serde_json::json!([]));
+                    engine.state.discover.paging.error = Value::Null;
+                } else {
+                    engine.state.discover.paging.error = normalize_error(result.error.clone());
                 }
             }
         }

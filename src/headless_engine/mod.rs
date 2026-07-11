@@ -442,6 +442,20 @@ impl HeadlessEngine {
                 profile,
                 language,
             ),
+            AppAction::DiscoverPageRequested {
+                transport_url,
+                content_type,
+                catalog_id,
+                skip,
+                genre,
+            } => discover::dispatch_discover_page(
+                self,
+                transport_url,
+                content_type,
+                catalog_id,
+                skip,
+                genre,
+            ),
             AppAction::CatalogPageRequested {
                 category_id,
                 transport_url,
@@ -605,7 +619,9 @@ impl HeadlessEngine {
 
             EffectKind::RunSearch => search::complete(self, generation, &result),
 
-            EffectKind::RunDiscover | EffectKind::ReadDiscoverCatalogFilters => {
+            EffectKind::RunDiscover
+            | EffectKind::ReadDiscoverCatalogFilters
+            | EffectKind::FetchDiscoverPage => {
                 discover::complete(self, effect_type, generation, &result)
             }
 
