@@ -481,10 +481,12 @@ pub(crate) fn torrent_is_playable_enough(status: &Value) -> bool {
         .or_else(|| status.get("preloadSize"))
         .and_then(Value::as_i64)
         .unwrap_or(0);
-    stat >= 3
-        || preload >= 100
-        || (preload_size > 0 && loaded_size >= preload_size)
-        || (preload_size <= 0 && loaded_size >= 512 * 1024)
+    let target = if preload_size > 0 {
+        preload_size.min(4 * 1024 * 1024)
+    } else {
+        512 * 1024
+    };
+    stat >= 3 || preload >= 100 || loaded_size >= target
 }
 
 pub(crate) fn torrent_status_key(status: &Value) -> &'static str {

@@ -928,6 +928,43 @@ pub(crate) fn text_matches_episode(text: &str, season: i32, episode: i32) -> boo
         || contains_spaced_episode(text, season, episode)
 }
 
+fn dash_episode_matches(text: &str, episode: i32) -> Option<bool> {
+    let lower = text.to_ascii_lowercase();
+    let bytes = lower.as_bytes();
+    let mut found = false;
+    for index in 1..bytes.len() {
+        if bytes[index] != b'-' || !bytes[index - 1].is_ascii_whitespace() {
+            continue;
+        }
+        let mut cursor = index + 1;
+        while cursor < bytes.len() && bytes[cursor].is_ascii_whitespace() {
+            cursor += 1;
+        }
+        let start = cursor;
+        while cursor < bytes.len() && bytes[cursor].is_ascii_digit() {
+            cursor += 1;
+        }
+        let length = cursor.saturating_sub(start);
+        if length == 0 || length > 3 {
+            continue;
+        }
+        if cursor < bytes.len()
+            && bytes[cursor].is_ascii_alphabetic()
+            && !(bytes[cursor] == b'v' && cursor + 1 < bytes.len() && bytes[cursor + 1].is_ascii_digit())
+        {
+            continue;
+        }
+        let Ok(candidate) = lower[start..cursor].parse::<i32>() else {
+            continue;
+        };
+        found = true;
+        if candidate == episode {
+            return Some(true);
+        }
+    }
+    found.then_some(false)
+}
+
 pub(crate) fn stream_matches_episode(video_id: &str, fields: &[String]) -> bool {
     let Some((_, season, episode)) = parse_episode_locator(video_id) else {
         return true;
@@ -943,6 +980,9 @@ pub(crate) fn stream_matches_episode(video_id: &str, fields: &[String]) -> bool 
     }
     if text_matches_episode(&text, season, episode) {
         return true;
+    }
+    if let Some(matches) = dash_episode_matches(&text, episode) {
+        return matches;
     }
     !contains_any_compact_episode(&text)
 }
@@ -1272,6 +1312,14 @@ mod tests {
             playback_intro_lookup_content_id("tt1234567:1:2"),
             "tt1234567"
         );
+    }
+
+    #[test]
+    fn stream_matching_uses_torrent_filename_episode_suffix() {
+        let e1 = "[SubsPlease] Sousou no Frieren - 01v2 (1080p) [AAA94036].mkv".to_string();
+        let e2 = "[SubsPlease] Sousou no Frieren - 02v2 (1080p) [00DB7386].mkv".to_string();
+        assert!(!stream_matches_episode("tt123:1:2", &[e1]));
+        assert!(stream_matches_episode("tt123:1:2", &[e2]));
     }
 
     #[test]

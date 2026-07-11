@@ -1031,10 +1031,22 @@ pub(crate) fn select_next_episode_stream_json(
         }
     }
 
+    if let Some(addon_name) = current
+        .get("addonName")
+        .and_then(Value::as_str)
+        .filter(|value| !value.is_empty())
+    {
+        if let Some(matched) = streams.iter().find(|stream| {
+            stream.get("addonName").and_then(Value::as_str) == Some(addon_name)
+                && episode_ok(stream)
+        }) {
+            return serde_json::to_string(matched).ok();
+        }
+    }
+
     streams
         .iter()
         .find(|s| episode_ok(s))
-        .or_else(|| streams.first())
         .and_then(|s| serde_json::to_string(s).ok())
 }
 

@@ -5,6 +5,7 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use librqbit::api::{TorrentDetailsResponse, TorrentIdOrHash};
+use librqbit::dht::PersistentDhtConfig;
 use librqbit::{
     AddTorrent, AddTorrentOptions, Api, PeerConnectionOptions, Session, SessionOptions,
     TorrentStatsState,
@@ -62,6 +63,7 @@ struct EngineState {
     preload_size: Arc<Mutex<u64>>,
     known_links: Arc<Mutex<HashMap<String, usize>>>,
     prioritized_files: Arc<Mutex<HashMap<usize, usize>>>,
+    pending_adds: Arc<Mutex<HashSet<String>>>,
     stream_progress: Arc<Mutex<HashMap<String, u64>>>,
     access_token: Arc<String>,
     // Serializes the check-then-add sequence in ensure_torrent so two
@@ -89,37 +91,51 @@ fn debug_log(message: impl AsRef<str>) {
     }
 }
 
+fn join_with_timeout(thread: thread::JoinHandle<()>, timeout: Duration) {
+    let (done_tx, done_rx) = std::sync::mpsc::channel::<()>();
+    thread::spawn(move || {
+        let _ = thread.join();
+        let _ = done_tx.send(());
+    });
+    if done_rx.recv_timeout(timeout).is_err() {
+        debug_log(format!(
+            "[TorrServer] teardown did not finish within {timeout:?}, continuing without waiting"
+        ));
+    }
+}
+
 pub fn start_torrent_server(
     cache_dir: &str,
     preferred_port: i32,
     access_token: &str,
 ) -> Option<String> {
-    // Stop any existing server first. The mutex is the single source of truth
-    // for whether the server is running — no separate AtomicBool needed.
-    {
-        let mut guard = torrent_server_handle().lock().ok()?;
-        if let Some(mut handle) = guard.take() {
-            let teardown_start = std::time::Instant::now();
-            if let Some(stop) = handle.stop.take() {
-                let _ = stop.send(());
-            }
-            if let Some(thread) = handle.thread.take() {
-                let _ = thread.join();
-            }
-            debug_log(format!(
-                "[TorrServer] previous server torn down in {:?}",
-                teardown_start.elapsed()
-            ));
+    let mut guard = torrent_server_handle().lock().ok()?;
+    if let Some(mut handle) = guard.take() {
+        let teardown_start = std::time::Instant::now();
+        if let Some(stop) = handle.stop.take() {
+            let _ = stop.send(());
         }
+        if let Some(thread) = handle.thread.take() {
+            join_with_timeout(thread, Duration::from_secs(5));
+        }
+        debug_log(format!(
+            "[TorrServer] previous server torn down in {:?}",
+            teardown_start.elapsed()
+        ));
     }
     let bootstrap_start = std::time::Instant::now();
 
     let cache_dir = PathBuf::from(cache_dir);
     std::fs::create_dir_all(&cache_dir).ok()?;
+    let dht_config = PersistentDhtConfig {
+        dump_interval: Some(Duration::from_secs(1)),
+        config_filename: Some(cache_dir.parent()?.join("torrent-dht.json")),
+    };
     let bind_port = preferred_port.clamp(0, u16::MAX as i32) as u16;
     let (stop_tx, stop_rx) = oneshot::channel::<()>();
     let (ready_tx, ready_rx) = std::sync::mpsc::channel::<Result<u16, String>>();
     let thread_cache_dir = cache_dir.clone();
+    let thread_dht_config = dht_config;
     let thread_access_token = access_token.trim().to_string();
 
     let thread = thread::spawn(move || {
@@ -140,9 +156,11 @@ pub fn start_torrent_server(
 
         runtime.block_on(async move {
             let options = SessionOptions {
-                disable_dht_persistence: true,
+                disable_dht_persistence: false,
+                dht_config: Some(thread_dht_config),
                 defer_writes_up_to: Some(64),
                 listen_port_range: Some(49152..65535),
+                enable_upnp_port_forwarding: true,
                 disable_upload: true,
                 concurrent_init_limit: Some(2),
                 trackers: [
@@ -198,10 +216,12 @@ pub fn start_torrent_server(
                 preload_size: Arc::new(Mutex::new(10 * 1024 * 1024)),
                 known_links: Arc::new(Mutex::new(HashMap::new())),
                 prioritized_files: Arc::new(Mutex::new(HashMap::new())),
+                pending_adds: Arc::new(Mutex::new(HashSet::new())),
                 stream_progress: Arc::new(Mutex::new(HashMap::new())),
                 access_token: Arc::new(thread_access_token),
                 add_lock: Arc::new(AsyncMutex::new(())),
             };
+            tokio::spawn(peer_stats_logger(state.clone()));
             let app = Router::new()
                 .route("/", get(root))
                 .route("/health", get(health))
@@ -213,13 +233,14 @@ pub fn start_torrent_server(
             let server = axum::serve(
                 listener,
                 app.into_make_service_with_connect_info::<SocketAddr>(),
-            )
-            .with_graceful_shutdown(async move {
-                let _ = stop_rx.await;
-            });
+            );
             let _ = ready_tx.send(Ok(port));
-            let _ = server.await;
+            tokio::select! {
+                _ = server => {}
+                _ = stop_rx => {}
+            }
         });
+        runtime.shutdown_timeout(Duration::from_secs(2));
     });
 
     match ready_rx.recv_timeout(Duration::from_secs(20)) {
@@ -229,7 +250,7 @@ pub fn start_torrent_server(
                 bootstrap_start.elapsed()
             ));
             let generation = TORRENT_GENERATION.fetch_add(1, Ordering::SeqCst) + 1;
-            *torrent_server_handle().lock().ok()? = Some(TorrentServerHandle {
+            *guard = Some(TorrentServerHandle {
                 generation,
                 stop: Some(stop_tx),
                 thread: Some(thread),
@@ -245,7 +266,7 @@ pub fn start_torrent_server(
         Ok(Err(error)) => {
             debug_log(format!("[TorrServer] startup failed: {error}"));
             let _ = stop_tx.send(());
-            let _ = thread.join();
+            join_with_timeout(thread, Duration::from_secs(5));
             None
         }
         Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
@@ -254,7 +275,7 @@ pub fn start_torrent_server(
             None
         }
         Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
-            let _ = thread.join();
+            join_with_timeout(thread, Duration::from_secs(5));
             None
         }
     }
@@ -278,14 +299,57 @@ pub fn stop_torrent_server(expected_generation: Option<u64>) -> bool {
     let Some(mut handle) = guard.take() else {
         return false;
     };
-    drop(guard);
     if let Some(stop) = handle.stop.take() {
         let _ = stop.send(());
     }
     if let Some(thread) = handle.thread.take() {
-        let _ = thread.join();
+        join_with_timeout(thread, Duration::from_secs(5));
     }
     true
+}
+
+// Independent of UI stat polling, so the timeline is complete even if the
+// frontend isn't actively hitting /stream/fname?stat. One line per known
+// torrent every 2s, gated behind FLUXA_TORRENT_DEBUG like everything else
+// here — meant to be diffed against Stremio/TorrServer runs to see whether
+// peer discovery plateaus (queued/live flat) or throughput per peer is the
+// bottleneck (live steady, download_speed low).
+async fn peer_stats_logger(state: EngineState) {
+    if std::env::var_os("FLUXA_TORRENT_DEBUG").is_none() {
+        return;
+    }
+    loop {
+        tokio::time::sleep(Duration::from_secs(2)).await;
+        let ids: HashSet<usize> = state
+            .known_links
+            .lock()
+            .map(|links| links.values().copied().collect())
+            .unwrap_or_default();
+        for id in ids {
+            let Ok(stats) = state.api.api_stats_v1(TorrentIdOrHash::Id(id)) else {
+                continue;
+            };
+            let peers = stats.live.as_ref().map(|live| &live.snapshot.peer_stats);
+            let download_bps = stats
+                .live
+                .as_ref()
+                .map(|live| live.download_speed.mbps * 1024.0 * 1024.0)
+                .unwrap_or(0.0);
+            debug_log(format!(
+                "[TorrServer][peers] torrent={id} state={:?} queued={} connecting={} live={} seen={} dead={} steals={} down={download_bps:.0}B/s progress={}/{} uploaded={}",
+                stats.state,
+                peers.map(|p| p.queued).unwrap_or(0),
+                peers.map(|p| p.connecting).unwrap_or(0),
+                peers.map(|p| p.live).unwrap_or(0),
+                peers.map(|p| p.seen).unwrap_or(0),
+                peers.map(|p| p.dead).unwrap_or(0),
+                peers.map(|p| p.steals).unwrap_or(0),
+                stats.progress_bytes,
+                stats.total_bytes,
+                stats.uploaded_bytes,
+            ));
+        }
+    }
 }
 
 async fn root() -> impl IntoResponse {
@@ -329,7 +393,7 @@ async fn torrents(
                 request.link.as_deref(),
                 request.title.as_deref(),
                 request.file_id,
-                Duration::from_secs(45),
+                Duration::from_secs(90),
             )
             .await
             {
@@ -354,20 +418,16 @@ async fn torrents(
             {
                 Some(id) => id,
                 None => {
-                    match ensure_torrent(
-                        &state,
-                        request.link.as_deref(),
-                        request.title.as_deref(),
-                        request.file_id,
-                        Duration::from_secs(45),
-                    )
-                    .await
-                    {
-                        Ok((id, _)) => id,
-                        Err(error) => return error_response(StatusCode::BAD_REQUEST, error),
-                    }
+                    let resolving = request
+                        .link
+                        .as_deref()
+                        .is_some_and(|link| add_is_pending(&state, link));
+                    return Json(empty_status_json(resolving)).into_response();
                 }
             };
+            if let Some(file_id) = request.file_id {
+                prioritize_stream_file(&state, id, file_id).await;
+            }
             status_response(&state, id, None, request.file_id)
                 .await
                 .into_response()
@@ -376,8 +436,14 @@ async fn torrents(
             if let Some(id) = lookup_known_link(&state, request.link.as_deref()) {
                 let _ = state
                     .api
-                    .api_torrent_action_forget(TorrentIdOrHash::Id(id))
+                    .api_torrent_action_delete(TorrentIdOrHash::Id(id))
                     .await;
+                if let Ok(mut links) = state.known_links.lock() {
+                    links.retain(|_, known_id| *known_id != id);
+                }
+                if let Ok(mut files) = state.prioritized_files.lock() {
+                    files.remove(&id);
+                }
             }
             Json(json!({})).into_response()
         }
@@ -412,7 +478,7 @@ async fn stream_fname(
                 .await
                 .into_response();
         }
-        return Json(empty_status_json()).into_response();
+        return Json(empty_status_json(add_is_pending(&state, &query.link))).into_response();
     }
 
     // Stream request: ensure_torrent does its own add+lookup. Calling it
@@ -424,7 +490,7 @@ async fn stream_fname(
         Some(&query.link),
         query.title.as_deref(),
         query.index,
-        Duration::from_secs(45),
+        Duration::from_secs(90),
     )
     .await
     {
@@ -546,6 +612,8 @@ async fn ensure_torrent(
         return Ok((id, details));
     }
 
+    let _pending_guard = PendingAddGuard::new(state, link);
+
     // Hold the add lock for the rest of this function so a second caller
     // that loses the race blocks here instead of also calling
     // api_add_torrent, then re-check known_links in case the first caller
@@ -572,7 +640,7 @@ async fn ensure_torrent(
         overwrite: true,
         output_folder: Some(state.output_dir.to_string_lossy().into_owned()),
         peer_opts: Some(PeerConnectionOptions {
-            connect_timeout: Some(Duration::from_secs(5)),
+            connect_timeout: Some(Duration::from_millis(2500)),
             read_write_timeout: Some(Duration::from_secs(20)),
             ..Default::default()
         }),
@@ -583,6 +651,7 @@ async fn ensure_torrent(
     if let Some(file_id) = only_file {
         options.only_files = Some(vec![file_id]);
     }
+    let add_started = std::time::Instant::now();
     let response = tokio::time::timeout(
         metadata_timeout,
         state
@@ -590,11 +659,22 @@ async fn ensure_torrent(
             .api_add_torrent(AddTorrent::Url(link.to_string().into()), Some(options)),
     )
     .await
-    .map_err(|_| "torrent metadata timed out".to_string())?
+    .map_err(|_| {
+        debug_log(format!(
+            "[TorrServer][timing] metadata timed out after {:?} link={}",
+            add_started.elapsed(),
+            &link[..link.len().min(80)]
+        ));
+        "torrent metadata timed out".to_string()
+    })?
     .map_err(|error| format!("{error:#}"))?;
     let id = response
         .id
         .ok_or_else(|| "torrent metadata is not ready".to_string())?;
+    debug_log(format!(
+        "[TorrServer][timing] metadata ready in {:?} torrent={id}",
+        add_started.elapsed()
+    ));
     remember_link(state, link, id);
     if let Some(title) = title {
         remember_link(state, title, id);
@@ -624,7 +704,7 @@ fn streamed_size_for(state: &EngineState, id: usize, file_id: Option<usize>) -> 
         .unwrap_or(0)
 }
 
-fn empty_status_json() -> Value {
+fn empty_status_json(resolving: bool) -> Value {
     json!({
         "hash": "",
         "title": "",
@@ -633,7 +713,8 @@ fn empty_status_json() -> Value {
         "total_peers": 0,
         "progress": 0.0,
         "stat": 0,
-        "stat_string": "initializing",
+        "stat_string": if resolving { "resolving" } else { "initializing" },
+        "resolving": resolving,
         "preload": 0,
         "loaded_size": 0,
         "streamed_size": 0,
@@ -642,11 +723,45 @@ fn empty_status_json() -> Value {
     })
 }
 
+struct PendingAddGuard {
+    pending: Arc<Mutex<HashSet<String>>>,
+    link: String,
+}
+
+impl PendingAddGuard {
+    fn new(state: &EngineState, link: &str) -> Self {
+        if let Ok(mut pending) = state.pending_adds.lock() {
+            pending.insert(link.to_string());
+        }
+        Self {
+            pending: state.pending_adds.clone(),
+            link: link.to_string(),
+        }
+    }
+}
+
+impl Drop for PendingAddGuard {
+    fn drop(&mut self) {
+        if let Ok(mut pending) = self.pending.lock() {
+            pending.remove(&self.link);
+        }
+    }
+}
+
+fn add_is_pending(state: &EngineState, link: &str) -> bool {
+    state
+        .pending_adds
+        .lock()
+        .map(|pending| pending.contains(link.trim()))
+        .unwrap_or(false)
+}
+
 struct CountingReader<R> {
     inner: R,
     progress: Arc<Mutex<HashMap<String, u64>>>,
     key: String,
     counted: u64,
+    started: std::time::Instant,
 }
 
 impl<R> CountingReader<R> {
@@ -656,6 +771,7 @@ impl<R> CountingReader<R> {
             progress,
             key,
             counted: 0,
+            started: std::time::Instant::now(),
         }
     }
 }
@@ -672,6 +788,13 @@ impl<R: AsyncRead + Unpin> AsyncRead for CountingReader<R> {
         if let Poll::Ready(Ok(())) = &result {
             let delta = (buf.filled().len() - before) as u64;
             if delta > 0 {
+                if this.counted == 0 {
+                    debug_log(format!(
+                        "[TorrServer][timing] first byte in {:?} key={}",
+                        this.started.elapsed(),
+                        this.key
+                    ));
+                }
                 this.counted = this.counted.saturating_add(delta);
                 if let Ok(mut map) = this.progress.lock() {
                     map.insert(this.key.clone(), this.counted);
@@ -754,6 +877,7 @@ async fn status_response(
         "progress": progress,
         "stat": stat,
         "stat_string": stats.as_ref().map(|stats| stats.state.to_string()).unwrap_or_else(|| "initializing".to_string()),
+        "error": stats.as_ref().and_then(|stats| stats.error.as_deref()),
         "preload": if preload_size == 0 { 0 } else { ((progress_loaded_size as f64 / preload_size as f64) * 100.0).round() as i64 },
         "loaded_size": loaded_size,
         "streamed_size": streamed_size,

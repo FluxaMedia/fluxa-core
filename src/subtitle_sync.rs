@@ -19,6 +19,42 @@ struct Interval {
     end: f64,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SubtitleCueRequest {
+    subtitle_text: String,
+    current_time: f64,
+    #[serde(default = "default_cue_window")]
+    window_seconds: f64,
+}
+
+#[derive(Clone)]
+struct SubtitleCue {
+    start: f64,
+    end: f64,
+    text: String,
+}
+
+fn default_cue_window() -> f64 {
+    30.0
+}
+
+pub(crate) fn subtitle_cues_around_time_json(request_json: &str) -> Option<String> {
+    let request = serde_json::from_str::<SubtitleCueRequest>(request_json).ok()?;
+    if !request.current_time.is_finite() {
+        return None;
+    }
+    let window = request.window_seconds.clamp(5.0, 120.0);
+    let cues = parse_subtitle_cues_with_text(&request.subtitle_text)
+        .into_iter()
+        .filter(|cue| {
+            cue.end >= request.current_time - window && cue.start <= request.current_time + window
+        })
+        .map(|cue| json!({ "start": cue.start, "end": cue.end, "text": cue.text }))
+        .collect::<Vec<_>>();
+    Some(json!({ "cues": cues }).to_string())
+}
+
 pub(crate) fn estimate_subtitle_delay_json(request_json: &str) -> Option<String> {
     let request = serde_json::from_str::<SubtitleSyncRequest>(request_json).ok()?;
     let subtitle_cues = if request.subtitle_text.trim().is_empty() {
@@ -78,21 +114,71 @@ pub(crate) fn estimate_subtitle_delay_json(request_json: &str) -> Option<String>
 }
 
 fn parse_subtitle_cues(text: &str) -> Vec<Interval> {
-    text.lines()
-        .filter_map(|line| {
-            if let Some((start, rest)) = line.split_once("-->") {
-                let end = rest.split_whitespace().next()?;
-                let start = parse_timestamp(start.trim())?;
-                let end = parse_timestamp(end.trim())?;
-                return (end > start).then_some(Interval { start, end });
-            }
-            let dialogue = line.trim().strip_prefix("Dialogue:")?;
-            let fields = dialogue.split(',').collect::<Vec<_>>();
-            let start = parse_timestamp(fields.get(1)?.trim())?;
-            let end = parse_timestamp(fields.get(2)?.trim())?;
-            (end > start).then_some(Interval { start, end })
+    parse_subtitle_cues_with_text(text)
+        .into_iter()
+        .map(|cue| Interval {
+            start: cue.start,
+            end: cue.end,
         })
         .collect()
+}
+
+fn parse_subtitle_cues_with_text(text: &str) -> Vec<SubtitleCue> {
+    let mut cues = Vec::new();
+    let lines = text.lines().collect::<Vec<_>>();
+    let mut index = 0;
+    while index < lines.len() {
+        let line = lines[index].trim();
+        if let Some(dialogue) = line.strip_prefix("Dialogue:") {
+            let fields = dialogue.splitn(10, ',').collect::<Vec<_>>();
+            if let (Some(start), Some(end), Some(text)) =
+                (fields.get(1), fields.get(2), fields.get(9))
+            {
+                if let (Some(start), Some(end)) =
+                    (parse_timestamp(start.trim()), parse_timestamp(end.trim()))
+                {
+                    if end > start {
+                        cues.push(SubtitleCue {
+                            start,
+                            end,
+                            text: text
+                                .replace("\\N", " ")
+                                .replace("{\\", "{")
+                                .trim()
+                                .to_string(),
+                        });
+                    }
+                }
+            }
+            index += 1;
+            continue;
+        }
+        if let Some((start, rest)) = line.split_once("-->") {
+            let end = rest
+                .split_whitespace()
+                .next()
+                .and_then(|value| parse_timestamp(value));
+            let start = parse_timestamp(start.trim());
+            index += 1;
+            let mut cue_text = Vec::new();
+            while index < lines.len() && !lines[index].trim().is_empty() {
+                cue_text.push(lines[index].trim());
+                index += 1;
+            }
+            if let (Some(start), Some(end)) = (start, end) {
+                if end > start {
+                    cues.push(SubtitleCue {
+                        start,
+                        end,
+                        text: cue_text.join(" "),
+                    });
+                }
+            }
+            continue;
+        }
+        index += 1;
+    }
+    cues
 }
 
 fn parse_timestamp(value: &str) -> Option<f64> {
