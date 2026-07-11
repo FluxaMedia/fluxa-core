@@ -226,6 +226,45 @@ pub(crate) fn parse_aniskip_results_json(results_json: &str) -> Option<String> {
     serde_json::to_string(&segments).ok()
 }
 
+pub(crate) fn parse_anime_skip_results_json(results_json: &str) -> Option<String> {
+    let data: Value = serde_json::from_str(results_json).ok()?;
+    let timestamps = data.as_array()?;
+
+    let mut points: Vec<(i64, &str)> = timestamps
+        .iter()
+        .filter_map(|t| {
+            let at = t.get("at").and_then(Value::as_f64)?;
+            let ty = t.get("type").and_then(|v| v.get("name")).and_then(Value::as_str)
+                .or_else(|| t.get("type").and_then(Value::as_str))?;
+            Some((normalize_time(at), ty))
+        })
+        .collect();
+    points.sort_by_key(|(at, _)| *at);
+
+    let segments: Vec<Value> = points
+        .windows(2)
+        .filter_map(|pair| {
+            let (start_ms, raw_type) = pair[0];
+            let (end_ms, _) = pair[1];
+            let seg_type = animeskip_type_to_skip_type(raw_type)?;
+            if end_ms <= start_ms {
+                return None;
+            }
+            Some(make_segment(seg_type, start_ms, end_ms))
+        })
+        .collect();
+    serde_json::to_string(&segments).ok()
+}
+
+fn animeskip_type_to_skip_type(raw: &str) -> Option<&'static str> {
+    match raw.to_lowercase().as_str() {
+        "intro" | "mixed intro" | "new intro" => Some("intro"),
+        "credits" | "mixed credits" | "new credits" => Some("outro"),
+        "recap" => Some("recap"),
+        _ => None,
+    }
+}
+
 pub(crate) fn unique_intro_segments_json(
     segments_a_json: &str,
     segments_b_json: &str,
