@@ -61,17 +61,25 @@ struct RunDiscoverPayload {
     language: String,
 }
 
-fn selected_catalog_page_source(catalogs: &Value, catalog_key: Option<&str>) -> (Option<String>, Option<String>) {
+fn selected_catalog_page_source(
+    catalogs: &Value,
+    catalog_key: Option<&str>,
+) -> (Option<String>, Option<String>) {
     let Some(catalog_key) = catalog_key else {
         return (None, None);
     };
     let Some(catalog) = catalogs.as_array().and_then(|catalogs| {
-        catalogs.iter().find(|catalog| catalog.get("key").and_then(Value::as_str) == Some(catalog_key))
+        catalogs
+            .iter()
+            .find(|catalog| catalog.get("key").and_then(Value::as_str) == Some(catalog_key))
     }) else {
         return (None, None);
     };
     (
-        catalog.get("transportUrl").and_then(Value::as_str).map(str::to_owned),
+        catalog
+            .get("transportUrl")
+            .and_then(Value::as_str)
+            .map(str::to_owned),
         catalog.get("id").and_then(Value::as_str).map(str::to_owned),
     )
 }
@@ -118,7 +126,11 @@ pub(super) fn dispatch_discover(
     let profile_value = profile.unwrap_or_else(|| engine.state.profile.active.clone());
     let profile_id = active_profile_id(&engine.state, &profile_value);
     let filters_value = filters.unwrap_or(Value::Null);
-    let initial_paging = initial_paging(&filters_value, &engine.state.discover.catalogs, &content_type);
+    let initial_paging = initial_paging(
+        &filters_value,
+        &engine.state.discover.catalogs,
+        &content_type,
+    );
     *engine.state.discover = DiscoverState {
         content_type: content_type.clone(),
         filters: filters_value.clone(),
@@ -292,7 +304,13 @@ pub(super) fn complete(
                         .unwrap_or_else(|| serde_json::json!([]));
                     engine.state.discover.paging.items = items.clone();
                     engine.state.discover.paging.error = Value::Null;
-                    if !engine.state.discover.initial_paging.transport_url.is_empty() {
+                    if !engine
+                        .state
+                        .discover
+                        .initial_paging
+                        .transport_url
+                        .is_empty()
+                    {
                         if let Some(results) = engine.state.discover.results.as_array_mut() {
                             results.extend(items.as_array().into_iter().flatten().cloned());
                         }

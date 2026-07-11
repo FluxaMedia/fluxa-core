@@ -1539,7 +1539,13 @@ mod tests {
             .unwrap(),
         )
         .unwrap();
-        assert_eq!(first_page["state"]["discover"]["results"].as_array().unwrap().len(), 1);
+        assert_eq!(
+            first_page["state"]["discover"]["results"]
+                .as_array()
+                .unwrap()
+                .len(),
+            1
+        );
         assert_eq!(first_page["effects"][0]["type"], "fetchDiscoverPage");
         assert_eq!(first_page["effects"][0]["payload"]["skip"], 20);
 
@@ -1556,7 +1562,13 @@ mod tests {
             .unwrap(),
         )
         .unwrap();
-        assert_eq!(second_page["state"]["discover"]["results"].as_array().unwrap().len(), 2);
+        assert_eq!(
+            second_page["state"]["discover"]["results"]
+                .as_array()
+                .unwrap()
+                .len(),
+            2
+        );
         assert_eq!(second_page["effects"][0]["payload"]["skip"], 40);
         assert!(destroy_headless_engine(handle));
     }

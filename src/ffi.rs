@@ -959,7 +959,9 @@ fn route_intro_segments(method: &str, args_json: &str) -> Outcome {
         // args_json IS the data JSON for single-arg methods
         "parseIntroDbSegments" => opt_json(intro_segments::parse_intro_db_segments_json(args_json)),
         "parseAniskipResults" => opt_json(intro_segments::parse_aniskip_results_json(args_json)),
-        "parseAnimeSkipResults" => opt_json(intro_segments::parse_anime_skip_results_json(args_json)),
+        "parseAnimeSkipResults" => {
+            opt_json(intro_segments::parse_anime_skip_results_json(args_json))
+        }
         "uniqueIntroSegments" => {
             let args = object(args_json)?;
             opt_json(intro_segments::unique_intro_segments_json(

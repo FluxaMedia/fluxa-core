@@ -317,7 +317,9 @@ pub(super) fn dispatch_streams(
     profile: Option<Value>,
 ) -> Vec<EffectEnvelope> {
     let request_key = format!("{content_type}:{}", request_ids.join(","));
-    if engine.state.detail.is_loading_streams && engine.state.detail.streams_request_key == request_key {
+    if engine.state.detail.is_loading_streams
+        && engine.state.detail.streams_request_key == request_key
+    {
         // Same episode already in flight — ignore the redundant request instead of
         // bumping the generation, which would orphan any addon results still on the way.
         return vec![];

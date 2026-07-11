@@ -234,7 +234,10 @@ pub(crate) fn parse_anime_skip_results_json(results_json: &str) -> Option<String
         .iter()
         .filter_map(|t| {
             let at = t.get("at").and_then(Value::as_f64)?;
-            let ty = t.get("type").and_then(|v| v.get("name")).and_then(Value::as_str)
+            let ty = t
+                .get("type")
+                .and_then(|v| v.get("name"))
+                .and_then(Value::as_str)
                 .or_else(|| t.get("type").and_then(Value::as_str))?;
             Some((normalize_time(at), ty))
         })

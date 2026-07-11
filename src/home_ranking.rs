@@ -917,8 +917,13 @@ fn resolve_folder_catalog_sources(folder: &Map<String, Value>, addons_json: &str
         if let Some(sources) = folder.get("sources").and_then(Value::as_array) {
             for source in sources {
                 let provider = source.get("provider").and_then(Value::as_str).unwrap_or("");
-                if (provider == "trakt" && source.get("traktListId").and_then(Value::as_i64).is_some())
-                    || (provider == "tmdb" && source.get("tmdbSourceType").and_then(Value::as_str).is_some())
+                if (provider == "trakt"
+                    && source.get("traktListId").and_then(Value::as_i64).is_some())
+                    || (provider == "tmdb"
+                        && source
+                            .get("tmdbSourceType")
+                            .and_then(Value::as_str)
+                            .is_some())
                 {
                     resolved.push(source.clone());
                 }

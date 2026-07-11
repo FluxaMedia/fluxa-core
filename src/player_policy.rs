@@ -965,7 +965,12 @@ pub(crate) fn select_next_episode_stream_json(
             .to_string();
         crate::content_identity::stream_matches_episode(
             next_video_id,
-            &[field("title"), field("name"), field("description"), filename],
+            &[
+                field("title"),
+                field("name"),
+                field("description"),
+                filename,
+            ],
         )
     };
 

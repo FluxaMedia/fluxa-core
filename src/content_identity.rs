@@ -950,7 +950,9 @@ fn dash_episode_matches(text: &str, episode: i32) -> Option<bool> {
         }
         if cursor < bytes.len()
             && bytes[cursor].is_ascii_alphabetic()
-            && !(bytes[cursor] == b'v' && cursor + 1 < bytes.len() && bytes[cursor + 1].is_ascii_digit())
+            && !(bytes[cursor] == b'v'
+                && cursor + 1 < bytes.len()
+                && bytes[cursor + 1].is_ascii_digit())
         {
             continue;
         }
