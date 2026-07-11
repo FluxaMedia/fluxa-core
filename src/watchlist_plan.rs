@@ -292,6 +292,36 @@ pub(crate) fn import_collections_json(raw_json: &str) -> Option<String> {
                     sources.push(json!({ "catalogId": fallback_id, "type": "movie" }));
                 }
             }
+            let nuvio_sources: Vec<Value> = folder.get("sources")
+                .and_then(Value::as_array)
+                .map(Vec::as_slice)
+                .unwrap_or(&[])
+                .iter()
+                .filter_map(|source| {
+                    let provider = source.get("provider")?.as_str()?.to_ascii_lowercase();
+                    match provider.as_str() {
+                        "trakt" if source.get("traktListId").and_then(Value::as_i64).is_some() => Some(json!({
+                            "provider": "trakt",
+                            "title": source.get("title").and_then(Value::as_str),
+                            "mediaType": source.get("mediaType").and_then(Value::as_str).unwrap_or("MOVIE"),
+                            "traktListId": source.get("traktListId"),
+                            "sortBy": source.get("sortBy").and_then(Value::as_str).unwrap_or("rank"),
+                            "sortHow": source.get("sortHow").and_then(Value::as_str).unwrap_or("asc"),
+                        })),
+                        "tmdb" if source.get("tmdbSourceType").and_then(Value::as_str).is_some() => Some(json!({
+                            "provider": "tmdb",
+                            "title": source.get("title").and_then(Value::as_str),
+                            "mediaType": source.get("mediaType").and_then(Value::as_str).unwrap_or("MOVIE"),
+                            "tmdbSourceType": source.get("tmdbSourceType"),
+                            "tmdbId": source.get("tmdbId"),
+                            "sortBy": source.get("sortBy").and_then(Value::as_str),
+                            "sortHow": source.get("sortHow").and_then(Value::as_str),
+                            "filters": source.get("filters").cloned().unwrap_or(Value::Null),
+                        })),
+                        _ => None,
+                    }
+                })
+                .collect();
 
             let cover_image_url = cleaned_artwork_url(pick_str(folder, &["coverImageUrl","coverUrl","coverImage","cover","poster","thumbnail","thumb"]));
             let image_url = cleaned_artwork_url(pick_str(folder, &["imageUrl","image","image_url","posterUrl","poster_url"]));
@@ -309,6 +339,7 @@ pub(crate) fn import_collections_json(raw_json: &str) -> Option<String> {
                 "hideTitle": folder.get("hideTitle").and_then(Value::as_bool).unwrap_or(false),
                 "focusGifEnabled": folder.get("focusGifEnabled").and_then(Value::as_bool).unwrap_or(true),
                 "catalogSources": if sources.is_empty() { Value::Null } else { json!(sources) },
+                "sources": if nuvio_sources.is_empty() { Value::Null } else { json!(nuvio_sources) },
                 "coverEmoji": folder.get("coverEmoji").and_then(Value::as_str),
                 "imageUrl": effective_cover,
                 "coverImageUrl": effective_cover,
@@ -355,6 +386,7 @@ pub(crate) fn export_collections_json(collections_json: &str) -> Option<String> 
                         vec![]
                     }
                 });
+            let sources = folder.get("sources").cloned().unwrap_or(Value::Null);
             json!({
                 "id": folder.get("id"),
                 "title": folder.get("title"),
@@ -362,6 +394,7 @@ pub(crate) fn export_collections_json(collections_json: &str) -> Option<String> 
                 "hideTitle": folder.get("hideTitle").and_then(Value::as_bool).unwrap_or(false),
                 "focusGifEnabled": folder.get("focusGifEnabled").and_then(Value::as_bool).unwrap_or(true),
                 "catalogSources": catalog_sources,
+                "sources": sources,
                 "coverEmoji": folder.get("coverEmoji"),
                 "coverImageUrl": folder.get("coverImageUrl").or_else(|| folder.get("imageUrl")),
                 "focusGifUrl": folder.get("focusGifUrl"),
@@ -441,6 +474,17 @@ mod tests {
         .unwrap();
         assert_eq!(result["isValid"], false);
         assert_eq!(result["validCollections"].as_array().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn imports_nuvio_trakt_sources_without_dropping_the_list_id() {
+        let result: Value = serde_json::from_str(
+            &import_collections_json(r#"[{"id":"streaming","title":"Streaming","folders":[{"id":"netflix","title":"Netflix","sources":[{"provider":"trakt","mediaType":"MOVIE","traktListId":34808160,"sortBy":"rank","sortHow":"asc"},{"provider":"trakt","mediaType":"TV","traktListId":34808679,"sortBy":"rank","sortHow":"asc"}]}]}]"#).unwrap(),
+        ).unwrap();
+        let sources = result[0]["folders"][0]["sources"].as_array().unwrap();
+        assert_eq!(sources.len(), 2);
+        assert_eq!(sources[0]["traktListId"], 34808160);
+        assert_eq!(sources[1]["mediaType"], "TV");
     }
 
     #[test]

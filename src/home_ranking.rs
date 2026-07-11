@@ -914,6 +914,19 @@ fn resolve_folder_catalog_sources(folder: &Map<String, Value>, addons_json: &str
     }
 
     if resolved.is_empty() {
+        if let Some(sources) = folder.get("sources").and_then(Value::as_array) {
+            for source in sources {
+                let provider = source.get("provider").and_then(Value::as_str).unwrap_or("");
+                if (provider == "trakt" && source.get("traktListId").and_then(Value::as_i64).is_some())
+                    || (provider == "tmdb" && source.get("tmdbSourceType").and_then(Value::as_str).is_some())
+                {
+                    resolved.push(source.clone());
+                }
+            }
+        }
+    }
+
+    if resolved.is_empty() {
         if let Some(catalog_id) = folder.get("catalogId").and_then(Value::as_str) {
             let src = json!({ "catalogId": catalog_id, "type": "movie" });
             if let Some(t_url) = resolve_transport_url_json(&src.to_string(), addons_json)
