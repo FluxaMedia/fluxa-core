@@ -40,6 +40,7 @@ pub(super) fn dispatch_external_sync(
     profile: Option<Value>,
     language: Option<String>,
 ) -> Vec<EffectEnvelope> {
+    let provider = provider.trim().to_ascii_lowercase();
     let generation = engine.bump_generation(GenerationKey::Sync);
     let profile_value = profile.unwrap_or_else(|| engine.state.profile.active.clone());
     let profile_id = active_profile_id(&engine.state, &profile_value);
@@ -50,6 +51,16 @@ pub(super) fn dispatch_external_sync(
         error: Value::Null,
         generation,
     };
+    if provider == "nuvio"
+        && profile_value
+            .get("nuvioAccessToken")
+            .and_then(Value::as_str)
+            .is_none_or(str::is_empty)
+    {
+        engine.state.sync.is_loading = false;
+        engine.state.sync.error = serde_json::json!({ "code": "nuvio_not_connected" });
+        return vec![];
+    }
     vec![engine.effect(
         EffectKind::RunExternalSync,
         generation,

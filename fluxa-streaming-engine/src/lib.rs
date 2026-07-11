@@ -2,8 +2,6 @@ mod chapters;
 mod dv_rewrite;
 mod local_stream;
 mod torrent_engine;
-#[cfg(feature = "native")]
-mod youtube_trailer;
 
 #[cfg(feature = "native")]
 pub mod companion_server;
@@ -18,7 +16,3 @@ pub mod bindings;
 
 #[cfg(feature = "native")]
 pub use torrent_engine::{start_torrent_server, stop_torrent_server};
-#[cfg(feature = "native")]
-pub use youtube_trailer::{
-    prewarm_youtube_watch_config, resolve_youtube_trailer_json, resolve_youtube_trailer_stream_url,
-};

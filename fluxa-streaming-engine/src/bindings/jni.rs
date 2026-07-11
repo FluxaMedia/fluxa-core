@@ -5,7 +5,6 @@ use crate::dv_rewrite::{
 };
 use crate::local_stream::{start_local_stream_server, stop_local_stream_server};
 use crate::torrent_engine;
-use crate::youtube_trailer::resolve_youtube_trailer_json;
 use jni::objects::{JByteArray, JClass, JString};
 use jni::sys::{jboolean, jbyteArray, jint, jstring};
 use jni::JNIEnv;
@@ -116,26 +115,6 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaStreamingNative_
         let output = read_jstring(&mut env, &cache_dir).and_then(|cache_dir| {
             let access_token = read_jstring(&mut env, &access_token).unwrap_or_default();
             torrent_engine::start_torrent_server(&cache_dir, preferred_port, &access_token)
-        });
-        write_jstring(&mut env, output)
-    }))
-    .unwrap_or(ptr::null_mut())
-}
-
-#[no_mangle]
-/// # Safety
-/// Called by the JVM with JNI-managed arguments. The function validates JNI
-/// conversions, catches panics, and returns null on failure.
-pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaStreamingNative_resolveYoutubeTrailerJsonNative(
-    mut env: JNIEnv<'_>,
-    _class: JObject<'_>,
-    video_id: JString<'_>,
-    cache_dir: JString<'_>,
-) -> JStringReturn {
-    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        let output = read_jstring(&mut env, &video_id).and_then(|video_id| {
-            let cache_dir = read_jstring(&mut env, &cache_dir).unwrap_or_default();
-            resolve_youtube_trailer_json(&video_id, &cache_dir)
         });
         write_jstring(&mut env, output)
     }))
