@@ -255,7 +255,10 @@ pub(crate) fn discover_catalog_options_json(
     selected_type: &str,
 ) -> Option<String> {
     let addons = serde_json::from_str::<Vec<Value>>(addons_json).ok()?;
-    let normalized_type = selected_type.to_lowercase();
+    let lower_selected_type = selected_type.to_lowercase();
+    let normalized_type = content_identity::normalize_content_type(&lower_selected_type)
+        .map(str::to_string)
+        .unwrap_or(lower_selected_type);
     let mut options = Vec::new();
     for addon in addons {
         let Some(manifest) = manifest_value(&addon) else {

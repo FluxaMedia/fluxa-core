@@ -470,7 +470,8 @@ pub(crate) fn stable_feed_part(value: &str) -> String {
 pub(crate) fn normalize_content_type(value: &str) -> Option<&'static str> {
     match value.to_lowercase().as_str() {
         "movie" | "movies" => Some("movie"),
-        "series" | "tv" | "show" | "shows" | "anime" => Some("series"),
+        "series" | "tv" | "show" | "shows" => Some("series"),
+        "anime" => Some("anime"),
         _ => None,
     }
 }
