@@ -464,6 +464,18 @@ mod tests {
     }
 
     #[test]
+    fn progress_meta_merge_keeps_existing_art_when_incoming_is_blank() {
+        let merged = merge_progress_meta_json(
+            r#"{"id":"tt1","poster":"","background":"","logo":""}"#,
+            r#"{"id":"tt1","poster":"p.jpg","background":"b.jpg","logo":"l.png"}"#,
+        );
+        let result: Value = serde_json::from_str(&merged).unwrap();
+        assert_eq!(result["poster"], "p.jpg");
+        assert_eq!(result["background"], "b.jpg");
+        assert_eq!(result["logo"], "l.png");
+    }
+
+    #[test]
     fn collection_import_validation_rejects_missing_id() {
         let result: Value = serde_json::from_str(
             &library_collection_import_validation_json(
@@ -598,10 +610,12 @@ pub(crate) fn merge_progress_meta_json(
     let incoming: Value = serde_json::from_str(incoming_meta_json).unwrap_or(json!({}));
     let existing: Value = serde_json::from_str(existing_meta_json).unwrap_or(json!({}));
 
+    let is_present = |v: &Value| !v.is_null() && v.as_str() != Some("");
+
     let pick = |key: &str| -> Value {
         incoming
             .get(key)
-            .filter(|v| !v.is_null())
+            .filter(|v| is_present(v))
             .cloned()
             .or_else(|| existing.get(key).cloned())
             .unwrap_or(Value::Null)
