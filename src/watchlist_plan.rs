@@ -252,6 +252,16 @@ fn stable_suffix(seed: &str) -> u64 {
     h
 }
 
+fn merge_object(raw: &serde_json::Map<String, Value>, normalized: Value) -> Value {
+    let mut merged = raw.clone();
+    if let Some(normalized) = normalized.as_object() {
+        for (key, value) in normalized {
+            merged.insert(key.clone(), value.clone());
+        }
+    }
+    Value::Object(merged)
+}
+
 pub(crate) fn import_collections_json(raw_json: &str) -> Option<String> {
     let parsed: Value = serde_json::from_str(raw_json).ok()?;
     let arr: Vec<&Value> = match parsed.as_array() {
@@ -284,6 +294,7 @@ pub(crate) fn import_collections_json(raw_json: &str) -> Option<String> {
                     "catalogId": catalog_id,
                     "type": o.get("type").and_then(Value::as_str).unwrap_or("movie"),
                     "addonId": o.get("addonId").and_then(Value::as_str),
+                    "genre": o.get("genre").and_then(Value::as_str),
                 }))
             }).collect();
 
@@ -306,8 +317,8 @@ pub(crate) fn import_collections_json(raw_json: &str) -> Option<String> {
                             "mediaType": source.get("mediaType").and_then(Value::as_str).unwrap_or("MOVIE"),
                             "traktListId": source.get("traktListId"),
                             "sortBy": source.get("sortBy").and_then(Value::as_str).unwrap_or("rank"),
-                            "sortHow": source.get("sortHow").and_then(Value::as_str).unwrap_or("asc"),
-                        })),
+                        "sortHow": source.get("sortHow").and_then(Value::as_str).unwrap_or("asc"),
+                    })),
                         "tmdb" if source.get("tmdbSourceType").and_then(Value::as_str).is_some() => Some(json!({
                             "provider": "tmdb",
                             "title": source.get("title").and_then(Value::as_str),
@@ -317,6 +328,15 @@ pub(crate) fn import_collections_json(raw_json: &str) -> Option<String> {
                             "sortBy": source.get("sortBy").and_then(Value::as_str),
                             "sortHow": source.get("sortHow").and_then(Value::as_str),
                             "filters": source.get("filters").cloned().unwrap_or(Value::Null),
+                        })),
+                        _ if source.get("addonId").and_then(Value::as_str).is_some()
+                            && source.get("type").and_then(Value::as_str).is_some()
+                            && source.get("catalogId").and_then(Value::as_str).is_some() => Some(json!({
+                            "provider": "addon",
+                            "addonId": source.get("addonId"),
+                            "type": source.get("type"),
+                            "catalogId": source.get("catalogId"),
+                            "genre": source.get("genre").and_then(Value::as_str),
                         })),
                         _ => None,
                     }
@@ -329,7 +349,7 @@ pub(crate) fn import_collections_json(raw_json: &str) -> Option<String> {
             let hero_backdrop_url = cleaned_url(pick_str(folder, &["heroBackdropUrl","background","backdrop","backgroundUrl","backdropUrl"]));
             let shape = normalize_shape(folder.get("tileShape").or(folder.get("shape")).and_then(Value::as_str));
 
-            Some(json!({
+            Some(merge_object(folder, json!({
                 "id": fid,
                 "title": folder_title,
                 "catalogTitle": folder.get("catalogTitle").and_then(Value::as_str).unwrap_or(&folder_title),
@@ -338,15 +358,16 @@ pub(crate) fn import_collections_json(raw_json: &str) -> Option<String> {
                 "shape": shape,
                 "hideTitle": folder.get("hideTitle").and_then(Value::as_bool).unwrap_or(false),
                 "focusGifEnabled": folder.get("focusGifEnabled").and_then(Value::as_bool).unwrap_or(true),
-                "catalogSources": if sources.is_empty() { Value::Null } else { json!(sources) },
-                "sources": if nuvio_sources.is_empty() { Value::Null } else { json!(nuvio_sources) },
+                "catalogSources": folder.get("catalogSources").cloned().unwrap_or_else(|| if sources.is_empty() { Value::Null } else { json!(sources) }),
+                "sources": folder.get("sources").cloned().unwrap_or_else(|| if nuvio_sources.is_empty() { Value::Null } else { json!(nuvio_sources) }),
                 "coverEmoji": folder.get("coverEmoji").and_then(Value::as_str),
                 "imageUrl": effective_cover,
                 "coverImageUrl": effective_cover,
                 "focusGifUrl": cleaned_url(folder.get("focusGifUrl").and_then(Value::as_str)),
                 "titleLogoUrl": cleaned_url(folder.get("titleLogoUrl").and_then(Value::as_str)),
                 "heroBackdropUrl": hero_backdrop_url,
-            }))
+                "heroVideoUrl": cleaned_url(folder.get("heroVideoUrl").and_then(Value::as_str)),
+            })))
         }).collect();
 
         let first_folder_cover = raw_folders.first()
@@ -354,9 +375,10 @@ pub(crate) fn import_collections_json(raw_json: &str) -> Option<String> {
             .and_then(|f| cleaned_artwork_url(pick_str(f, &["coverImageUrl","coverUrl","coverImage","cover","poster","thumbnail","thumb"]))
                 .or_else(|| cleaned_artwork_url(pick_str(f, &["imageUrl","image","image_url","posterUrl","poster_url"]))));
 
-        Some(json!({
+        Some(merge_object(col, json!({
             "id": id,
             "title": title,
+            "backdropImageUrl": cleaned_url(col.get("backdropImageUrl").and_then(Value::as_str)),
             "imageUrl": first_folder_cover,
             "showOnHome": col.get("showOnHome").and_then(Value::as_bool).unwrap_or(true),
             "itemIds": [],
@@ -365,7 +387,7 @@ pub(crate) fn import_collections_json(raw_json: &str) -> Option<String> {
             "viewMode": col.get("viewMode").and_then(Value::as_str).unwrap_or("FOLLOW_LAYOUT"),
             "pinToTop": col.get("pinToTop").and_then(Value::as_bool).unwrap_or(false),
             "focusGlowEnabled": col.get("focusGlowEnabled").and_then(Value::as_bool).unwrap_or(true),
-        }))
+        })))
     }).collect();
 
     serde_json::to_string(&collections).ok()
@@ -373,45 +395,25 @@ pub(crate) fn import_collections_json(raw_json: &str) -> Option<String> {
 
 pub(crate) fn export_collections_json(collections_json: &str) -> Option<String> {
     let collections: Vec<Value> = serde_json::from_str(collections_json).ok()?;
-    let data: Vec<Value> = collections.iter().map(|col| {
-        let folders_raw = col.get("folders").and_then(Value::as_array).map(Vec::as_slice).unwrap_or(&[]);
-        let folders: Vec<Value> = folders_raw.iter().map(|folder| {
-            let catalog_sources: Vec<Value> = folder.get("catalogSources")
-                .and_then(Value::as_array)
-                .filter(|arr| !arr.is_empty()).cloned()
-                .unwrap_or_else(|| {
-                    if let Some(cid) = folder.get("catalogId").and_then(Value::as_str) {
-                        vec![json!({ "catalogId": cid, "type": "movie" })]
-                    } else {
-                        vec![]
-                    }
-                });
-            let sources = folder.get("sources").cloned().unwrap_or(Value::Null);
-            json!({
-                "id": folder.get("id"),
-                "title": folder.get("title"),
-                "tileShape": export_shape(folder.get("shape").and_then(Value::as_str)),
-                "hideTitle": folder.get("hideTitle").and_then(Value::as_bool).unwrap_or(false),
-                "focusGifEnabled": folder.get("focusGifEnabled").and_then(Value::as_bool).unwrap_or(true),
-                "catalogSources": catalog_sources,
-                "sources": sources,
-                "coverEmoji": folder.get("coverEmoji"),
-                "coverImageUrl": folder.get("coverImageUrl").or_else(|| folder.get("imageUrl")),
-                "focusGifUrl": folder.get("focusGifUrl"),
-                "titleLogoUrl": folder.get("titleLogoUrl"),
-                "heroBackdropUrl": folder.get("heroBackdropUrl"),
-            })
+    let data: Vec<Value> = collections.iter().filter_map(|collection| {
+        let mut collection = collection.as_object()?.clone();
+        let folders = collection.get("folders").and_then(Value::as_array)?.iter().filter_map(|folder| {
+            let mut folder = folder.as_object()?.clone();
+            let tile_shape = folder.get("tileShape").cloned().unwrap_or_else(|| {
+                Value::String(export_shape(folder.get("shape").and_then(Value::as_str)).to_string())
+            });
+            folder.insert("tileShape".to_string(), tile_shape);
+            folder.entry("hideTitle".to_string()).or_insert_with(|| Value::Bool(false));
+            folder.entry("focusGifEnabled".to_string()).or_insert_with(|| Value::Bool(true));
+            folder.entry("catalogSources".to_string()).or_insert_with(|| Value::Array(Vec::new()));
+            folder.entry("sources".to_string()).or_insert_with(|| Value::Array(Vec::new()));
+            Some(Value::Object(folder))
         }).collect();
-        json!({
-            "id": col.get("id"),
-            "title": col.get("title"),
-            "showAllTab": col.get("showAllTab").and_then(Value::as_bool).unwrap_or(true),
-            "viewMode": col.get("viewMode").and_then(Value::as_str).unwrap_or("FOLLOW_LAYOUT"),
-            "showOnHome": col.get("showOnHome").and_then(Value::as_bool).unwrap_or(true),
-            "pinToTop": col.get("pinToTop").and_then(Value::as_bool).unwrap_or(false),
-            "focusGlowEnabled": col.get("focusGlowEnabled").and_then(Value::as_bool).unwrap_or(true),
-            "folders": folders,
-        })
+        collection.insert("folders".to_string(), Value::Array(folders));
+        collection.entry("showAllTab".to_string()).or_insert_with(|| Value::Bool(true));
+        collection.entry("viewMode".to_string()).or_insert_with(|| Value::String("FOLLOW_LAYOUT".to_string()));
+        collection.entry("pinToTop".to_string()).or_insert_with(|| Value::Bool(false));
+        Some(Value::Object(collection))
     }).collect();
     serde_json::to_string(&data).ok()
 }
@@ -497,6 +499,39 @@ mod tests {
         assert_eq!(sources.len(), 2);
         assert_eq!(sources[0]["traktListId"], 34808160);
         assert_eq!(sources[1]["mediaType"], "TV");
+    }
+
+    #[test]
+    fn imports_nuvio_addon_sources_and_folder_artwork() {
+        let result: Value = serde_json::from_str(
+            &import_collections_json(r#"[{"id":"streaming","title":"Streaming","backdropImageUrl":"https://img.example/backdrop.jpg","folders":[{"id":"catalog","title":"Catalog","tileShape":"wide","heroVideoUrl":"https://video.example/hero.mp4","sources":[{"provider":"addon","addonId":"addon.example","type":"series","catalogId":"top","genre":"Drama"}]}]}]"#).unwrap(),
+        ).unwrap();
+        let collection = &result[0];
+        let folder = &collection["folders"][0];
+        assert_eq!(
+            collection["backdropImageUrl"],
+            "https://img.example/backdrop.jpg"
+        );
+        assert_eq!(folder["heroVideoUrl"], "https://video.example/hero.mp4");
+        assert_eq!(folder["shape"], "wide");
+        assert_eq!(folder["sources"][0]["addonId"], "addon.example");
+        assert_eq!(folder["sources"][0]["genre"], "Drama");
+    }
+
+    #[test]
+    fn nuvio_collection_round_trip_preserves_nested_fields() {
+        let input = r#"[{"id":"collection","title":"Collection","backdropImageUrl":"https://img.example/backdrop.jpg","futureCollectionField":{"enabled":true},"folders":[{"id":"folder","title":"Folder","tileShape":"wide","heroVideoUrl":"https://video.example/hero.mp4","futureFolderField":[1,2],"sources":[{"provider":"tmdb","tmdbSourceType":"LIST","tmdbId":42,"mediaType":"MOVIE","filters":{"withGenres":"28"},"futureSourceField":"kept"}]}]}]"#;
+        let imported = import_collections_json(input).expect("imported");
+        let exported = export_collections_json(&imported).expect("exported");
+        let result: Value = serde_json::from_str(&exported).expect("json");
+        let collection = &result[0];
+        let folder = &collection["folders"][0];
+
+        assert_eq!(collection["futureCollectionField"]["enabled"], true);
+        assert_eq!(folder["heroVideoUrl"], "https://video.example/hero.mp4");
+        assert_eq!(folder["futureFolderField"], json!([1, 2]));
+        assert_eq!(folder["sources"][0]["filters"]["withGenres"], "28");
+        assert_eq!(folder["sources"][0]["futureSourceField"], "kept");
     }
 
     #[test]

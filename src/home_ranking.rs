@@ -808,11 +808,7 @@ pub(crate) fn build_home_collection_shelves_json(
             Some(o) => o,
             None => continue,
         };
-        if !c
-            .get("showOnHome")
-            .and_then(Value::as_bool)
-            .unwrap_or(false)
-        {
+        if !c.get("showOnHome").and_then(Value::as_bool).unwrap_or(true) {
             continue;
         }
         let folders = c
@@ -889,44 +885,90 @@ pub(crate) fn build_home_collection_shelves_json(
     .ok()
 }
 
-// A folder's catalog sources, preferring its explicit catalogSources list and
-// falling back to a single source built from its own catalogId.
 fn resolve_folder_catalog_sources(folder: &Map<String, Value>, addons_json: &str) -> Vec<Value> {
-    let mut resolved: Vec<Value> = Vec::new();
-    if let Some(sources) = folder.get("catalogSources").and_then(Value::as_array) {
-        for s in sources {
-            if s.get("catalogId").and_then(Value::as_str).is_none() {
+    if let Some(sources) = folder
+        .get("sources")
+        .and_then(Value::as_array)
+        .filter(|sources| !sources.is_empty())
+    {
+        let mut resolved: Vec<Value> = Vec::new();
+        for source in sources {
+            let provider = source
+                .get("provider")
+                .and_then(Value::as_str)
+                .unwrap_or("addon")
+                .to_ascii_lowercase();
+            if (provider == "trakt" && source.get("traktListId").and_then(Value::as_i64).is_some())
+                || (provider == "tmdb"
+                    && source
+                        .get("tmdbSourceType")
+                        .and_then(Value::as_str)
+                        .is_some())
+            {
+                resolved.push(source.clone());
                 continue;
             }
-            if let Some(t_url) = resolve_transport_url_json(&s.to_string(), addons_json)
+            if provider == "trakt" || provider == "tmdb" {
+                continue;
+            }
+            if source.get("catalogId").and_then(Value::as_str).is_none() {
+                continue;
+            }
+            if let Some(t_url) = resolve_transport_url_json(&source.to_string(), addons_json)
                 .and_then(|json| serde_json::from_str::<String>(&json).ok())
             {
-                let catalog_id = s.get("catalogId").and_then(Value::as_str).unwrap_or("");
-                let content_type = s.get("type").and_then(Value::as_str).unwrap_or("movie");
+                let catalog_id = source
+                    .get("catalogId")
+                    .and_then(Value::as_str)
+                    .unwrap_or("");
+                let content_type = source
+                    .get("type")
+                    .and_then(Value::as_str)
+                    .unwrap_or("movie");
                 let mut entry =
                     json!({ "transportUrl": t_url, "catalogId": catalog_id, "type": content_type });
-                if let Some(g) = folder.get("genre").and_then(Value::as_str) {
-                    entry["genre"] = Value::String(g.to_string());
+                if let Some(genre) = source
+                    .get("genre")
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .filter(|genre| !genre.is_empty() && !genre.eq_ignore_ascii_case("none"))
+                {
+                    entry["genre"] = Value::String(genre.to_string());
                 }
                 resolved.push(entry);
             }
         }
+        return resolved;
     }
 
-    if resolved.is_empty() {
-        if let Some(sources) = folder.get("sources").and_then(Value::as_array) {
-            for source in sources {
-                let provider = source.get("provider").and_then(Value::as_str).unwrap_or("");
-                if (provider == "trakt"
-                    && source.get("traktListId").and_then(Value::as_i64).is_some())
-                    || (provider == "tmdb"
-                        && source
-                            .get("tmdbSourceType")
-                            .and_then(Value::as_str)
-                            .is_some())
+    let mut resolved: Vec<Value> = Vec::new();
+    if let Some(sources) = folder.get("catalogSources").and_then(Value::as_array) {
+        for source in sources {
+            if source.get("catalogId").and_then(Value::as_str).is_none() {
+                continue;
+            }
+            if let Some(t_url) = resolve_transport_url_json(&source.to_string(), addons_json)
+                .and_then(|json| serde_json::from_str::<String>(&json).ok())
+            {
+                let catalog_id = source
+                    .get("catalogId")
+                    .and_then(Value::as_str)
+                    .unwrap_or("");
+                let content_type = source
+                    .get("type")
+                    .and_then(Value::as_str)
+                    .unwrap_or("movie");
+                let mut entry =
+                    json!({ "transportUrl": t_url, "catalogId": catalog_id, "type": content_type });
+                if let Some(genre) = source
+                    .get("genre")
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .filter(|genre| !genre.is_empty() && !genre.eq_ignore_ascii_case("none"))
                 {
-                    resolved.push(source.clone());
+                    entry["genre"] = Value::String(genre.to_string());
                 }
+                resolved.push(entry);
             }
         }
     }
@@ -985,7 +1027,11 @@ fn folder_tile(folder_id: &str, folder_title: &str, folder: &Map<String, Value>)
         "name": folder_title,
         "poster": if img_url.is_empty() { Value::Null } else { Value::String(img_url.to_string()) },
         "background": if bg_url.is_empty() { Value::Null } else { Value::String(bg_url.to_string()) },
-        "reason": folder.get("shape").and_then(Value::as_str).unwrap_or("poster"),
+        "reason": folder
+            .get("shape")
+            .or_else(|| folder.get("tileShape"))
+            .and_then(Value::as_str)
+            .unwrap_or("poster"),
     });
     if let Some(logo) = folder.get("titleLogoUrl").and_then(Value::as_str) {
         tile["logo"] = Value::String(logo.to_string());
@@ -1063,5 +1109,89 @@ mod tests {
             hidden[0]["catalogSources"][0]["transportUrl"],
             "https://addon.example/manifest.json"
         );
+    }
+
+    #[test]
+    fn modern_nuvio_sources_take_precedence_over_legacy_catalog_sources() {
+        let folder = json!({
+            "sources": [{
+                "provider": "addon",
+                "addonId": "modern.addon",
+                "type": "series",
+                "catalogId": "modern",
+                "genre": "Drama",
+            }],
+            "catalogSources": [{
+                "addonId": "legacy.addon",
+                "type": "movie",
+                "catalogId": "legacy",
+            }],
+        });
+        let addons = json!([
+            {
+                "transportUrl": "https://modern.example/manifest.json",
+                "manifest": { "id": "modern.addon", "catalogs": [{ "id": "modern", "type": "series" }] },
+            },
+            {
+                "transportUrl": "https://legacy.example/manifest.json",
+                "manifest": { "id": "legacy.addon", "catalogs": [{ "id": "legacy", "type": "movie" }] },
+            },
+        ]);
+
+        let resolved = resolve_folder_catalog_sources(
+            folder.as_object().expect("folder"),
+            &addons.to_string(),
+        );
+
+        assert_eq!(resolved.len(), 1);
+        assert_eq!(resolved[0]["catalogId"], "modern");
+        assert_eq!(resolved[0]["type"], "series");
+        assert_eq!(resolved[0]["genre"], "Drama");
+        assert_eq!(
+            resolved[0]["transportUrl"],
+            "https://modern.example/manifest.json"
+        );
+    }
+
+    #[test]
+    fn modern_nuvio_remote_sources_are_preserved() {
+        let folder = json!({
+            "sources": [{
+                "provider": "trakt",
+                "traktListId": 123,
+                "mediaType": "TV",
+                "sortBy": "rank",
+                "sortHow": "asc",
+            }],
+            "catalogSources": [{ "catalogId": "legacy", "type": "movie" }],
+        });
+
+        let resolved = resolve_folder_catalog_sources(folder.as_object().expect("folder"), "[]");
+
+        assert_eq!(resolved, vec![folder["sources"][0].clone()]);
+    }
+
+    #[test]
+    fn empty_modern_sources_fall_back_to_legacy_catalog_sources() {
+        let folder = json!({
+            "sources": [],
+            "catalogSources": [{
+                "addonId": "addon.example",
+                "catalogId": "top",
+                "type": "movie",
+            }],
+        });
+        let addons = json!([{
+            "transportUrl": "https://addon.example/manifest.json",
+            "manifest": { "id": "addon.example", "catalogs": [{ "id": "top", "type": "movie" }] },
+        }]);
+
+        let resolved = resolve_folder_catalog_sources(
+            folder.as_object().expect("folder"),
+            &addons.to_string(),
+        );
+
+        assert_eq!(resolved.len(), 1);
+        assert_eq!(resolved[0]["catalogId"], "top");
     }
 }
