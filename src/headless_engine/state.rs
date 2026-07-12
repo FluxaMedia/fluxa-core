@@ -12,6 +12,7 @@ use super::profile::ProfileState;
 use super::search::SearchState;
 use super::settings::SettingsState;
 use super::sync::SyncState;
+use super::trailer::TrailerState;
 use crate::runtime::EffectEnvelope;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::ops::{Deref, DerefMut};
@@ -99,6 +100,7 @@ pub(super) enum GenerationKey {
     Lookup,
     PlaybackPrep,
     Intro,
+    Trailer,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
@@ -121,6 +123,7 @@ pub(super) struct RuntimeGenerations {
     lookup_generation: u64,
     playback_prep_generation: u64,
     intro_generation: u64,
+    trailer_generation: u64,
 }
 
 impl RuntimeGenerations {
@@ -143,6 +146,7 @@ impl RuntimeGenerations {
             GenerationKey::Lookup => self.lookup_generation,
             GenerationKey::PlaybackPrep => self.playback_prep_generation,
             GenerationKey::Intro => self.intro_generation,
+            GenerationKey::Trailer => self.trailer_generation,
         }
     }
 
@@ -165,6 +169,7 @@ impl RuntimeGenerations {
             GenerationKey::Lookup => &mut self.lookup_generation,
             GenerationKey::PlaybackPrep => &mut self.playback_prep_generation,
             GenerationKey::Intro => &mut self.intro_generation,
+            GenerationKey::Trailer => &mut self.trailer_generation,
         };
         *slot = slot.saturating_add(1);
         *slot
@@ -189,6 +194,7 @@ pub(super) struct EngineState {
     pub(super) sync: Tracked<SyncState>,
     pub(super) lookup: Tracked<LookupState>,
     pub(super) offline: Tracked<OfflineState>,
+    pub(super) trailer: Tracked<TrailerState>,
     pub(super) pending_effects: Tracked<Vec<EffectEnvelope>>,
     #[serde(rename = "_runtime")]
     pub(super) runtime: RuntimeGenerations,
@@ -212,6 +218,7 @@ impl EngineState {
             sync: self.sync.take_if_dirty(),
             lookup: self.lookup.take_if_dirty(),
             offline: self.offline.take_if_dirty(),
+            trailer: self.trailer.take_if_dirty(),
             pending_effects: self.pending_effects.take_if_dirty(),
         }
     }

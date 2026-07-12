@@ -321,6 +321,10 @@ pub(super) enum AppAction {
         profile_id: Option<String>,
         language: Option<String>,
     },
+    #[serde(rename = "trailerResolveRequested")]
+    TrailerResolveRequested { request_id: String, video_id: String },
+    #[serde(rename = "trailerPrewarmRequested")]
+    TrailerPrewarmRequested,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
@@ -392,6 +396,8 @@ pub(super) struct StatePatch {
     pub lookup: Option<super::detail::LookupState>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub offline: Option<super::offline::OfflineState>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub trailer: Option<super::trailer::TrailerState>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub pending_effects: Option<Vec<EffectEnvelope>>,
 }

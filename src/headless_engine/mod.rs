@@ -15,6 +15,7 @@ mod search;
 mod settings;
 mod state;
 mod sync;
+mod trailer;
 
 use crate::core_error::{CoreError, LogAndDiscard};
 use crate::runtime::{EffectEnvelope, EffectKind};
@@ -546,6 +547,10 @@ impl HeadlessEngine {
             } => offline::dispatch(
                 self, meta, stream, video_id, video, subtitle, profile_id, language,
             ),
+            AppAction::TrailerResolveRequested { request_id, video_id } => {
+                trailer::dispatch_resolve(self, request_id, video_id)
+            }
+            AppAction::TrailerPrewarmRequested => trailer::dispatch_prewarm(self),
         }
     }
 
@@ -639,6 +644,10 @@ impl HeadlessEngine {
             | EffectKind::ExchangeAuthCode
             | EffectKind::RefreshAuthToken => {
                 auth::complete(self, effect_type, generation, &result)
+            }
+
+            EffectKind::FetchYoutubeTrailerWatchConfig | EffectKind::FetchYoutubeTrailerPlayer => {
+                trailer::complete(self, effect_type, generation, &effect, &result)
             }
 
             EffectKind::UpdateCalendarWidget
