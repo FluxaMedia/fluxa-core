@@ -934,6 +934,34 @@ fn route_tmdb(method: &str, args_json: &str) -> Outcome {
                 field_str(&args, "language")?,
             )))
         }
+        "tmdbBuiltinManifest" => Ok(Value::String(tmdb_plan::tmdb_builtin_manifest_json())),
+        "tmdbBuiltinCatalogUrl" => {
+            let args = object(args_json)?;
+            Ok(Value::String(tmdb_plan::tmdb_builtin_catalog_url(
+                field_str(&args, "contentType")?,
+                field(&args, "extra")?,
+                field_str(&args, "apiKey")?,
+                field_str(&args, "language")?,
+            )))
+        }
+        "tmdbFullMetaToMeta" => {
+            let args = object(args_json)?;
+            opt_json(tmdb_plan::tmdb_full_meta_to_meta_json(
+                field_str(&args, "detailsJson")?,
+                field_str(&args, "creditsJson")?,
+                field_str(&args, "imagesJson")?,
+                field_str(&args, "externalIdsJson")?,
+                field_str(&args, "requestedType")?,
+                field_str(&args, "language")?,
+            ))
+        }
+        "tmdbEpisodesToVideos" => {
+            let args = object(args_json)?;
+            opt_json(tmdb_plan::tmdb_episodes_to_videos_json(
+                field_str(&args, "seasonJson")?,
+                field_str(&args, "seriesId")?,
+            ))
+        }
         "tmdbPeopleImagesFromCredits" => {
             let args = object(args_json)?;
             let empty: Vec<Value> = Vec::new();
