@@ -3,3 +3,7 @@ package_name = "com.fluxa.core.uniffi"
 android = true
 cdylib_name = "fluxa_core"
 kotlin_target_version = "2.3.0"
+
+[bindings.swift]
+module_name = "FluxaCore"
+cdylib_name = "fluxa_core"
