@@ -32,7 +32,7 @@ version = "0.1.0"
 edition = "2021"
 
 [lib]
-crate-type = ["cdylib", "rlib"]
+crate-type = ["cdylib", "staticlib", "rlib"]
 
 [lints]
 workspace = true
@@ -51,6 +51,7 @@ native = [
     "uniffi-bindings",
 ]
 desktop = ["full-api"]
+ios = ["full-api", "uniffi-bindings"]
 full-api = []
 streaming-shared = []
 uniffi-bindings = ["dep:uniffi", "full-api"]
