@@ -16,6 +16,7 @@ pub(super) struct DiscoverState {
     result_sources: Value,
     catalogs: Value,
     genres: Value,
+    content_types: Value,
     error: Value,
     generation: u64,
     paging: DiscoverPaging,
@@ -140,6 +141,7 @@ pub(super) fn dispatch_discover(
         result_sources: Value::Null,
         catalogs: engine.state.discover.catalogs.clone(),
         genres: engine.state.discover.genres.clone(),
+        content_types: engine.state.discover.content_types.clone(),
         error: Value::Null,
         generation,
         paging: DiscoverPaging::default(),
@@ -285,6 +287,11 @@ pub(super) fn complete(
                     engine.state.discover.genres = result
                         .value
                         .get("genres")
+                        .cloned()
+                        .unwrap_or_else(|| serde_json::json!([]));
+                    engine.state.discover.content_types = result
+                        .value
+                        .get("contentTypes")
                         .cloned()
                         .unwrap_or_else(|| serde_json::json!([]));
                     engine.state.discover.error = Value::Null;
