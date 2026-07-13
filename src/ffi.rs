@@ -245,6 +245,8 @@ fn route_addon_protocol(method: &str, args_json: &str) -> Outcome {
                 field_str(&args, "allowedNames")?,
             )))
         }
+        // args_json IS the links array
+        "classifyMetaLinks" => opt_json(addon_protocol::classify_meta_links_json(args_json)),
 
         _ => Err(fail(
             ErrorKind::UnknownMethod,
@@ -291,6 +293,9 @@ fn route_resource_plan(method: &str, args_json: &str) -> Outcome {
             opt_json(repository_flow::addon_resource_request_plan_json(args_json))
         }
         "resourceFetchPlan" => opt_json(platform_plan::resource_fetch_plan_json(args_json)),
+        "resourceFetchExecutionPolicy" => opt_json(
+            platform_plan::resource_fetch_execution_policy_json(args_json),
+        ),
         "resourceParsePlan" => opt_json(platform_plan::resource_parse_plan_json(args_json)),
 
         // Platform plan — args_json IS the request object
@@ -381,6 +386,8 @@ fn route_search_plan(method: &str, args_json: &str) -> Outcome {
     match method {
         // args_json IS the request object for single-arg methods
         "searchResultGrouping" => opt_json(search_plan::search_result_grouping_json(args_json)),
+        // args_json IS the sources array
+        "mergeSearchSources" => opt_json(search_plan::merge_search_sources_json(args_json)),
         "buildMetadataFeedOptions" => {
             opt_json(search_plan::build_metadata_feed_options_json(args_json))
         }
@@ -561,6 +568,20 @@ fn route_calendar(method: &str, args_json: &str) -> Outcome {
                 now_ms,
             ))
         }
+        "partitionThisWeek" => {
+            let args = object(args_json)?;
+            let now_ms = field(&args, "nowMs")?
+                .as_i64()
+                .ok_or_else(|| fail(ErrorKind::InvalidArgs, "nowMs must be a number"))?;
+            let keep_scheduled = field(&args, "keepScheduled")?
+                .as_bool()
+                .ok_or_else(|| fail(ErrorKind::InvalidArgs, "keepScheduled must be bool"))?;
+            opt_json(calendar_plan::partition_this_week_json(
+                field_str(&args, "itemsJson")?,
+                now_ms,
+                keep_scheduled,
+            ))
+        }
 
         _ => Err(fail(
             ErrorKind::UnknownMethod,
@@ -655,6 +676,20 @@ fn route_external_sync_trakt(method: &str, args_json: &str) -> Outcome {
             opt_json(external_sync::trakt_playback_items_dedup_json(args_json))
         }
         "traktMarkWatchedBody" => opt_json(external_sync::trakt_mark_watched_body_json(args_json)),
+        "traktRelatedLookupSlug" => {
+            let args = object(args_json)?;
+            opt_json(external_sync::trakt_related_lookup_slug(
+                field_str(&args, "lookupJson")?,
+                field_str(&args, "wantType")?,
+            ))
+        }
+        "traktRelatedItemsToMetas" => {
+            let args = object(args_json)?;
+            opt_json(external_sync::trakt_related_items_to_metas_json(
+                field_str(&args, "relatedJson")?,
+                field_str(&args, "contentType")?,
+            ))
+        }
 
         _ => Err(fail(
             ErrorKind::UnknownMethod,
@@ -716,6 +751,29 @@ fn route_external_sync_simkl(method: &str, args_json: &str) -> Outcome {
             opt_json(external_sync::simkl_match_episode_json(
                 field_str(&args, "episodesJson")?,
                 field_str(&args, "targetJson")?,
+            ))
+        }
+        "simklLookupIdForType" => {
+            let args = object(args_json)?;
+            match external_sync::simkl_lookup_id_for_type(
+                field_str(&args, "lookupJson")?,
+                field_str(&args, "wantType")?,
+            ) {
+                Some(id) => Ok(json!(id)),
+                None => Ok(Value::Null),
+            }
+        }
+        "simklRecommendationCandidates" => {
+            let args = object(args_json)?;
+            opt_json(external_sync::simkl_recommendation_candidates_json(
+                field_str(&args, "detailJson")?,
+            ))
+        }
+        "simklRecommendationToMeta" => {
+            let args = object(args_json)?;
+            opt_json(external_sync::simkl_recommendation_to_meta_json(
+                field_str(&args, "recJson")?,
+                field_str(&args, "resolvedImdb")?,
             ))
         }
 
@@ -868,6 +926,34 @@ fn route_library_state(method: &str, args_json: &str) -> Outcome {
                 field_str(&args, "addonsJson")?,
             ))
         }
+        "watchedMapDiff" => {
+            let args = object(args_json)?;
+            opt_json(library_state::watched_map_diff_json(
+                field_str(&args, "beforeJson")?,
+                field_str(&args, "afterJson")?,
+            ))
+        }
+        "valueMapDiff" => {
+            let args = object(args_json)?;
+            opt_json(library_state::value_map_diff_json(
+                field_str(&args, "beforeJson")?,
+                field_str(&args, "afterJson")?,
+            ))
+        }
+        "itemListDiff" => {
+            let args = object(args_json)?;
+            opt_json(library_state::item_list_diff_json(
+                field_str(&args, "beforeJson")?,
+                field_str(&args, "afterJson")?,
+            ))
+        }
+        "itemListNewEntries" => {
+            let args = object(args_json)?;
+            opt_json(library_state::item_list_new_entries_json(
+                field_str(&args, "beforeJson")?,
+                field_str(&args, "afterJson")?,
+            ))
+        }
 
         _ => Err(fail(
             ErrorKind::UnknownMethod,
@@ -986,6 +1072,7 @@ fn route_intro_segments(method: &str, args_json: &str) -> Outcome {
     match method {
         // args_json IS the data JSON for single-arg methods
         "parseIntroDbSegments" => opt_json(intro_segments::parse_intro_db_segments_json(args_json)),
+        "anilistMalId" => opt_json(intro_segments::anilist_mal_id_json(args_json)),
         "parseAniskipResults" => opt_json(intro_segments::parse_aniskip_results_json(args_json)),
         "parseAnimeSkipResults" => {
             opt_json(intro_segments::parse_anime_skip_results_json(args_json))
@@ -998,6 +1085,23 @@ fn route_intro_segments(method: &str, args_json: &str) -> Outcome {
             ))
         }
         "mergeIntroSegments" => opt_json(intro_segments::merge_intro_segments_json(args_json)),
+        "matchAnimeSkipEpisodeId" => {
+            let args = object(args_json)?;
+            let season = field(&args, "season")?
+                .as_i64()
+                .ok_or_else(|| fail(ErrorKind::InvalidArgs, "season must be a number"))?;
+            let episode = field(&args, "episode")?
+                .as_i64()
+                .ok_or_else(|| fail(ErrorKind::InvalidArgs, "episode must be a number"))?;
+            opt_json(
+                intro_segments::match_anime_skip_episode_id(
+                    field_str(&args, "episodesJson")?,
+                    season,
+                    episode,
+                )
+                .and_then(|id| serde_json::to_string(&id).ok()),
+            )
+        }
 
         _ => Err(fail(
             ErrorKind::UnknownMethod,

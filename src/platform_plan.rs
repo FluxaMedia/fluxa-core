@@ -291,6 +291,35 @@ pub(crate) fn resource_fetch_plan_json(request_json: &str) -> Option<String> {
     serde_json::to_string(&json!({ "requests": requests })).ok()
 }
 
+/// Wraps `resource_fetch_plan_json` with the execution policy for running its
+/// requests: whether to race them (all `stopOnFirstResult`, take the first non-empty
+/// result) or fan them out with bounded concurrency, and the retry/timeout budget for
+/// stream requests specifically (addon stream endpoints are the flakiest resource kind).
+pub(crate) fn resource_fetch_execution_policy_json(request_json: &str) -> Option<String> {
+    let plan: Value = serde_json::from_str(&resource_fetch_plan_json(request_json)?).ok()?;
+    let requests = plan.get("requests")?.as_array()?.clone();
+    let mode = if requests.len() > 1
+        && requests
+            .iter()
+            .all(|r| r.get("stopOnFirstResult").and_then(Value::as_bool) == Some(true))
+    {
+        "race"
+    } else {
+        "fanout"
+    };
+    serde_json::to_string(&json!({
+        "requests": requests,
+        "mode": mode,
+        "concurrency": 12,
+        "streamRetry": {
+            "maxAttempts": 3,
+            "fetchTimeoutMs": 60_000,
+            "retryTimeoutMs": 20_000,
+        },
+    }))
+    .ok()
+}
+
 pub(crate) fn resource_parse_plan_json(request_json: &str) -> Option<String> {
     let request = serde_json::from_str::<ResourceParseRequest>(request_json).ok()?;
     let value = resource_parse_plan_value(

@@ -349,6 +349,37 @@ pub(crate) fn search_result_grouping_json(request_json: &str) -> Option<String> 
     .ok()
 }
 
+/// Merges per-source search result batches (one per addon catalog request, plus TMDB
+/// builtin batches) into the flat results list and category descriptors the search
+/// screen renders — dropping empty sources rather than surfacing zero-result categories.
+pub(crate) fn merge_search_sources_json(sources_json: &str) -> Option<String> {
+    let sources: Vec<Value> = serde_json::from_str(sources_json).ok()?;
+    let mut categories: Vec<Value> = Vec::new();
+    let mut results: Vec<Value> = Vec::new();
+    for source in sources {
+        let items = source
+            .get("items")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        if items.is_empty() {
+            continue;
+        }
+        results.extend(items.iter().cloned());
+        let name = source.get("name").cloned().unwrap_or(Value::Null);
+        categories.push(json!({
+            "id": source.get("id").cloned().unwrap_or(Value::Null),
+            "name": name.clone(),
+            "semanticName": source.get("semanticName").cloned().unwrap_or(name),
+            "type": source.get("type").cloned().unwrap_or(Value::Null),
+            "addonName": source.get("addonName").cloned().unwrap_or(Value::Null),
+            "catalogId": source.get("catalogId").cloned().unwrap_or(Value::Null),
+            "items": items,
+        }));
+    }
+    serde_json::to_string(&json!({ "results": results, "categories": categories })).ok()
+}
+
 pub(crate) fn discover_sort_plan_json(request_json: &str) -> Option<String> {
     let request = serde_json::from_str::<DiscoverSortRequest>(request_json).ok()?;
     let content_type = request.content_type_filter.as_deref().unwrap_or("");

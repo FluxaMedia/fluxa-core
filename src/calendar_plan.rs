@@ -330,6 +330,72 @@ pub(crate) fn next_unaired_episode_json(videos_json: &str, now_ms: i64) -> Optio
     serde_json::to_string(&next).ok()
 }
 
+fn end_of_current_week_ms(now_ms: i64) -> i64 {
+    use chrono::{Datelike, Local, TimeZone};
+    let now = Local.timestamp_millis_opt(now_ms).single().unwrap_or_else(chrono::Local::now);
+    let days_until_sunday = (7 - now.weekday().num_days_from_sunday() as i64) % 7;
+    let end_date = now.date_naive() + chrono::Duration::days(days_until_sunday);
+    let end = end_date.and_hms_milli_opt(23, 59, 59, 999).unwrap();
+    Local
+        .from_local_datetime(&end)
+        .single()
+        .map(|d| d.timestamp_millis())
+        .unwrap_or(now_ms)
+}
+
+fn parse_date_ms(raw: &str) -> Option<i64> {
+    chrono::DateTime::parse_from_rfc3339(raw)
+        .map(|d| d.timestamp_millis())
+        .or_else(|_| {
+            chrono::NaiveDate::parse_from_str(raw, "%Y-%m-%d")
+                .map(|d| d.and_hms_opt(0, 0, 0).unwrap().and_utc().timestamp_millis())
+        })
+        .ok()
+}
+
+pub(crate) fn partition_this_week_json(
+    items_json: &str,
+    now_ms: i64,
+    keep_scheduled: bool,
+) -> Option<String> {
+    let items: Vec<Value> = serde_json::from_str(items_json).ok()?;
+    let week_end = end_of_current_week_ms(now_ms);
+
+    let mut this_week: Vec<Value> = Vec::new();
+    let mut this_week_ids = std::collections::HashSet::new();
+    for item in &items {
+        if item.get("continueWatchingBadge").and_then(Value::as_str) != Some("scheduledEpisode") {
+            continue;
+        }
+        let Some(released_at) = item.get("newEpisodeReleasedAt").and_then(Value::as_str) else {
+            continue;
+        };
+        let Some(released_ms) = parse_date_ms(released_at) else {
+            continue;
+        };
+        if released_ms <= week_end {
+            this_week.push(item.clone());
+            if let Some(id) = item.get("id").and_then(Value::as_str) {
+                this_week_ids.insert(id.to_string());
+            }
+        }
+    }
+
+    let continue_watching: Vec<Value> = if keep_scheduled {
+        items
+    } else {
+        items
+            .into_iter()
+            .filter(|m| {
+                let id = m.get("id").and_then(Value::as_str).unwrap_or("");
+                !this_week_ids.contains(id)
+            })
+            .collect()
+    };
+
+    serde_json::to_string(&json!({ "thisWeek": this_week, "continueWatching": continue_watching })).ok()
+}
+
 pub(crate) fn calendar_item_matches_month_json(item_json: &str, month_prefix: &str) -> bool {
     if month_prefix.is_empty() {
         return true;
