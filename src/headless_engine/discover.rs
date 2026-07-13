@@ -311,6 +311,9 @@ pub(super) fn complete(
                         .unwrap_or_else(|| serde_json::json!([]));
                     engine.state.discover.paging.items = items.clone();
                     engine.state.discover.paging.error = Value::Null;
+                    if let Some(results) = engine.state.discover.results.as_array_mut() {
+                        results.extend(items.as_array().into_iter().flatten().cloned());
+                    }
                     if !engine
                         .state
                         .discover
@@ -318,9 +321,6 @@ pub(super) fn complete(
                         .transport_url
                         .is_empty()
                     {
-                        if let Some(results) = engine.state.discover.results.as_array_mut() {
-                            results.extend(items.as_array().into_iter().flatten().cloned());
-                        }
                         return dispatch_next_initial_page(engine);
                     }
                 } else {
