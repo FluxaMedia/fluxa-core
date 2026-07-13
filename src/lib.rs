@@ -71,6 +71,8 @@ mod player_policy;
 #[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
 mod player_scrobble;
 #[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
+mod plugins;
+#[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
 mod profile_contract;
 #[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
 mod profile_prefs;

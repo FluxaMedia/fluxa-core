@@ -652,7 +652,9 @@ impl HeadlessEngine {
 
             EffectKind::UpdateCalendarWidget
             | EffectKind::NotifyReleasedEpisodes
-            | EffectKind::ReplaceExternalContinueWatching => vec![],
+            | EffectKind::ReplaceExternalContinueWatching
+            | EffectKind::ExecutePlugin
+            | EffectKind::FetchPluginManifest => vec![],
         }
     }
 

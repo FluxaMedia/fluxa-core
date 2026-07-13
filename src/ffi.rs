@@ -3,8 +3,8 @@ use serde_json::{json, Value};
 use crate::{
     addon_protocol, addon_resource, anime_detection, app_state, calendar_plan, content_identity,
     core_contract, external_sync, headless_engine, home_ranking, intro_segments, library_state,
-    offline_download, platform_plan, player_policy, player_scrobble, repository_flow, search_plan,
-    stream_policy, tmdb_plan, watchlist_plan,
+    offline_download, platform_plan, player_policy, player_scrobble, plugins, repository_flow,
+    search_plan, stream_policy, tmdb_plan, watchlist_plan,
 };
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -86,6 +86,7 @@ const ROUTERS: &[fn(&str, &str) -> Outcome] = &[
     route_tmdb,
     route_intro_segments,
     route_core_contract,
+    route_plugins,
 ];
 
 fn route(method: &str, args_json: &str) -> Outcome {
@@ -1101,6 +1102,24 @@ fn route_intro_segments(method: &str, args_json: &str) -> Outcome {
                 )
                 .and_then(|id| serde_json::to_string(&id).ok()),
             )
+        }
+
+        _ => Err(fail(
+            ErrorKind::UnknownMethod,
+            format!("no such method `{method}`"),
+        )),
+    }
+}
+
+fn route_plugins(method: &str, args_json: &str) -> Outcome {
+    match method {
+        "pluginManifestParse" => {
+            let normalized = plugins::parse_plugin_manifest_json(args_json)
+                .map_err(|message| fail(ErrorKind::InvalidArgs, message))?;
+            into_json(normalized)
+        }
+        "pluginStreamResultsParse" => {
+            into_json(plugins::parse_plugin_stream_results_json(args_json))
         }
 
         _ => Err(fail(
