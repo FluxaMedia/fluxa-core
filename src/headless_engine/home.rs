@@ -253,7 +253,7 @@ pub(super) fn complete(
 ) -> Vec<EffectEnvelope> {
     match effect_type {
         "refreshContinueWatching" => {
-            if result.status.is_ok() {
+            if generation == engine.state.runtime.get(GenerationKey::Home) && result.status.is_ok() {
                 if let Some(cw) = result.value.get("continueWatching") {
                     engine.state.home.continue_watching = cw.clone();
                 }
