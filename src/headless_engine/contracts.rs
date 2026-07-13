@@ -325,6 +325,12 @@ pub(super) enum AppAction {
     TrailerResolveRequested { request_id: String, video_id: String },
     #[serde(rename = "trailerPrewarmRequested")]
     TrailerPrewarmRequested,
+    #[serde(rename = "pluginRepositoryAddRequested")]
+    PluginRepositoryAddRequested { manifest_url: String },
+    #[serde(rename = "pluginRepositoryRemoveRequested")]
+    PluginRepositoryRemoveRequested { manifest_url: String },
+    #[serde(rename = "pluginScraperToggled")]
+    PluginScraperToggled { scraper_id: String, enabled: bool },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
@@ -398,6 +404,8 @@ pub(super) struct StatePatch {
     pub offline: Option<super::offline::OfflineState>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub trailer: Option<super::trailer::TrailerState>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub plugins: Option<super::plugins::PluginsState>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub pending_effects: Option<Vec<EffectEnvelope>>,
 }

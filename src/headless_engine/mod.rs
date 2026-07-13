@@ -10,6 +10,7 @@ mod library;
 mod navigation;
 mod offline;
 mod player;
+mod plugins;
 mod profile;
 mod search;
 mod settings;
@@ -551,6 +552,15 @@ impl HeadlessEngine {
                 trailer::dispatch_resolve(self, request_id, video_id)
             }
             AppAction::TrailerPrewarmRequested => trailer::dispatch_prewarm(self),
+            AppAction::PluginRepositoryAddRequested { manifest_url } => {
+                plugins::dispatch_add_repository(self, manifest_url)
+            }
+            AppAction::PluginRepositoryRemoveRequested { manifest_url } => {
+                plugins::dispatch_remove_repository(self, manifest_url)
+            }
+            AppAction::PluginScraperToggled { scraper_id, enabled } => {
+                plugins::dispatch_toggle_scraper(self, scraper_id, enabled)
+            }
         }
     }
 
@@ -650,11 +660,12 @@ impl HeadlessEngine {
                 trailer::complete(self, effect_type, generation, &effect, &result)
             }
 
+            EffectKind::FetchPluginManifest => plugins::complete(self, generation, &result),
+
             EffectKind::UpdateCalendarWidget
             | EffectKind::NotifyReleasedEpisodes
             | EffectKind::ReplaceExternalContinueWatching
-            | EffectKind::ExecutePlugin
-            | EffectKind::FetchPluginManifest => vec![],
+            | EffectKind::ExecutePlugin => vec![],
         }
     }
 
@@ -1665,6 +1676,81 @@ mod tests {
         .unwrap();
         assert_eq!(offline["effects"][0]["type"], "enqueueOfflineDownload");
         assert_eq!(offline["effects"][0]["payload"]["meta"]["id"], "tt1");
+        assert!(destroy_headless_engine(handle));
+    }
+
+    #[test]
+    fn plugin_repository_add_completion_populates_repositories_and_scrapers() {
+        let handle = create_headless_engine("{}");
+        let requested: Value = serde_json::from_str(
+            &headless_engine_dispatch_json(
+                handle,
+                r#"{"type":"pluginRepositoryAddRequested","manifestUrl":"https://example.com/manifest.json"}"#,
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(requested["effects"][0]["type"], "fetchPluginManifest");
+        assert_eq!(
+            requested["state"]["plugins"]["addingRepositoryUrl"],
+            "https://example.com/manifest.json"
+        );
+
+        let completed: Value = serde_json::from_str(
+            &headless_engine_complete_effect_json(
+                handle,
+                &json!({
+                    "effectId": requested["effects"][0]["id"].as_str().unwrap(),
+                    "status": "ok",
+                    "value": {
+                        "manifestUrl": "https://example.com/manifest.json",
+                        "manifest": {
+                            "name": "Phisher's Repo",
+                            "version": "1.0.0",
+                            "scrapers": [
+                                {"id": "MoviesDrive", "name": "MoviesDrive", "version": "1.1.1", "filename": "src/providers/moviesdrive.js"}
+                            ]
+                        }
+                    }
+                })
+                .to_string(),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+
+        assert_eq!(completed["state"]["plugins"]["addingRepositoryUrl"], Value::Null);
+        assert_eq!(
+            completed["state"]["plugins"]["repositories"][0]["name"],
+            "Phisher's Repo"
+        );
+        assert_eq!(
+            completed["state"]["plugins"]["scrapers"][0]["repositoryUrl"],
+            "https://example.com/manifest.json"
+        );
+
+        let removed: Value = serde_json::from_str(
+            &headless_engine_dispatch_json(
+                handle,
+                r#"{"type":"pluginRepositoryRemoveRequested","manifestUrl":"https://example.com/manifest.json"}"#,
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            removed["state"]["plugins"]["repositories"]
+                .as_array()
+                .unwrap()
+                .len(),
+            0
+        );
+        assert_eq!(
+            removed["state"]["plugins"]["scrapers"]
+                .as_array()
+                .unwrap()
+                .len(),
+            0
+        );
         assert!(destroy_headless_engine(handle));
     }
 
