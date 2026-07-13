@@ -1,4 +1,5 @@
 use crate::types::plugin::{PluginManifest, PluginStreamResult, PluginSubtitleResult};
+use crate::types::resource::{Stream, SubtitleTrack};
 use serde::Deserialize;
 use serde_json::Value;
 use std::collections::HashMap;
@@ -110,6 +111,65 @@ pub(crate) fn parse_plugin_stream_results_json(raw_json: &str) -> String {
     serde_json::to_string(&results).unwrap_or_else(|_| "[]".to_string())
 }
 
+/// Maps a plugin's normalized stream results onto the same [`Stream`] shape
+/// addon resources already produce, so the platform can hand plugin-sourced
+/// streams straight to the existing `detailStreamsAppended` merge/ranking
+/// path instead of needing a parallel one. Quality/size/provider/seeders/
+/// peers don't have first-class `Stream` fields, so they ride along in
+/// `extra` rather than being dropped.
+pub(crate) fn plugin_stream_results_to_streams_json(raw_json: &str) -> String {
+    let normalized = parse_plugin_stream_results_json(raw_json);
+    let results: Vec<PluginStreamResult> = match serde_json::from_str(&normalized) {
+        Ok(items) => items,
+        Err(_) => return "[]".to_string(),
+    };
+
+    let streams: Vec<Stream> = results.into_iter().map(plugin_result_to_stream).collect();
+    serde_json::to_string(&streams).unwrap_or_else(|_| "[]".to_string())
+}
+
+fn plugin_result_to_stream(result: PluginStreamResult) -> Stream {
+    let mut extra = serde_json::Map::new();
+    if let Some(quality) = result.quality {
+        extra.insert("quality".to_string(), Value::String(quality));
+    }
+    if let Some(size) = result.size {
+        extra.insert("size".to_string(), Value::String(size));
+    }
+    if let Some(provider) = &result.provider {
+        extra.insert("provider".to_string(), Value::String(provider.clone()));
+    }
+    if let Some(seeders) = result.seeders {
+        extra.insert("seeders".to_string(), Value::from(seeders));
+    }
+    if let Some(peers) = result.peers {
+        extra.insert("peers".to_string(), Value::from(peers));
+    }
+
+    let subtitle_tracks = result.subtitles.map(|subs| {
+        subs.into_iter()
+            .enumerate()
+            .map(|(index, sub)| SubtitleTrack {
+                id: format!("plugin-sub-{index}"),
+                url: sub.url,
+                lang: sub.language,
+                label: sub.name,
+            })
+            .collect()
+    });
+
+    Stream {
+        url: Some(result.url),
+        name: result.name.or(result.provider),
+        title: Some(result.title),
+        info_hash: result.info_hash,
+        headers: result.headers,
+        subtitle_tracks,
+        extra,
+        ..Default::default()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -155,6 +215,35 @@ mod tests {
     fn stream_results_drop_entries_without_a_usable_url() {
         let raw = r#"[{"title":"no url"},{"title":"blank","url":""}]"#;
         assert_eq!(parse_plugin_stream_results_json(raw), "[]");
+    }
+
+    #[test]
+    fn stream_results_map_onto_the_addon_stream_shape() {
+        let raw = r#"[{
+            "title": "1080p",
+            "url": "https://example.com/a.mp4",
+            "quality": "1080p",
+            "provider": "MoviesDrive",
+            "seeders": 12,
+            "headers": {"Referer": "https://example.com"},
+            "subtitles": [{"url": "https://example.com/sub.srt", "language": "en", "name": "English"}]
+        }]"#;
+        let parsed = plugin_stream_results_to_streams_json(raw);
+        let streams: Vec<Stream> = serde_json::from_str(&parsed).unwrap();
+        assert_eq!(streams.len(), 1);
+        let stream = &streams[0];
+        assert_eq!(stream.url.as_deref(), Some("https://example.com/a.mp4"));
+        assert_eq!(stream.name.as_deref(), Some("MoviesDrive"));
+        assert_eq!(stream.title.as_deref(), Some("1080p"));
+        assert_eq!(stream.extra["quality"], "1080p");
+        assert_eq!(stream.extra["seeders"], 12);
+        assert_eq!(
+            stream.headers.as_ref().unwrap().get("Referer").map(String::as_str),
+            Some("https://example.com")
+        );
+        let subs = stream.subtitle_tracks.as_ref().unwrap();
+        assert_eq!(subs[0].lang, "en");
+        assert_eq!(subs[0].url, "https://example.com/sub.srt");
     }
 
     #[test]

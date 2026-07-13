@@ -1121,6 +1121,9 @@ fn route_plugins(method: &str, args_json: &str) -> Outcome {
         "pluginStreamResultsParse" => {
             into_json(plugins::parse_plugin_stream_results_json(args_json))
         }
+        "pluginStreamResultsToStreams" => {
+            into_json(plugins::plugin_stream_results_to_streams_json(args_json))
+        }
 
         _ => Err(fail(
             ErrorKind::UnknownMethod,
