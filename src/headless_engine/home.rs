@@ -84,6 +84,8 @@ struct FetchCatalogPagePayload {
     skip: i32,
     genre: Option<String>,
     search: Option<String>,
+    remote_source: Option<Value>,
+    profile: Option<Value>,
 }
 
 #[derive(Serialize)]
@@ -221,6 +223,8 @@ pub(super) fn dispatch_catalog_page(
     skip: Option<i32>,
     genre: Option<String>,
     search: Option<String>,
+    remote_source: Option<Value>,
+    profile: Option<Value>,
 ) -> Vec<EffectEnvelope> {
     let generation = engine.bump_generation(GenerationKey::Home);
     engine.state.home.paging = HomePaging {
@@ -241,6 +245,8 @@ pub(super) fn dispatch_catalog_page(
             skip,
             genre,
             search,
+            remote_source,
+            profile,
         },
     )]
 }

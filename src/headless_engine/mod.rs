@@ -466,6 +466,8 @@ impl HeadlessEngine {
                 skip,
                 genre,
                 search,
+                remote_source,
+                profile,
             } => home::dispatch_catalog_page(
                 self,
                 category_id,
@@ -475,6 +477,8 @@ impl HeadlessEngine {
                 skip,
                 genre,
                 search,
+                remote_source,
+                profile,
             ),
             AppAction::DetailSeasonRequested {
                 series_id,

@@ -252,6 +252,8 @@ pub(super) enum AppAction {
         skip: Option<i32>,
         genre: Option<String>,
         search: Option<String>,
+        remote_source: Option<Value>,
+        profile: Option<Value>,
     },
     #[serde(rename = "detailSeasonRequested")]
     DetailSeasonRequested {
