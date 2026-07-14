@@ -4,14 +4,13 @@ version = "0.1.0"
 edition = "2021"
 
 [lib]
-crate-type = ["cdylib", "rlib"]
+crate-type = ["cdylib", "staticlib", "rlib"]
 
 [features]
 default = ["native"]
-native = [
+engine = [
     "dep:axum",
     "dep:fluxa_core",
-    "dep:jni",
     "dep:librqbit",
     "dep:reqwest",
     "dep:tokio",
@@ -19,6 +18,8 @@ native = [
     "dep:tower-http",
     "dep:url",
 ]
+native = ["engine", "dep:jni"]
+apple = ["engine"]
 
 [dependencies]
 axum = { version = "0.8", optional = true }
