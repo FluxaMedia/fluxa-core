@@ -49,6 +49,10 @@ impl FluxaCore {
         })
     }
 
+    pub fn stream_magnet_link_json(stream_json: &str) -> Option<String> {
+        guard(None, || stream_policy::stream_magnet_link_json(stream_json))
+    }
+
     #[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
     pub fn player_buffer_targets_json(request_json: &str) -> Option<String> {
         guard(None, || {

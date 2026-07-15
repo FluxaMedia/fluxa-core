@@ -309,6 +309,36 @@ pub(crate) fn build_magnet(hash: &str, sources: &[String]) -> String {
     )
 }
 
+pub(crate) fn stream_magnet_link(stream: &Value) -> Option<String> {
+    let sources = stream
+        .get("sources")
+        .and_then(Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(Value::as_str)
+                .map(str::to_string)
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    if let Some(hash) = stream_text(stream, "infoHash") {
+        return Some(build_magnet(hash, &sources));
+    }
+    let playable = stream_playable_url(stream)?;
+    if playable.to_ascii_lowercase().starts_with("magnet:") {
+        return Some(playable);
+    }
+    if is_torrent_playback_url(&playable) {
+        return Some(normalize_torrent_link(&playable, &sources));
+    }
+    None
+}
+
+pub(crate) fn stream_magnet_link_json(stream_json: &str) -> Option<String> {
+    let stream: Value = serde_json::from_str(stream_json).ok()?;
+    stream_magnet_link(&stream)
+}
+
 pub(crate) fn normalize_torrent_file_name(value: &str) -> String {
     value
         .to_ascii_lowercase()
@@ -1078,6 +1108,22 @@ mod tests {
         assert!(magnet.starts_with("magnet:?xt=urn:btih:abcdef1234567890abcdef1234567890abcdef12"));
         assert_eq!(magnet.matches("tracker.example%3A1337").count(), 1);
         assert!(magnet.contains("opentrackr.org"));
+    }
+
+    #[test]
+    fn stream_magnet_link_builds_from_info_hash_and_sources() {
+        let stream = json!({
+            "infoHash": "ABCDEF1234567890ABCDEF1234567890ABCDEF12",
+            "sources": ["tracker:udp://tracker.example:1337/announce"],
+        });
+        let link = stream_magnet_link(&stream).unwrap();
+        assert!(link.starts_with("magnet:?xt=urn:btih:abcdef1234567890abcdef1234567890abcdef12"));
+    }
+
+    #[test]
+    fn stream_magnet_link_none_for_direct_http_stream() {
+        let stream = json!({ "url": "https://cdn.example/video.mkv" });
+        assert!(stream_magnet_link(&stream).is_none());
     }
 
     #[test]

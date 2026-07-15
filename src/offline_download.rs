@@ -24,6 +24,7 @@ struct OfflineDownloadPlan {
     supported: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     reason: Option<&'static str>,
+    is_torrent: bool,
     playback_url: String,
     base_name: String,
     video_file_name: String,
@@ -57,6 +58,7 @@ fn offline_download_plan(request: OfflineDownloadPlanRequest) -> OfflineDownload
     OfflineDownloadPlan {
         supported: support_error.is_none(),
         reason: support_error,
+        is_torrent: is_torrent_playback_url(&playback_url),
         playback_url,
         video_file_name: format!("{base_name}-{}.{extension}", request.download_id),
         subtitle_file_name: request
@@ -77,24 +79,25 @@ fn offline_download_plan(request: OfflineDownloadPlanRequest) -> OfflineDownload
 }
 
 fn downloadable_error(url: &str, stream: &Value) -> Option<&'static str> {
-    if !(url.starts_with("http://") || url.starts_with("https://")) {
+    let is_http = url.starts_with("http://") || url.starts_with("https://");
+    let is_torrent = is_torrent_playback_url(url);
+    if !is_http && !is_torrent {
         return Some("unsupported_source");
     }
-    if is_torrent_playback_url(url) {
-        return Some("unsupported_source");
-    }
-    let normalized_path = url.split('?').next().unwrap_or(url).to_lowercase();
-    if [".srt", ".vtt", ".ass", ".ssa", ".ttml", ".sub"]
-        .iter()
-        .any(|ext| normalized_path.ends_with(ext))
-    {
-        return Some("unsupported_source");
-    }
-    if [".m3u8", ".mpd"]
-        .iter()
-        .any(|ext| normalized_path.ends_with(ext))
-    {
-        return Some("unsupported_source");
+    if is_http {
+        let normalized_path = url.split('?').next().unwrap_or(url).to_lowercase();
+        if [".srt", ".vtt", ".ass", ".ssa", ".ttml", ".sub"]
+            .iter()
+            .any(|ext| normalized_path.ends_with(ext))
+        {
+            return Some("unsupported_source");
+        }
+        if [".m3u8", ".mpd"]
+            .iter()
+            .any(|ext| normalized_path.ends_with(ext))
+        {
+            return Some("unsupported_source");
+        }
     }
     let source_text = ["name", "title", "description", "addonName"]
         .iter()
@@ -237,9 +240,8 @@ mod tests {
     }
 
     #[test]
-    fn rejects_torrents_manifests_and_subtitle_sources() {
+    fn rejects_manifests_and_subtitle_sources() {
         for stream in [
-            json!({"url": "magnet:?xt=urn:btih:abc"}),
             json!({"url": "https://cdn.example/list.m3u8"}),
             json!({"url": "https://cdn.example/file.srt"}),
             json!({"url": "https://cdn.example/video.mp4", "addonName": "OpenSubtitles"}),
@@ -254,6 +256,25 @@ mod tests {
                     .unwrap();
             assert_eq!(value["supported"], false);
             assert_eq!(value["reason"], "unsupported_source");
+        }
+    }
+
+    #[test]
+    fn accepts_torrent_sourced_streams() {
+        for stream in [
+            json!({"url": "magnet:?xt=urn:btih:abc"}),
+            json!({"infoHash": "abcdef1234567890abcdef1234567890abcdef12"}),
+        ] {
+            let request = json!({
+                "downloadId": "id1",
+                "meta": {"name": "Movie"},
+                "stream": stream
+            });
+            let value: Value =
+                serde_json::from_str(&offline_download_plan_json(&request.to_string()).unwrap())
+                    .unwrap();
+            assert_eq!(value["supported"], true);
+            assert_eq!(value["isTorrent"], true);
         }
     }
 }
