@@ -277,13 +277,24 @@ fn animeskip_type_to_skip_type(raw: &str) -> Option<&'static str> {
     }
 }
 
-pub(crate) fn match_anime_skip_episode_id(episodes_json: &str, season: i64, episode: i64) -> Option<String> {
+pub(crate) fn match_anime_skip_episode_id(
+    episodes_json: &str,
+    season: i64,
+    episode: i64,
+) -> Option<String> {
     let episodes: Vec<Value> = serde_json::from_str(episodes_json).ok()?;
 
     let by_season_and_number = episodes.iter().find(|ep| {
-        let ep_season = ep.get("season").and_then(Value::as_str).and_then(|s| s.parse::<i64>().ok());
-        let ep_number = ep.get("number").and_then(Value::as_str).and_then(|s| s.parse::<i64>().ok());
-        (season <= 0 || ep_season.is_none() || ep_season == Some(season)) && ep_number == Some(episode)
+        let ep_season = ep
+            .get("season")
+            .and_then(Value::as_str)
+            .and_then(|s| s.parse::<i64>().ok());
+        let ep_number = ep
+            .get("number")
+            .and_then(Value::as_str)
+            .and_then(|s| s.parse::<i64>().ok());
+        (season <= 0 || ep_season.is_none() || ep_season == Some(season))
+            && ep_number == Some(episode)
     });
 
     let matched = by_season_and_number.or_else(|| {
@@ -295,7 +306,10 @@ pub(crate) fn match_anime_skip_episode_id(episodes_json: &str, season: i64, epis
         })
     })?;
 
-    matched.get("id").and_then(Value::as_str).map(|s| s.to_string())
+    matched
+        .get("id")
+        .and_then(Value::as_str)
+        .map(|s| s.to_string())
 }
 
 pub(crate) fn unique_intro_segments_json(

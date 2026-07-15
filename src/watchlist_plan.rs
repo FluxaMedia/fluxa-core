@@ -395,26 +395,50 @@ pub(crate) fn import_collections_json(raw_json: &str) -> Option<String> {
 
 pub(crate) fn export_collections_json(collections_json: &str) -> Option<String> {
     let collections: Vec<Value> = serde_json::from_str(collections_json).ok()?;
-    let data: Vec<Value> = collections.iter().filter_map(|collection| {
-        let mut collection = collection.as_object()?.clone();
-        let folders = collection.get("folders").and_then(Value::as_array)?.iter().filter_map(|folder| {
-            let mut folder = folder.as_object()?.clone();
-            let tile_shape = folder.get("tileShape").cloned().unwrap_or_else(|| {
-                Value::String(export_shape(folder.get("shape").and_then(Value::as_str)).to_string())
-            });
-            folder.insert("tileShape".to_string(), tile_shape);
-            folder.entry("hideTitle".to_string()).or_insert_with(|| Value::Bool(false));
-            folder.entry("focusGifEnabled".to_string()).or_insert_with(|| Value::Bool(true));
-            folder.entry("catalogSources".to_string()).or_insert_with(|| Value::Array(Vec::new()));
-            folder.entry("sources".to_string()).or_insert_with(|| Value::Array(Vec::new()));
-            Some(Value::Object(folder))
-        }).collect();
-        collection.insert("folders".to_string(), Value::Array(folders));
-        collection.entry("showAllTab".to_string()).or_insert_with(|| Value::Bool(true));
-        collection.entry("viewMode".to_string()).or_insert_with(|| Value::String("FOLLOW_LAYOUT".to_string()));
-        collection.entry("pinToTop".to_string()).or_insert_with(|| Value::Bool(false));
-        Some(Value::Object(collection))
-    }).collect();
+    let data: Vec<Value> = collections
+        .iter()
+        .filter_map(|collection| {
+            let mut collection = collection.as_object()?.clone();
+            let folders = collection
+                .get("folders")
+                .and_then(Value::as_array)?
+                .iter()
+                .filter_map(|folder| {
+                    let mut folder = folder.as_object()?.clone();
+                    let tile_shape = folder.get("tileShape").cloned().unwrap_or_else(|| {
+                        Value::String(
+                            export_shape(folder.get("shape").and_then(Value::as_str)).to_string(),
+                        )
+                    });
+                    folder.insert("tileShape".to_string(), tile_shape);
+                    folder
+                        .entry("hideTitle".to_string())
+                        .or_insert_with(|| Value::Bool(false));
+                    folder
+                        .entry("focusGifEnabled".to_string())
+                        .or_insert_with(|| Value::Bool(true));
+                    folder
+                        .entry("catalogSources".to_string())
+                        .or_insert_with(|| Value::Array(Vec::new()));
+                    folder
+                        .entry("sources".to_string())
+                        .or_insert_with(|| Value::Array(Vec::new()));
+                    Some(Value::Object(folder))
+                })
+                .collect();
+            collection.insert("folders".to_string(), Value::Array(folders));
+            collection
+                .entry("showAllTab".to_string())
+                .or_insert_with(|| Value::Bool(true));
+            collection
+                .entry("viewMode".to_string())
+                .or_insert_with(|| Value::String("FOLLOW_LAYOUT".to_string()));
+            collection
+                .entry("pinToTop".to_string())
+                .or_insert_with(|| Value::Bool(false));
+            Some(Value::Object(collection))
+        })
+        .collect();
     serde_json::to_string(&data).ok()
 }
 

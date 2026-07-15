@@ -8,7 +8,10 @@ fn read_string(value: *const c_char) -> Option<String> {
     if value.is_null() {
         return None;
     }
-    unsafe { CStr::from_ptr(value) }.to_str().ok().map(str::to_owned)
+    unsafe { CStr::from_ptr(value) }
+        .to_str()
+        .ok()
+        .map(str::to_owned)
 }
 
 fn write_string(value: Option<String>) -> *mut c_char {
@@ -88,9 +91,13 @@ mod tests {
     fn local_proxy_lifecycle_is_available_through_the_apple_bridge() {
         let target_url = CString::new("https://example.invalid/video.mp4").unwrap();
         let headers = CString::new("{}").unwrap();
-        let result = fluxa_streaming_start_local_stream_server(target_url.as_ptr(), headers.as_ptr(), 0);
+        let result =
+            fluxa_streaming_start_local_stream_server(target_url.as_ptr(), headers.as_ptr(), 0);
         assert!(!result.is_null());
-        let response = unsafe { CStr::from_ptr(result) }.to_str().unwrap().to_string();
+        let response = unsafe { CStr::from_ptr(result) }
+            .to_str()
+            .unwrap()
+            .to_string();
         unsafe { fluxa_streaming_string_free(result) };
         let id = serde_json::from_str::<serde_json::Value>(&response)
             .unwrap()

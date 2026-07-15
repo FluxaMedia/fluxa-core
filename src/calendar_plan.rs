@@ -332,7 +332,10 @@ pub(crate) fn next_unaired_episode_json(videos_json: &str, now_ms: i64) -> Optio
 
 fn end_of_current_week_ms(now_ms: i64) -> i64 {
     use chrono::{Datelike, Local, TimeZone};
-    let now = Local.timestamp_millis_opt(now_ms).single().unwrap_or_else(chrono::Local::now);
+    let now = Local
+        .timestamp_millis_opt(now_ms)
+        .single()
+        .unwrap_or_else(chrono::Local::now);
     let days_until_sunday = (7 - now.weekday().num_days_from_sunday() as i64) % 7;
     let end_date = now.date_naive() + chrono::Duration::days(days_until_sunday);
     let end = end_date.and_hms_milli_opt(23, 59, 59, 999).unwrap();
@@ -393,7 +396,8 @@ pub(crate) fn partition_this_week_json(
             .collect()
     };
 
-    serde_json::to_string(&json!({ "thisWeek": this_week, "continueWatching": continue_watching })).ok()
+    serde_json::to_string(&json!({ "thisWeek": this_week, "continueWatching": continue_watching }))
+        .ok()
 }
 
 pub(crate) fn calendar_item_matches_month_json(item_json: &str, month_prefix: &str) -> bool {

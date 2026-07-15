@@ -946,7 +946,10 @@ pub(crate) fn value_map_diff_json(before_json: &str, after_json: &str) -> Option
         .filter(|(id, value)| before.get(*id) != Some(*value))
         .map(|(id, value)| json!({ "id": id, "value": value }))
         .collect();
-    let deletes: Vec<&String> = before.keys().filter(|id| !after.contains_key(*id)).collect();
+    let deletes: Vec<&String> = before
+        .keys()
+        .filter(|id| !after.contains_key(*id))
+        .collect();
     serde_json::to_string(&json!({ "upserts": upserts, "deletes": deletes })).ok()
 }
 
@@ -955,7 +958,8 @@ pub(crate) fn item_list_diff_json(before_json: &str, after_json: &str) -> Option
     let before: Vec<Value> = serde_json::from_str(before_json).ok()?;
     let after: Vec<Value> = serde_json::from_str(after_json).ok()?;
 
-    let mut before_by_id: std::collections::HashMap<String, &Value> = std::collections::HashMap::new();
+    let mut before_by_id: std::collections::HashMap<String, &Value> =
+        std::collections::HashMap::new();
     for item in &before {
         if let Some(id) = item.get("id").and_then(Value::as_str) {
             before_by_id.insert(id.to_string(), item);
@@ -965,13 +969,18 @@ pub(crate) fn item_list_diff_json(before_json: &str, after_json: &str) -> Option
     let mut after_ids = std::collections::HashSet::new();
     let mut upserts: Vec<Value> = Vec::new();
     for item in &after {
-        let Some(id) = item.get("id").and_then(Value::as_str) else { continue };
+        let Some(id) = item.get("id").and_then(Value::as_str) else {
+            continue;
+        };
         after_ids.insert(id.to_string());
         if before_by_id.get(id) != Some(&item) {
             upserts.push(item.clone());
         }
     }
-    let deletes: Vec<&String> = before_by_id.keys().filter(|id| !after_ids.contains(*id)).collect();
+    let deletes: Vec<&String> = before_by_id
+        .keys()
+        .filter(|id| !after_ids.contains(*id))
+        .collect();
     serde_json::to_string(&json!({ "upserts": upserts, "deletes": deletes })).ok()
 }
 
@@ -983,7 +992,11 @@ pub(crate) fn item_list_new_entries_json(before_json: &str, after_json: &str) ->
 
     let before_ids: std::collections::HashSet<String> = before
         .iter()
-        .filter_map(|item| item.get("id").and_then(Value::as_str).map(|s| s.to_string()))
+        .filter_map(|item| {
+            item.get("id")
+                .and_then(Value::as_str)
+                .map(|s| s.to_string())
+        })
         .collect();
     let new_entries: Vec<&Value> = after
         .iter()

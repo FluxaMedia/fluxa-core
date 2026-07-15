@@ -75,7 +75,9 @@ pub(crate) fn parse_plugin_stream_results_json(raw_json: &str) -> String {
         .into_iter()
         .filter_map(|item| {
             let url = non_blank(item.url.as_ref().and_then(raw_url))?;
-            let title = non_blank(item.title).or_else(|| item.name.clone()).unwrap_or_else(|| "Unknown".to_string());
+            let title = non_blank(item.title)
+                .or_else(|| item.name.clone())
+                .unwrap_or_else(|| "Unknown".to_string());
             let headers = item.headers.filter(|h| !h.is_empty());
             let subtitles = item.subtitles.map(|subs| {
                 subs.into_iter()
@@ -176,9 +178,15 @@ mod tests {
 
     #[test]
     fn manifest_requires_name_version_and_scrapers() {
-        assert!(parse_plugin_manifest_json(r#"{"name":"","version":"1.0","scrapers":[]}"#).is_err());
-        assert!(parse_plugin_manifest_json(r#"{"name":"Repo","version":"","scrapers":[]}"#).is_err());
-        assert!(parse_plugin_manifest_json(r#"{"name":"Repo","version":"1.0","scrapers":[]}"#).is_err());
+        assert!(
+            parse_plugin_manifest_json(r#"{"name":"","version":"1.0","scrapers":[]}"#).is_err()
+        );
+        assert!(
+            parse_plugin_manifest_json(r#"{"name":"Repo","version":"","scrapers":[]}"#).is_err()
+        );
+        assert!(
+            parse_plugin_manifest_json(r#"{"name":"Repo","version":"1.0","scrapers":[]}"#).is_err()
+        );
     }
 
     #[test]
@@ -238,7 +246,12 @@ mod tests {
         assert_eq!(stream.extra["quality"], "1080p");
         assert_eq!(stream.extra["seeders"], 12);
         assert_eq!(
-            stream.headers.as_ref().unwrap().get("Referer").map(String::as_str),
+            stream
+                .headers
+                .as_ref()
+                .unwrap()
+                .get("Referer")
+                .map(String::as_str),
             Some("https://example.com")
         );
         let subs = stream.subtitle_tracks.as_ref().unwrap();

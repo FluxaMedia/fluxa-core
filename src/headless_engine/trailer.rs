@@ -41,7 +41,11 @@ pub(super) fn dispatch_resolve(
 ) -> Vec<EffectEnvelope> {
     let generation = engine.bump_generation(GenerationKey::Trailer);
     engine.state.trailer.resolutions.remove(&request_id);
-    engine.state.trailer.requests.insert(request_id.clone(), video_id);
+    engine
+        .state
+        .trailer
+        .requests
+        .insert(request_id.clone(), video_id);
     if engine.state.trailer.watch_config.is_some() {
         return dispatch_player(engine, generation, &request_id);
     }
@@ -66,7 +70,11 @@ pub(super) fn complete(
     if generation != engine.state.runtime.get(GenerationKey::Trailer) {
         return vec![];
     }
-    let request_id = effect.payload.get("requestId").and_then(Value::as_str).map(str::to_owned);
+    let request_id = effect
+        .payload
+        .get("requestId")
+        .and_then(Value::as_str)
+        .map(str::to_owned);
     match effect_type {
         "fetchYoutubeTrailerWatchConfig" => {
             if result.status.is_ok() {
@@ -87,14 +95,22 @@ pub(super) fn complete(
                 Value::Null
             };
             engine.state.trailer.requests.remove(&request_id);
-            engine.state.trailer.resolutions.insert(request_id, resolution);
+            engine
+                .state
+                .trailer
+                .resolutions
+                .insert(request_id, resolution);
             vec![]
         }
         _ => vec![],
     }
 }
 
-fn watch_config_effect(engine: &mut HeadlessEngine, generation: u64, request_id: Option<String>) -> EffectEnvelope {
+fn watch_config_effect(
+    engine: &mut HeadlessEngine,
+    generation: u64,
+    request_id: Option<String>,
+) -> EffectEnvelope {
     engine.effect(
         EffectKind::FetchYoutubeTrailerWatchConfig,
         generation,
@@ -108,14 +124,23 @@ fn watch_config_effect(engine: &mut HeadlessEngine, generation: u64, request_id:
     )
 }
 
-fn dispatch_player(engine: &mut HeadlessEngine, generation: u64, request_id: &str) -> Vec<EffectEnvelope> {
+fn dispatch_player(
+    engine: &mut HeadlessEngine,
+    generation: u64,
+    request_id: &str,
+) -> Vec<EffectEnvelope> {
     let Some(video_id) = engine.state.trailer.requests.get(request_id).cloned() else {
         return vec![];
     };
-    let config = engine.state.trailer.watch_config.clone().unwrap_or(WatchConfig {
-        api_key: DEFAULT_API_KEY.to_string(),
-        visitor_data: None,
-    });
+    let config = engine
+        .state
+        .trailer
+        .watch_config
+        .clone()
+        .unwrap_or(WatchConfig {
+            api_key: DEFAULT_API_KEY.to_string(),
+            visitor_data: None,
+        });
     let mut headers = json!({
         "User-Agent": "com.google.android.apps.youtube.vr.oculus/1.56.21 (Linux; U; Android 12; en_US; Quest 3; Build/SQ3A.220605.009.A1) gzip",
         "X-YouTube-Client-Name": "28",
@@ -157,9 +182,13 @@ fn dispatch_player(engine: &mut HeadlessEngine, generation: u64, request_id: &st
 }
 
 fn parse_watch_config(response: &Value) -> WatchConfig {
-    let html = response.get("body").and_then(Value::as_str).unwrap_or_default();
+    let html = response
+        .get("body")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
     WatchConfig {
-        api_key: extract_json_string_field(html, "INNERTUBE_API_KEY").unwrap_or_else(|| DEFAULT_API_KEY.to_string()),
+        api_key: extract_json_string_field(html, "INNERTUBE_API_KEY")
+            .unwrap_or_else(|| DEFAULT_API_KEY.to_string()),
         visitor_data: extract_json_string_field(html, "VISITOR_DATA"),
     }
 }
@@ -167,49 +196,97 @@ fn parse_watch_config(response: &Value) -> WatchConfig {
 fn extract_json_string_field(html: &str, key: &str) -> Option<String> {
     let needle = format!("\"{key}\":\"");
     let rest = html.get(html.find(&needle)? + needle.len()..)?;
-    let end = rest.as_bytes().iter().enumerate().find_map(|(index, byte)| {
-        (*byte == b'"' && (index == 0 || rest.as_bytes()[index - 1] != b'\\')).then_some(index)
-    })?;
+    let end = rest
+        .as_bytes()
+        .iter()
+        .enumerate()
+        .find_map(|(index, byte)| {
+            (*byte == b'"' && (index == 0 || rest.as_bytes()[index - 1] != b'\\')).then_some(index)
+        })?;
     Some(rest[..end].to_string())
 }
 
 fn resolve_player_response(response: &Value) -> Value {
-    let payload = response.get("body").and_then(Value::as_str).and_then(|body| serde_json::from_str::<Value>(body).ok());
-    let Some(payload) = payload else { return Value::Null; };
-    if payload.pointer("/playabilityStatus/status").and_then(Value::as_str) != Some("OK") {
+    let payload = response
+        .get("body")
+        .and_then(Value::as_str)
+        .and_then(|body| serde_json::from_str::<Value>(body).ok());
+    let Some(payload) = payload else {
+        return Value::Null;
+    };
+    if payload
+        .pointer("/playabilityStatus/status")
+        .and_then(Value::as_str)
+        != Some("OK")
+    {
         return Value::Null;
     }
     let adaptive_pair = best_adaptive_pair(payload.pointer("/streamingData/adaptiveFormats"));
     let progressive_url = first_direct_url(payload.pointer("/streamingData/formats"));
-    let stream_url = adaptive_pair.as_ref().map(|(video_url, _)| video_url.to_owned())
+    let stream_url = adaptive_pair
+        .as_ref()
+        .map(|(video_url, _)| video_url.to_owned())
         .or_else(|| progressive_url)
-        .or_else(|| payload.pointer("/streamingData/hlsManifestUrl").and_then(Value::as_str).map(str::to_owned));
-    let Some(stream_url) = stream_url else { return Value::Null; };
-    let audio_url = adaptive_pair.filter(|(video_url, _)| *video_url == stream_url).map(|(_, audio_url)| audio_url);
-    let subtitles = payload.pointer("/captions/playerCaptionsTracklistRenderer/captionTracks").and_then(Value::as_array)
-        .map(|tracks| tracks.iter().filter_map(caption_track).collect::<Vec<_>>()).unwrap_or_default();
+        .or_else(|| {
+            payload
+                .pointer("/streamingData/hlsManifestUrl")
+                .and_then(Value::as_str)
+                .map(str::to_owned)
+        });
+    let Some(stream_url) = stream_url else {
+        return Value::Null;
+    };
+    let audio_url = adaptive_pair
+        .filter(|(video_url, _)| *video_url == stream_url)
+        .map(|(_, audio_url)| audio_url);
+    let subtitles = payload
+        .pointer("/captions/playerCaptionsTracklistRenderer/captionTracks")
+        .and_then(Value::as_array)
+        .map(|tracks| tracks.iter().filter_map(caption_track).collect::<Vec<_>>())
+        .unwrap_or_default();
     json!({ "status": "ok", "streamUrl": stream_url, "audioUrl": audio_url, "subtitles": subtitles })
 }
 
 fn first_direct_url(formats: Option<&Value>) -> Option<String> {
-    formats?.as_array()?.iter().find_map(|format| format.get("url").and_then(Value::as_str).map(str::to_owned))
+    formats?
+        .as_array()?
+        .iter()
+        .find_map(|format| format.get("url").and_then(Value::as_str).map(str::to_owned))
 }
 
 fn best_adaptive_pair(formats: Option<&Value>) -> Option<(String, String)> {
     let entries = formats?.as_array()?;
-    let video = entries.iter()
+    let video = entries
+        .iter()
         .filter(|format| format.get("url").and_then(Value::as_str).is_some())
-        .filter(|format| format.get("mimeType").and_then(Value::as_str).is_some_and(|mime_type| mime_type.starts_with("video/mp4; codecs=\"avc1")))
-        .max_by_key(|format| (
-            format.get("height").and_then(Value::as_i64).unwrap_or(0),
-            format.get("bitrate").and_then(Value::as_i64).unwrap_or(0),
-        ))?
-        .get("url")?.as_str()?.to_owned();
-    let audio = entries.iter()
+        .filter(|format| {
+            format
+                .get("mimeType")
+                .and_then(Value::as_str)
+                .is_some_and(|mime_type| mime_type.starts_with("video/mp4; codecs=\"avc1"))
+        })
+        .max_by_key(|format| {
+            (
+                format.get("height").and_then(Value::as_i64).unwrap_or(0),
+                format.get("bitrate").and_then(Value::as_i64).unwrap_or(0),
+            )
+        })?
+        .get("url")?
+        .as_str()?
+        .to_owned();
+    let audio = entries
+        .iter()
         .filter(|format| format.get("url").and_then(Value::as_str).is_some())
-        .filter(|format| format.get("mimeType").and_then(Value::as_str).is_some_and(|mime_type| mime_type.starts_with("audio/mp4")))
+        .filter(|format| {
+            format
+                .get("mimeType")
+                .and_then(Value::as_str)
+                .is_some_and(|mime_type| mime_type.starts_with("audio/mp4"))
+        })
         .max_by_key(|format| format.get("bitrate").and_then(Value::as_i64).unwrap_or(0))?
-        .get("url")?.as_str()?.to_owned();
+        .get("url")?
+        .as_str()?
+        .to_owned();
     Some((video, audio))
 }
 
@@ -227,7 +304,10 @@ mod tests {
             { "url": "audio-high", "mimeType": "audio/mp4; codecs=\"mp4a.40.2\"", "bitrate": 128_000 },
         ]);
         let pair = best_adaptive_pair(Some(&formats));
-        assert_eq!(pair, Some(("video-1080p".to_string(), "audio-high".to_string())));
+        assert_eq!(
+            pair,
+            Some(("video-1080p".to_string(), "audio-high".to_string()))
+        );
     }
 
     #[test]
@@ -258,7 +338,10 @@ mod tests {
             { "itag": 18 },
             { "url": "progressive-url", "itag": 22 },
         ]);
-        assert_eq!(first_direct_url(Some(&formats)), Some("progressive-url".to_string()));
+        assert_eq!(
+            first_direct_url(Some(&formats)),
+            Some("progressive-url".to_string())
+        );
     }
 
     #[test]
@@ -285,7 +368,8 @@ mod tests {
             "streamingData": {
                 "formats": [{ "url": "progressive-360p", "itag": 18 }]
             }
-        }).to_string();
+        })
+        .to_string();
         let response = json!({ "body": body });
         let resolved = resolve_player_response(&response);
         assert_eq!(resolved["streamUrl"], "progressive-360p");

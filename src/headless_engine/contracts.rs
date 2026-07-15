@@ -324,7 +324,10 @@ pub(super) enum AppAction {
         language: Option<String>,
     },
     #[serde(rename = "trailerResolveRequested")]
-    TrailerResolveRequested { request_id: String, video_id: String },
+    TrailerResolveRequested {
+        request_id: String,
+        video_id: String,
+    },
     #[serde(rename = "trailerPrewarmRequested")]
     TrailerPrewarmRequested,
     #[serde(rename = "pluginRepositoryAddRequested")]

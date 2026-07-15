@@ -552,9 +552,10 @@ impl HeadlessEngine {
             } => offline::dispatch(
                 self, meta, stream, video_id, video, subtitle, profile_id, language,
             ),
-            AppAction::TrailerResolveRequested { request_id, video_id } => {
-                trailer::dispatch_resolve(self, request_id, video_id)
-            }
+            AppAction::TrailerResolveRequested {
+                request_id,
+                video_id,
+            } => trailer::dispatch_resolve(self, request_id, video_id),
             AppAction::TrailerPrewarmRequested => trailer::dispatch_prewarm(self),
             AppAction::PluginRepositoryAddRequested { manifest_url } => {
                 plugins::dispatch_add_repository(self, manifest_url)
@@ -562,9 +563,10 @@ impl HeadlessEngine {
             AppAction::PluginRepositoryRemoveRequested { manifest_url } => {
                 plugins::dispatch_remove_repository(self, manifest_url)
             }
-            AppAction::PluginScraperToggled { scraper_id, enabled } => {
-                plugins::dispatch_toggle_scraper(self, scraper_id, enabled)
-            }
+            AppAction::PluginScraperToggled {
+                scraper_id,
+                enabled,
+            } => plugins::dispatch_toggle_scraper(self, scraper_id, enabled),
         }
     }
 
@@ -1723,7 +1725,10 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(completed["state"]["plugins"]["addingRepositoryUrl"], Value::Null);
+        assert_eq!(
+            completed["state"]["plugins"]["addingRepositoryUrl"],
+            Value::Null
+        );
         assert_eq!(
             completed["state"]["plugins"]["repositories"][0]["name"],
             "Phisher's Repo"

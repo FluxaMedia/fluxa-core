@@ -377,12 +377,19 @@ pub(crate) fn tmdb_builtin_catalog_url(
     let tmdb_type = tmdb_content_type(content_type);
     let skip = extra
         .get("skip")
-        .and_then(|v| v.as_u64().or_else(|| v.as_str().and_then(|s| s.parse().ok())))
+        .and_then(|v| {
+            v.as_u64()
+                .or_else(|| v.as_str().and_then(|s| s.parse().ok()))
+        })
         .unwrap_or(0);
     let page = (skip / 20) + 1;
     let page_str = page.to_string();
 
-    if let Some(search) = extra.get("search").and_then(Value::as_str).filter(|s| !s.is_empty()) {
+    if let Some(search) = extra
+        .get("search")
+        .and_then(Value::as_str)
+        .filter(|s| !s.is_empty())
+    {
         return tmdb_api_url(
             &format!("3/search/{tmdb_type}"),
             api_key,
@@ -391,7 +398,11 @@ pub(crate) fn tmdb_builtin_catalog_url(
         );
     }
 
-    if let Some(genre_name) = extra.get("genre").and_then(Value::as_str).filter(|s| !s.is_empty()) {
+    if let Some(genre_name) = extra
+        .get("genre")
+        .and_then(Value::as_str)
+        .filter(|s| !s.is_empty())
+    {
         if let Some(genre_id) = tmdb_genre_id(content_type, genre_name) {
             let genre_id_str = genre_id.to_string();
             return tmdb_api_url(
@@ -407,16 +418,26 @@ pub(crate) fn tmdb_builtin_catalog_url(
         }
     }
 
-    tmdb_api_url(&format!("3/{tmdb_type}/popular"), api_key, language, &[("page", &page_str)])
+    tmdb_api_url(
+        &format!("3/{tmdb_type}/popular"),
+        api_key,
+        language,
+        &[("page", &page_str)],
+    )
 }
 
 fn pick_logo(images: &Value, language: &str) -> Option<String> {
     let logos = images.get("logos").and_then(Value::as_array)?;
     let lang = tmdb_language(language);
     let lang_prefix = lang.split('-').next().unwrap_or("en");
-    let pick =
-        |want: &str| logos.iter().find(|l| l.get("iso_639_1").and_then(Value::as_str) == Some(want));
-    let chosen = pick(lang_prefix).or_else(|| pick("en")).or_else(|| logos.first())?;
+    let pick = |want: &str| {
+        logos
+            .iter()
+            .find(|l| l.get("iso_639_1").and_then(Value::as_str) == Some(want))
+    };
+    let chosen = pick(lang_prefix)
+        .or_else(|| pick("en"))
+        .or_else(|| logos.first())?;
     tmdb_image_url(chosen.get("file_path").and_then(Value::as_str), "w500")
 }
 
@@ -435,20 +456,29 @@ pub(crate) fn tmdb_full_meta_to_meta_json(
 
     let tmdb_id = details.get("id").and_then(Value::as_i64)?;
     let has_tv = details.get("first_air_date").is_some() || details.get("name").is_some();
-    let content_type = if requested_type == "series" || has_tv { "series" } else { "movie" };
+    let content_type = if requested_type == "series" || has_tv {
+        "series"
+    } else {
+        "movie"
+    };
 
     let imdb_id = external_ids
         .get("imdb_id")
         .and_then(Value::as_str)
         .filter(|s| !s.is_empty());
-    let id = imdb_id.map(str::to_string).unwrap_or_else(|| format!("tmdb:{tmdb_id}"));
+    let id = imdb_id
+        .map(str::to_string)
+        .unwrap_or_else(|| format!("tmdb:{tmdb_id}"));
 
     let name = details
         .get("title")
         .or_else(|| details.get("name"))
         .and_then(Value::as_str)
         .unwrap_or("Unknown");
-    let description = details.get("overview").and_then(Value::as_str).filter(|s| !s.is_empty());
+    let description = details
+        .get("overview")
+        .and_then(Value::as_str)
+        .filter(|s| !s.is_empty());
     let released = details
         .get("release_date")
         .or_else(|| details.get("first_air_date"))
@@ -475,7 +505,10 @@ pub(crate) fn tmdb_full_meta_to_meta_json(
         .unwrap_or_default();
 
     let poster = tmdb_image_url(details.get("poster_path").and_then(Value::as_str), "w500");
-    let background = tmdb_image_url(details.get("backdrop_path").and_then(Value::as_str), "original");
+    let background = tmdb_image_url(
+        details.get("backdrop_path").and_then(Value::as_str),
+        "original",
+    );
     let logo = pick_logo(&images, language);
 
     let cast: Vec<Value> = credits
@@ -566,12 +599,15 @@ mod tests {
 
     #[test]
     fn full_meta_prefers_imdb_id_when_available() {
-        let details = json!({"id": 550, "title": "Fight Club", "overview": "...", "vote_average": 8.4}).to_string();
+        let details =
+            json!({"id": 550, "title": "Fight Club", "overview": "...", "vote_average": 8.4})
+                .to_string();
         let credits = json!({"cast": [], "crew": []}).to_string();
         let images = json!({"logos": []}).to_string();
         let external_ids = json!({"imdb_id": "tt0137523"}).to_string();
         let result: Value = serde_json::from_str(
-            &tmdb_full_meta_to_meta_json(&details, &credits, &images, &external_ids, "movie", "en").unwrap(),
+            &tmdb_full_meta_to_meta_json(&details, &credits, &images, &external_ids, "movie", "en")
+                .unwrap(),
         )
         .unwrap();
         assert_eq!(result["id"], "tt0137523");
@@ -585,7 +621,15 @@ mod tests {
         let images = json!({}).to_string();
         let external_ids = json!({}).to_string();
         let result: Value = serde_json::from_str(
-            &tmdb_full_meta_to_meta_json(&details, &credits, &images, &external_ids, "series", "en").unwrap(),
+            &tmdb_full_meta_to_meta_json(
+                &details,
+                &credits,
+                &images,
+                &external_ids,
+                "series",
+                "en",
+            )
+            .unwrap(),
         )
         .unwrap();
         assert_eq!(result["id"], "tmdb:550");
@@ -603,7 +647,8 @@ mod tests {
         .to_string();
         let external_ids = json!({}).to_string();
         let result: Value = serde_json::from_str(
-            &tmdb_full_meta_to_meta_json(&details, &credits, &images, &external_ids, "movie", "tr").unwrap(),
+            &tmdb_full_meta_to_meta_json(&details, &credits, &images, &external_ids, "movie", "tr")
+                .unwrap(),
         )
         .unwrap();
         assert_eq!(result["logo"], "https://image.tmdb.org/t/p/w500/tr.png");
@@ -615,7 +660,8 @@ mod tests {
             {"season_number": 1, "episode_number": 3, "name": "Ep 3", "still_path": "/s3.jpg", "air_date": "2020-01-01"},
         ]})
         .to_string();
-        let result: Value = serde_json::from_str(&tmdb_episodes_to_videos_json(&season, "tt123").unwrap()).unwrap();
+        let result: Value =
+            serde_json::from_str(&tmdb_episodes_to_videos_json(&season, "tt123").unwrap()).unwrap();
         let video = &result[0];
         assert_eq!(video["id"], "tt123:1:3");
         assert_eq!(video["thumbnail"], "https://image.tmdb.org/t/p/w300/s3.jpg");
