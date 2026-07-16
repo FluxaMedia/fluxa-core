@@ -274,17 +274,21 @@ pub(crate) fn is_up_next_continue_watching_item_json(item_json: &str) -> bool {
     is_up_next_item(&item)
 }
 
+const UNSTARTED_PLACEHOLDER_DURATION_SECONDS: f64 = 86_400.0;
+
 fn is_up_next_item(item: &Value) -> bool {
     let offset = item
         .get("timeOffset")
         .and_then(Value::as_f64)
         .unwrap_or(0.0);
     let duration = item.get("duration").and_then(Value::as_f64).unwrap_or(0.0);
+    if offset <= 1.0 && duration > UNSTARTED_PLACEHOLDER_DURATION_SECONDS {
+        return true;
+    }
     if duration <= 0.0 {
         return offset <= 1.0;
     }
-    let progress = offset / duration;
-    !(0.005..0.995).contains(&progress)
+    offset / duration >= 0.995
 }
 
 pub(crate) fn build_continue_watching_from_progress_json(progress_json: &str) -> Option<String> {
