@@ -357,8 +357,29 @@ pub(crate) fn is_likely_video_file(path: &str) -> bool {
         .any(|extension| path.ends_with(extension))
 }
 
+fn torrent_episode_tokens(title: &str) -> Vec<String> {
+    let parts: Vec<&str> = title.split(':').collect();
+    if parts.len() < 3 {
+        return Vec::new();
+    }
+    let season = parts[parts.len() - 2].parse::<u32>().ok();
+    let episode = parts[parts.len() - 1].parse::<u32>().ok();
+    match (season, episode) {
+        (Some(season), Some(episode)) => vec![
+            format!("s{season:02}e{episode:02}"),
+            format!("{season}x{episode:02}"),
+        ],
+        _ => Vec::new(),
+    }
+}
+
+fn matches_torrent_episode(path: &str, tokens: &[String]) -> bool {
+    let normalized = path.to_ascii_lowercase();
+    tokens.iter().any(|token| normalized.contains(token))
+}
+
 pub(crate) fn resolve_torrent_file_index(
-    _title: &str,
+    title: &str,
     requested_file_idx: Option<i32>,
     preferred_filename: Option<&str>,
     file_stats: &[TorrentFileStat],
@@ -386,6 +407,18 @@ pub(crate) fn resolve_torrent_file_index(
         }
     }
 
+    let episode_tokens = torrent_episode_tokens(title);
+    if !episode_tokens.is_empty() {
+        if let Some(stat) = file_stats
+            .iter()
+            .filter(|stat| is_likely_video_file(&stat.path))
+            .filter(|stat| matches_torrent_episode(&stat.path, &episode_tokens))
+            .max_by_key(|stat| stat.length)
+        {
+            return (Some(stat.id), Some("episode".to_string()));
+        }
+    }
+
     file_stats
         .iter()
         .filter(|stat| is_likely_video_file(&stat.path))
@@ -395,7 +428,7 @@ pub(crate) fn resolve_torrent_file_index(
 }
 
 pub(crate) fn torrent_fallback_file_indexes(
-    _title: &str,
+    title: &str,
     rejected_index: Option<i32>,
     file_stats: &[TorrentFileStat],
 ) -> Vec<i32> {
@@ -403,7 +436,13 @@ pub(crate) fn torrent_fallback_file_indexes(
         .iter()
         .filter(|stat| is_likely_video_file(&stat.path))
         .collect();
-    videos.sort_by_key(|stat| std::cmp::Reverse(stat.length));
+    let episode_tokens = torrent_episode_tokens(title);
+    videos.sort_by_key(|stat| {
+        (
+            !matches_torrent_episode(&stat.path, &episode_tokens),
+            std::cmp::Reverse(stat.length),
+        )
+    });
     videos
         .into_iter()
         .filter(|stat| Some(stat.id) != rejected_index)

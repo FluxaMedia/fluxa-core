@@ -299,11 +299,39 @@ mod tests {
             Some("requested")
         );
 
-        // No fileIdx → falls back to largest video file
-        let fallback = torrent_runtime_info_json(
+        // No fileIdx but an episode-shaped title → the matching episode file
+        // wins even when a bigger video is present
+        let episode = torrent_runtime_info_json(
             r#"{
                 "link":"stremio://torrent/ABCDEF1234567890ABCDEF1234567890ABCDEF12",
                 "title":"tt123:1:2",
+                "requestedFileIdx":null,
+                "preferredFilename":null,
+                "sources":[],
+                "fileStats":[
+                    {"id":1,"path":"Show.S01E02.mkv","length":100},
+                    {"id":2,"path":"Show.S01E03.mkv","length":300}
+                ],
+                "rejectedIndex":null,
+                "baseUrl":"http://127.0.0.1:8090",
+                "play":true,
+                "stat":false
+            }"#,
+        )
+        .and_then(|json| serde_json::from_str::<Value>(&json).ok())
+        .expect("torrent episode info");
+
+        assert_eq!(episode.get("selectedFileIdx").and_then(Value::as_i64), Some(1));
+        assert_eq!(
+            episode.get("selectedReason").and_then(Value::as_str),
+            Some("episode")
+        );
+
+        // No fileIdx and no episode in the title → falls back to largest video
+        let fallback = torrent_runtime_info_json(
+            r#"{
+                "link":"stremio://torrent/ABCDEF1234567890ABCDEF1234567890ABCDEF12",
+                "title":"tt123",
                 "requestedFileIdx":null,
                 "preferredFilename":null,
                 "sources":[],
