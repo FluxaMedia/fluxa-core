@@ -183,6 +183,11 @@ fn curated_items(category: &NativeHomeCategory) -> Vec<Value> {
     let mut seen = HashSet::new();
     values
         .into_iter()
+        .filter(|(item, _)| {
+            !meta_string_array(item, "genres")
+                .iter()
+                .any(|genre| normalize_home_key(genre) == "adult")
+        })
         .filter_map(|(item, _)| {
             let id = meta_text(&item, "id").to_string();
             if seen.insert(id) {
