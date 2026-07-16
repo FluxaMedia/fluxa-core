@@ -393,6 +393,49 @@ pub(crate) fn import_collections_json(raw_json: &str) -> Option<String> {
     serde_json::to_string(&collections).ok()
 }
 
+const AIR_DATE_COOLDOWN_MS: i64 = 12 * 60 * 60 * 1000;
+
+pub(crate) fn air_date_refresh_candidates_json(args_json: &str) -> Option<String> {
+    let args: Value = serde_json::from_str(args_json).ok()?;
+    let now_ms = args.get("nowMs").and_then(Value::as_i64)?;
+    let items = args.get("items").and_then(Value::as_array)?;
+
+    let parse_ms = |value: Option<&Value>| {
+        value
+            .and_then(Value::as_str)
+            .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+            .map(|dt| dt.timestamp_millis())
+    };
+
+    let mut seen: Vec<&str> = Vec::new();
+    let mut due: Vec<Value> = Vec::new();
+    for item in items {
+        let Some(id) = item.get("id").and_then(Value::as_str) else {
+            continue;
+        };
+        if seen.contains(&id) {
+            continue;
+        }
+        seen.push(id);
+        if item.get("type").and_then(Value::as_str) != Some("series") {
+            continue;
+        }
+        let next_air = parse_ms(item.get("nextEpisodeAirDate"));
+        let missing_or_past = match next_air {
+            Some(ms) => ms <= now_ms,
+            None => true,
+        };
+        if !missing_or_past {
+            continue;
+        }
+        let last_checked = parse_ms(item.get("lastAirDateCheckedAt")).unwrap_or(0);
+        if now_ms - last_checked >= AIR_DATE_COOLDOWN_MS {
+            due.push(Value::String(id.to_string()));
+        }
+    }
+    Some(Value::Array(due).to_string())
+}
+
 pub(crate) fn export_collections_json(collections_json: &str) -> Option<String> {
     let collections: Vec<Value> = serde_json::from_str(collections_json).ok()?;
     let data: Vec<Value> = collections

@@ -1179,3 +1179,15 @@ mod tests {
         assert_eq!(percent_decode_component("%xé"), "%xé");
     }
 }
+
+pub(crate) fn torrent_ready_budget_json() -> String {
+    serde_json::json!({
+        "firstAttemptMs": 15_000,
+        "retryBudgetMs": 45_000,
+        "hardLimitMs": 120_000,
+        "stallExtensionMs": 20_000,
+        "maxPeerRetriesWithAlternatives": 1,
+        "maxPeerRetriesSingleSource": 2,
+    })
+    .to_string()
+}

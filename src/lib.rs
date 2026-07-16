@@ -61,6 +61,8 @@ mod intro_segments;
 mod library_state;
 pub mod log_sink;
 #[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
+mod nuvio_sync;
+#[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
 mod offline_download;
 #[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
 mod platform_plan;

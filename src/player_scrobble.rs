@@ -27,6 +27,19 @@ pub(crate) fn should_mark_stopped(has_scrobbled_stop: bool, progress: f32) -> bo
     !has_scrobbled_stop && progress >= SCROBBLE_STOP_PROGRESS_PERCENT
 }
 
+pub(crate) fn scrobble_close_action(time_pos_sec: f64, duration_sec: f64) -> &'static str {
+    let percent = if duration_sec > 0.0 {
+        (time_pos_sec / duration_sec) * 100.0
+    } else {
+        0.0
+    };
+    if percent >= SCROBBLE_STOP_PROGRESS_PERCENT as f64 {
+        "stop"
+    } else {
+        "pause"
+    }
+}
+
 pub(crate) fn should_queue_pause(
     token: Option<&str>,
     was_play_when_ready: bool,

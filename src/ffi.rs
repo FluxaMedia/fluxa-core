@@ -3,8 +3,8 @@ use serde_json::{json, Value};
 use crate::{
     addon_protocol, addon_resource, anime_detection, app_state, calendar_plan, content_identity,
     core_contract, external_sync, headless_engine, home_ranking, intro_segments, library_state,
-    offline_download, platform_plan, player_policy, player_scrobble, plugins, repository_flow,
-    search_plan, stream_policy, tmdb_plan, watchlist_plan,
+    nuvio_sync, offline_download, platform_plan, player_policy, player_scrobble, plugins,
+    repository_flow, search_plan, stream_policy, tmdb_plan, watchlist_plan,
 };
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -83,6 +83,7 @@ const ROUTERS: &[fn(&str, &str) -> Outcome] = &[
     route_external_sync_anilist,
     route_anime_detection,
     route_library_state,
+    route_nuvio_sync,
     route_tmdb,
     route_intro_segments,
     route_core_contract,
@@ -354,6 +355,7 @@ fn route_stream_policy(method: &str, args_json: &str) -> Outcome {
         "streamPlaybackInfo" => opt_json(stream_policy::stream_playback_info_json(args_json)),
         "torrentRuntimeInfo" => opt_json(stream_policy::torrent_runtime_info_json(args_json)),
         "torrentStatusInfo" => opt_json(stream_policy::torrent_status_info_json(args_json)),
+        "torrentReadyBudget" => into_json(stream_policy::torrent_ready_budget_json()),
         "findPreferredSubtitleIndex" => {
             let args = object(args_json)?;
             let last = args
@@ -481,6 +483,9 @@ fn route_watchlist(method: &str, args_json: &str) -> Outcome {
                 field_str(&args, "incomingMetaJson")?,
                 field_str(&args, "existingMetaJson")?,
             ))
+        }
+        "airDateRefreshCandidates" => {
+            opt_json(watchlist_plan::air_date_refresh_candidates_json(args_json))
         }
         "importCollections" => opt_json(watchlist_plan::import_collections_json(args_json)),
         "exportCollections" => opt_json(watchlist_plan::export_collections_json(args_json)),
@@ -722,6 +727,18 @@ fn route_external_sync_simkl(method: &str, args_json: &str) -> Outcome {
                 field_str(&args, "moviesJson")?,
             ))
         }
+        "simklScrobbleAction" => {
+            let args = object(args_json)?;
+            let time_pos = field(&args, "timePosSec")?
+                .as_f64()
+                .ok_or_else(|| fail(ErrorKind::InvalidArgs, "timePosSec must be a number"))?;
+            let duration = field(&args, "durationSec")?
+                .as_f64()
+                .ok_or_else(|| fail(ErrorKind::InvalidArgs, "durationSec must be a number"))?;
+            Ok(Value::String(
+                player_scrobble::scrobble_close_action(time_pos, duration).to_string(),
+            ))
+        }
         "simklScrobbleBody" => {
             let args = object(args_json)?;
             let season = field(&args, "season")?
@@ -959,6 +976,22 @@ fn route_library_state(method: &str, args_json: &str) -> Outcome {
         _ => Err(fail(
             ErrorKind::UnknownMethod,
             format!("no such method `{method}`"),
+        )),
+    }
+}
+
+fn route_nuvio_sync(method: &str, args_json: &str) -> Outcome {
+    match method {
+        // args_json IS the request object
+        "nuvioBuildLocalProfiles" => opt_json(nuvio_sync::build_local_profiles_json(args_json)),
+        "nuvioLibraryToWatchlist" => opt_json(nuvio_sync::library_to_watchlist_json(args_json)),
+        "nuvioProgressMetaNeeds" => opt_json(nuvio_sync::progress_meta_needs_json(args_json)),
+        "nuvioImportMergePlan" => opt_json(nuvio_sync::import_merge_plan_json(args_json)),
+        "nuvioMapCollections" => opt_json(nuvio_sync::map_collections_json(args_json)),
+
+        _ => Err(fail(
+            ErrorKind::UnknownMethod,
+            format!("`{method}` is not a nuvio-sync method"),
         )),
     }
 }
