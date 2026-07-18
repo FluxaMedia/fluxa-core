@@ -93,6 +93,8 @@ mergeIntroSegments
 mergeLibraryItemsById
 mergeLiveManifest
 mergeProgressMeta
+mergeWatchedTimestamped
+mergeWatchlistTimestamped
 moveMetadataFeedOrder
 nextUnairedEpisode
 normalizeAddonSubtitles

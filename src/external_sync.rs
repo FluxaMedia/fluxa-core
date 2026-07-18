@@ -462,6 +462,69 @@ pub(crate) fn merge_external_watched_json(local_json: &str, external_json: &str)
     serde_json::to_string(&Value::Object(local)).unwrap_or_else(|_| "{}".to_string())
 }
 
+#[derive(serde::Deserialize)]
+struct TimestampedLocalItem {
+    id: String,
+    #[serde(default)]
+    active: bool,
+    #[serde(rename = "updatedAt", default)]
+    updated_at: i64,
+}
+
+#[derive(serde::Deserialize)]
+struct TimestampedRemoteItem {
+    id: String,
+    #[serde(rename = "updatedAt", default)]
+    updated_at: i64,
+}
+
+fn merge_timestamped_membership(local_json: &str, remote_json: &str) -> String {
+    let local: Vec<TimestampedLocalItem> = serde_json::from_str(local_json).unwrap_or_default();
+    let remote: Vec<TimestampedRemoteItem> = serde_json::from_str(remote_json).unwrap_or_default();
+
+    let local_by_id: std::collections::HashMap<&str, &TimestampedLocalItem> =
+        local.iter().map(|item| (item.id.as_str(), item)).collect();
+    let remote_ids: std::collections::HashSet<&str> =
+        remote.iter().map(|item| item.id.as_str()).collect();
+
+    let mut apply_local_add: Vec<String> = Vec::new();
+    let mut push_remote_add: Vec<String> = Vec::new();
+    let mut push_remote_remove: Vec<String> = Vec::new();
+
+    for remote_item in &remote {
+        match local_by_id.get(remote_item.id.as_str()) {
+            None => apply_local_add.push(remote_item.id.clone()),
+            Some(local_item) if !local_item.active => {
+                if local_item.updated_at >= remote_item.updated_at {
+                    push_remote_remove.push(remote_item.id.clone());
+                } else {
+                    apply_local_add.push(remote_item.id.clone());
+                }
+            }
+            Some(_) => {}
+        }
+    }
+    for local_item in &local {
+        if local_item.active && !remote_ids.contains(local_item.id.as_str()) {
+            push_remote_add.push(local_item.id.clone());
+        }
+    }
+
+    json!({
+        "toApplyLocal": { "add": apply_local_add },
+        "toPushRemote": { "add": push_remote_add, "remove": push_remote_remove }
+    })
+    .to_string()
+}
+
+pub(crate) fn merge_watchlist_timestamped_json(local_json: &str, remote_json: &str) -> String {
+    merge_timestamped_membership(local_json, remote_json)
+}
+
+pub(crate) fn merge_watched_timestamped_json(local_json: &str, remote_json: &str) -> String {
+    merge_timestamped_membership(local_json, remote_json)
+}
+
 fn item_id(item: &Value) -> String {
     item.get("id")
         .or_else(|| item.get("_id"))
@@ -1366,5 +1429,43 @@ mod tests {
             trakt_mark_watched_body_json(&json!(["not-an-id"]).to_string()),
             None
         );
+    }
+
+    #[test]
+    fn timestamped_merge_pushes_removal_when_local_is_newer() {
+        let local = json!([{"id": "a", "active": false, "updatedAt": 2000}]).to_string();
+        let remote = json!([{"id": "a", "updatedAt": 1000}]).to_string();
+        let result: Value =
+            serde_json::from_str(&merge_watchlist_timestamped_json(&local, &remote)).unwrap();
+        assert_eq!(result["toPushRemote"]["remove"], json!(["a"]));
+        assert_eq!(result["toApplyLocal"]["add"], json!([]));
+    }
+
+    #[test]
+    fn timestamped_merge_reapplies_locally_when_remote_is_newer() {
+        let local = json!([{"id": "a", "active": false, "updatedAt": 1000}]).to_string();
+        let remote = json!([{"id": "a", "updatedAt": 2000}]).to_string();
+        let result: Value =
+            serde_json::from_str(&merge_watchlist_timestamped_json(&local, &remote)).unwrap();
+        assert_eq!(result["toApplyLocal"]["add"], json!(["a"]));
+        assert_eq!(result["toPushRemote"]["remove"], json!([]));
+    }
+
+    #[test]
+    fn timestamped_merge_pushes_local_only_additions() {
+        let local = json!([{"id": "a", "active": true, "updatedAt": 1000}]).to_string();
+        let remote = json!([]).to_string();
+        let result: Value =
+            serde_json::from_str(&merge_watchlist_timestamped_json(&local, &remote)).unwrap();
+        assert_eq!(result["toPushRemote"]["add"], json!(["a"]));
+    }
+
+    #[test]
+    fn timestamped_merge_imports_remote_only_additions() {
+        let local = json!([]).to_string();
+        let remote = json!([{"id": "a", "updatedAt": 1000}]).to_string();
+        let result: Value =
+            serde_json::from_str(&merge_watchlist_timestamped_json(&local, &remote)).unwrap();
+        assert_eq!(result["toApplyLocal"]["add"], json!(["a"]));
     }
 }

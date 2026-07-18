@@ -1015,6 +1015,20 @@ fn route_external_sync_trakt(method: &str, args_json: &str) -> Outcome {
                 args.get("rankingMode").and_then(Value::as_str),
             ))
         }
+        "mergeWatchlistTimestamped" => {
+            let args = object(args_json)?;
+            into_json(external_sync::merge_watchlist_timestamped_json(
+                field_str(&args, "localJson")?,
+                field_str(&args, "remoteJson")?,
+            ))
+        }
+        "mergeWatchedTimestamped" => {
+            let args = object(args_json)?;
+            into_json(external_sync::merge_watched_timestamped_json(
+                field_str(&args, "localJson")?,
+                field_str(&args, "remoteJson")?,
+            ))
+        }
         "traktScrobblePlan" => {
             let args = object(args_json)?;
             let season = args.get("season").and_then(Value::as_i64);
