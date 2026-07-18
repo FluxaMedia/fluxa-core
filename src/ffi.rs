@@ -1018,15 +1018,15 @@ fn route_external_sync_trakt(method: &str, args_json: &str) -> Outcome {
         "mergeWatchlistTimestamped" => {
             let args = object(args_json)?;
             into_json(external_sync::merge_watchlist_timestamped_json(
-                field_str(&args, "localJson")?,
-                field_str(&args, "remoteJson")?,
+                &field(&args, "local")?.to_string(),
+                &field(&args, "remote")?.to_string(),
             ))
         }
         "mergeWatchedTimestamped" => {
             let args = object(args_json)?;
             into_json(external_sync::merge_watched_timestamped_json(
-                field_str(&args, "localJson")?,
-                field_str(&args, "remoteJson")?,
+                &field(&args, "local")?.to_string(),
+                &field(&args, "remote")?.to_string(),
             ))
         }
         "traktScrobblePlan" => {
