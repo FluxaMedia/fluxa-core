@@ -51,6 +51,7 @@ struct ProfileSafePrefs {
     ambient_light: bool,
     force_software_audio: bool,
     preferred_player: String,
+    continue_watching_source: String,
     card_layout: String,
     continue_watching_layout: String,
     continue_watching_artwork: String,
@@ -163,6 +164,8 @@ fn profile_safe_prefs(profile: &Value) -> ProfileSafePrefs {
         ambient_light: bool_value(profile, "ambientLight").unwrap_or(true),
         force_software_audio: bool_value(profile, "forceSoftwareAudio").unwrap_or(false),
         preferred_player: safe_preferred_player(text(profile, "preferredPlayer")).to_string(),
+        continue_watching_source: safe_continue_watching_source(text(profile, "continueWatchingSource"))
+            .to_string(),
         card_layout: card_layout.clone(),
         continue_watching_layout: continue_watching_layout.clone(),
         continue_watching_artwork: text(profile, "continueWatchingArtwork")
@@ -282,6 +285,17 @@ fn safe_preferred_player(value: Option<&str>) -> &'static str {
     match value {
         Some("mpv") => "mpv",
         _ => "exoplayer",
+    }
+}
+
+pub(crate) fn safe_continue_watching_source(value: Option<&str>) -> &'static str {
+    match value {
+        Some("stremio") => "stremio",
+        Some("nuvio") => "nuvio",
+        Some("trakt") => "trakt",
+        Some("simkl") => "simkl",
+        Some("anilist") => "anilist",
+        _ => "fluxa",
     }
 }
 

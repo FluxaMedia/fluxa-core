@@ -262,6 +262,7 @@ fn fill_structured_settings(profile: &mut Map<String, Value>) {
             ("animationsEnabled", "animationsEnabled"),
             ("reduceMotion", "reduceMotion"),
             ("startPage", "startPage"),
+            ("continueWatchingSource", "continueWatchingSource"),
         ],
     );
     insert_object_from_fields(
