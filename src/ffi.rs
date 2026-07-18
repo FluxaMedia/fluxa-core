@@ -1311,6 +1311,26 @@ fn route_external_sync_anilist(method: &str, args_json: &str) -> Outcome {
                 progress,
             ))
         }
+        // args_json IS the meta object
+        "extractAnilistIdFromLinks" => Ok(json!(external_sync::extract_anilist_id_from_links(
+            &object(args_json)?
+        ))),
+        "anilistSearchBestMatch" => {
+            opt_json(external_sync::anilist_search_best_match_json(args_json))
+        }
+        "anilistMediaListStatus" => {
+            let args = object(args_json)?;
+            let total_episodes = field(&args, "totalEpisodes")?
+                .as_i64()
+                .ok_or_else(|| fail(ErrorKind::InvalidArgs, "totalEpisodes must be a number"))?;
+            let progress_episode = field(&args, "progressEpisode")?
+                .as_i64()
+                .ok_or_else(|| fail(ErrorKind::InvalidArgs, "progressEpisode must be a number"))?;
+            Ok(json!(external_sync::anilist_media_list_status(
+                total_episodes,
+                progress_episode
+            )))
+        }
 
         _ => Err(fail(
             ErrorKind::UnknownMethod,
@@ -1335,6 +1355,10 @@ fn route_anime_detection(method: &str, args_json: &str) -> Outcome {
                 addons,
             ))
         }
+        // args_json IS the meta object
+        "shouldAttemptAnimeTracking" => Ok(json!(
+            anime_detection::should_attempt_anime_tracking(&object(args_json)?)
+        )),
 
         _ => Err(fail(
             ErrorKind::UnknownMethod,

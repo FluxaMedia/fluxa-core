@@ -1674,6 +1674,116 @@ pub(crate) fn anilist_save_media_list_entry_variables_json(
     serde_json::to_string(&Value::Object(variables)).ok()
 }
 
+fn extract_after_marker(text: &str, marker: &str) -> Option<i64> {
+    let lower = text.to_ascii_lowercase();
+    let idx = lower.find(marker)?;
+    let rest = &text[idx + marker.len()..];
+    let digits: String = rest.chars().take_while(|c| c.is_ascii_digit()).collect();
+    if digits.is_empty() {
+        None
+    } else {
+        digits.parse().ok()
+    }
+}
+
+pub(crate) fn extract_anilist_id_from_links(meta: &Value) -> Option<i64> {
+    let links = meta.get("links")?.as_array()?;
+    let text = links
+        .iter()
+        .map(|link| {
+            format!(
+                "{} {}",
+                link.get("url").and_then(Value::as_str).unwrap_or(""),
+                link.get("name").and_then(Value::as_str).unwrap_or(""),
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(" ");
+    extract_after_marker(&text, "anilist.co/anime/")
+}
+
+fn normalize_anime_title(value: &str) -> String {
+    let mut out = String::new();
+    let mut last_was_space = true;
+    for c in value.chars() {
+        if c.is_ascii_alphanumeric() {
+            out.push(c.to_ascii_lowercase());
+            last_was_space = false;
+        } else if !last_was_space {
+            out.push(' ');
+            last_was_space = true;
+        }
+    }
+    out.trim_end().to_string()
+}
+
+fn parse_year_from_text(value: &str) -> Option<i64> {
+    let bytes = value.as_bytes();
+    for i in 0..bytes.len().saturating_sub(3) {
+        let candidate = &value[i..i + 4];
+        if !candidate.bytes().all(|b| b.is_ascii_digit()) {
+            continue;
+        }
+        if !(candidate.starts_with("19") || candidate.starts_with("20")) {
+            continue;
+        }
+        let before_ok = i == 0 || !bytes[i - 1].is_ascii_alphanumeric();
+        let after_ok = i + 4 == bytes.len() || !bytes[i + 4].is_ascii_alphanumeric();
+        if before_ok && after_ok {
+            return candidate.parse().ok();
+        }
+    }
+    None
+}
+
+pub(crate) fn anilist_search_best_match_json(args_json: &str) -> Option<String> {
+    let args: Value = serde_json::from_str(args_json).ok()?;
+    let meta = args.get("meta")?;
+    let candidates = args.get("candidates")?.as_array()?;
+
+    let search_name = meta.get("name").and_then(Value::as_str)?.trim();
+    if search_name.is_empty() {
+        return None;
+    }
+    let year = meta
+        .get("year")
+        .and_then(Value::as_i64)
+        .or_else(|| meta.get("releaseInfo").and_then(Value::as_str).and_then(parse_year_from_text));
+    let normalized_name = normalize_anime_title(search_name);
+
+    let name_matches = |item: &Value| -> bool {
+        item.get("title")
+            .and_then(Value::as_object)
+            .is_some_and(|title| {
+                title
+                    .values()
+                    .any(|t| t.as_str().is_some_and(|s| normalize_anime_title(s) == normalized_name))
+            })
+    };
+    let year_ok = |item: &Value| -> bool {
+        let season_year = item.get("seasonYear").and_then(Value::as_i64);
+        match (year, season_year) {
+            (Some(y), Some(sy)) => (y - sy).abs() <= 1,
+            _ => true,
+        }
+    };
+
+    let best = candidates
+        .iter()
+        .find(|item| name_matches(item) && year_ok(item))
+        .or_else(|| candidates.iter().find(|item| year_ok(item)))?;
+    let id = best.get("id")?.as_i64()?;
+    serde_json::to_string(&json!({ "anilistId": id, "confidence": "title-year" })).ok()
+}
+
+pub(crate) fn anilist_media_list_status(total_episodes: i64, progress_episode: i64) -> &'static str {
+    if total_episodes > 0 && progress_episode >= total_episodes {
+        "COMPLETED"
+    } else {
+        "CURRENT"
+    }
+}
+
 pub(crate) fn anilist_entries_to_sync(entries: &[Value], now_ms: i64) -> Value {
     let mut watchlist: Vec<Value> = Vec::new();
     let mut completed: Vec<Value> = Vec::new();
@@ -1830,6 +1940,53 @@ pub(crate) fn merge_library_items_by_id(local: &[Value], incoming: &[Value]) -> 
 mod tests {
     use super::*;
     use serde_json::Value;
+
+    #[test]
+    fn extracts_anilist_id_from_link_url() {
+        let meta = json!({"links": [{"name": "AniList", "category": "other", "url": "https://anilist.co/anime/1535"}]});
+        assert_eq!(extract_anilist_id_from_links(&meta), Some(1535));
+    }
+
+    #[test]
+    fn extract_anilist_id_returns_none_without_matching_link() {
+        let meta = json!({"links": [{"name": "IMDb", "category": "other", "url": "https://imdb.com/title/tt1"}]});
+        assert_eq!(extract_anilist_id_from_links(&meta), None);
+    }
+
+    #[test]
+    fn search_match_prefers_exact_title_within_year_tolerance() {
+        let args = json!({
+            "meta": {"name": "Attack on Titan", "year": 2013},
+            "candidates": [
+                {"id": 1, "seasonYear": 2020, "title": {"romaji": "Something Else"}},
+                {"id": 2, "seasonYear": 2013, "title": {"english": "Attack on Titan"}},
+            ],
+        });
+        let result = anilist_search_best_match_json(&args.to_string()).unwrap();
+        let parsed: Value = serde_json::from_str(&result).unwrap();
+        assert_eq!(parsed["anilistId"], 2);
+        assert_eq!(parsed["confidence"], "title-year");
+    }
+
+    #[test]
+    fn search_match_falls_back_to_year_only_when_no_title_matches() {
+        let args = json!({
+            "meta": {"name": "Some Show", "year": 2013},
+            "candidates": [
+                {"id": 3, "seasonYear": 2013, "title": {"romaji": "Different Name"}},
+            ],
+        });
+        let result = anilist_search_best_match_json(&args.to_string()).unwrap();
+        let parsed: Value = serde_json::from_str(&result).unwrap();
+        assert_eq!(parsed["anilistId"], 3);
+    }
+
+    #[test]
+    fn media_list_status_completes_when_progress_reaches_total() {
+        assert_eq!(anilist_media_list_status(12, 12), "COMPLETED");
+        assert_eq!(anilist_media_list_status(12, 5), "CURRENT");
+        assert_eq!(anilist_media_list_status(0, 5), "CURRENT");
+    }
 
     #[test]
     fn anilist_current_entries_build_progress_and_watched_keys() {
