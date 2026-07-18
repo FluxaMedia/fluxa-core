@@ -159,7 +159,10 @@ pub(super) enum AppAction {
     #[serde(rename = "libraryHydrateRequested")]
     LibraryHydrateRequested { profile_id: Option<String> },
     #[serde(rename = "toggleWatchlistRequested")]
-    ToggleWatchlistRequested { item: Value },
+    ToggleWatchlistRequested {
+        item: Value,
+        profile: Option<Value>,
+    },
     #[serde(rename = "toggleLibraryStatusRequested")]
     ToggleLibraryStatusRequested { list: String, item: Value },
     #[serde(rename = "setFeedbackRequested")]

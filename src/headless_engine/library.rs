@@ -157,9 +157,10 @@ pub(super) fn dispatch_hydrate(
 pub(super) fn dispatch_toggle_watchlist(
     engine: &mut HeadlessEngine,
     item: Value,
+    profile: Option<Value>,
 ) -> Vec<EffectEnvelope> {
     let generation = engine.bump_generation(GenerationKey::Library);
-    let profile_id = active_profile_id(&engine.state, &Value::Null);
+    let profile_id = active_profile_id(&engine.state, &profile.unwrap_or(Value::Null));
     let command = ToggleWatchlistCommand {
         kind: "toggleWatchlist",
         item,

@@ -848,6 +848,8 @@ fn route_content_identity(method: &str, args_json: &str) -> Outcome {
 
 fn route_calendar(method: &str, args_json: &str) -> Outcome {
     match method {
+        "calendarCandidatePlan" => opt_json(calendar_plan::calendar_candidate_plan_json(args_json)),
+        "calendarReleaseRows" => opt_json(calendar_plan::calendar_release_rows_json(args_json)),
         "calendarContentPlan" => opt_json(calendar_plan::calendar_content_plan_json(args_json)),
         "calendarSeasonCandidates" => opt_json(calendar_plan::calendar_season_candidates_json(
             args_json,
@@ -1669,7 +1671,7 @@ fn route_addon_store(method: &str, args_json: &str) -> Outcome {
             )))
         }
         // args_json IS the profile object
-        "profileLocalAddonsKey" => opt_json(addon_store::profile_local_addons_key_json(
+        "profileLocalAddonsKey" => opt_str(addon_store::profile_local_addons_key_json(
             args_json,
         )),
         "sanitizeProfile" => {

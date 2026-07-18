@@ -19,11 +19,13 @@ buildResourceUrl
 buildTraktIds
 cacheEntryPolicy
 cacheTrimPolicy
+calendarCandidatePlan
 calendarContentPlan
 calendarItemMatchesMonth
 calendarItemsFromMeta
 calendarNotificationContent
 calendarReleaseDetection
+calendarReleaseRows
 calendarSeasonCandidates
 calendarWidgetRows
 canPrefetchNextEpisode

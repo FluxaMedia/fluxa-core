@@ -21,6 +21,31 @@ struct CalendarItemInput {
     episode_title: Option<String>,
     #[serde(default)]
     artwork_url: Option<String>,
+    #[serde(default)]
+    meta: Value,
+    #[serde(default)]
+    poster: Option<String>,
+    #[serde(default)]
+    episode_poster: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CandidatePlanRequest {
+    #[serde(default)]
+    groups: Vec<Vec<Value>>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ReleaseRowsRequest {
+    meta: Value,
+    #[serde(default)]
+    detail: Value,
+    #[serde(default)]
+    videos: Vec<Value>,
+    month_prefix: String,
+    movie_label: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -86,12 +111,17 @@ pub(crate) fn calendar_content_plan_json(request_json: &str) -> Option<String> {
         .items
         .iter()
         .filter(|item| {
+            let meta_id = if item.meta_id.trim().is_empty() {
+                item.meta.get("id").and_then(Value::as_str).unwrap_or("")
+            } else {
+                &item.meta_id
+            };
             item.date_iso.starts_with(prefix)
-                && !item.meta_id.trim().is_empty()
+                && !meta_id.trim().is_empty()
                 && seen.insert(format!(
                     "{}:{}:{}",
                     item.date_iso,
-                    item.meta_id,
+                    meta_id,
                     item.subtitle.as_deref().unwrap_or("")
                 ))
         })
@@ -104,20 +134,157 @@ pub(crate) fn calendar_content_plan_json(request_json: &str) -> Option<String> {
     let out: Vec<Value> = filtered
         .iter()
         .map(|item| {
+            let meta_id = if item.meta_id.trim().is_empty() {
+                item.meta.get("id").and_then(Value::as_str).unwrap_or("")
+            } else {
+                &item.meta_id
+            };
+            let meta_type = if item.meta_type.trim().is_empty() {
+                item.meta.get("type").and_then(Value::as_str).unwrap_or("")
+            } else {
+                &item.meta_type
+            };
             json!({
                 "dateIso": item.date_iso,
-                "metaId": item.meta_id,
-                "metaType": item.meta_type,
+                "metaId": meta_id,
+                "metaType": meta_type,
                 "title": item.title,
                 "subtitle": item.subtitle,
                 "seasonNumber": item.season_number,
                 "episodeNumber": item.episode_number,
                 "episodeTitle": item.episode_title,
-                "artworkUrl": item.artwork_url
+                "artworkUrl": item.artwork_url,
+                "meta": item.meta,
+                "poster": item.poster,
+                "episodePoster": item.episode_poster
             })
         })
         .collect();
     serde_json::to_string(&out).ok()
+}
+
+pub(crate) fn calendar_candidate_plan_json(request_json: &str) -> Option<String> {
+    let request = serde_json::from_str::<CandidatePlanRequest>(request_json).ok()?;
+    let mut seen = std::collections::HashSet::new();
+    let candidates: Vec<Value> = request
+        .groups
+        .into_iter()
+        .flatten()
+        .filter(|item| {
+            let id = item.get("id").and_then(Value::as_str).unwrap_or("").trim();
+            let content_type = item
+                .get("type")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .trim();
+            !id.is_empty()
+                && content_type != "catalog_folder"
+                && seen.insert(format!("{}:{}", content_type.to_ascii_lowercase(), id))
+        })
+        .collect();
+    serde_json::to_string(&candidates).ok()
+}
+
+pub(crate) fn calendar_release_rows_json(request_json: &str) -> Option<String> {
+    let request = serde_json::from_str::<ReleaseRowsRequest>(request_json).ok()?;
+    let meta = &request.meta;
+    let content_type = meta
+        .get("type")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    let meta_id = meta.get("id").and_then(Value::as_str).unwrap_or("");
+    let title = meta.get("name").and_then(Value::as_str).unwrap_or(meta_id);
+    if ["movie", "film"].contains(&content_type.as_str()) {
+        let date_iso = meta
+            .get("released")
+            .and_then(Value::as_str)
+            .and_then(|value| value.get(..10))?;
+        if !date_iso.starts_with(&request.month_prefix) {
+            return serde_json::to_string(&json!([])).ok();
+        }
+        let poster = usable_artwork(meta.get("poster").and_then(Value::as_str));
+        return serde_json::to_string(&json!([{
+            "dateIso": date_iso,
+            "meta": meta,
+            "title": title,
+            "subtitle": request.movie_label,
+            "poster": poster
+        }]))
+        .ok();
+    }
+    if !["series", "tv", "show", "anime"].contains(&content_type.as_str()) {
+        return serde_json::to_string(&json!([])).ok();
+    }
+    let detail = &request.detail;
+    let fallback_artwork = [
+        meta.get("poster").and_then(Value::as_str),
+        detail.get("poster").and_then(Value::as_str),
+        meta.get("continueWatchingPoster").and_then(Value::as_str),
+        meta.get("background").and_then(Value::as_str),
+        meta.get("continueWatchingBackground")
+            .and_then(Value::as_str),
+        detail.get("background").and_then(Value::as_str),
+    ]
+    .into_iter()
+    .flatten()
+    .find_map(|url| usable_artwork(Some(url)));
+    let rows: Vec<Value> = request
+        .videos
+        .iter()
+        .filter_map(|video| {
+            let date_iso = video
+                .get("released")
+                .and_then(Value::as_str)
+                .and_then(|value| value.get(..10))?;
+            if !date_iso.starts_with(&request.month_prefix) {
+                return None;
+            }
+            let season = video.get("season").and_then(Value::as_i64);
+            let episode = video
+                .get("number")
+                .or_else(|| video.get("episode"))
+                .and_then(Value::as_i64);
+            let episode_code = match (season, episode) {
+                (Some(s), Some(e)) => Some(format!("S{s}:E{e}")),
+                (Some(s), None) => Some(format!("S{s}")),
+                (None, Some(e)) => Some(format!("E{e}")),
+                _ => None,
+            };
+            let episode_title = video
+                .get("name")
+                .or_else(|| video.get("title"))
+                .and_then(Value::as_str)
+                .filter(|value| !value.trim().is_empty());
+            let subtitle = [episode_code.as_deref(), episode_title]
+                .into_iter()
+                .flatten()
+                .collect::<Vec<_>>()
+                .join(" ");
+            Some(json!({
+                "dateIso": date_iso,
+                "meta": meta,
+                "title": title,
+                "subtitle": subtitle,
+                "poster": fallback_artwork,
+                "episodePoster": fallback_artwork,
+                "seasonNumber": season,
+                "episodeNumber": episode,
+                "episodeTitle": episode_title
+            }))
+        })
+        .collect();
+    serde_json::to_string(&rows).ok()
+}
+
+fn usable_artwork(url: Option<&str>) -> Option<&str> {
+    url.filter(|value| {
+        let normalized = value.trim().to_ascii_lowercase();
+        !normalized.is_empty()
+            && normalized != "null"
+            && !normalized.contains("default-poster")
+            && !normalized.contains("placeholder")
+    })
 }
 
 pub(crate) fn calendar_season_candidates_json(request_json: &str) -> Option<String> {
@@ -418,6 +585,42 @@ pub(crate) fn calendar_item_matches_month_json(item_json: &str, month_prefix: &s
 mod tests {
     use super::*;
     use serde_json::Value;
+
+    #[test]
+    fn candidate_plan_merges_groups_and_deduplicates_content() {
+        let result: Value = serde_json::from_str(
+            &calendar_candidate_plan_json(
+                r#"{"groups":[[{"id":"tt1","type":"series","name":"Library"}],[{"id":"tt1","type":"series","name":"Progress"},{"id":"tt2","type":"anime","name":"Provider"}]]}"#,
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(result.as_array().unwrap().len(), 2);
+        assert_eq!(result[0]["name"], json!("Library"));
+        assert_eq!(result[1]["id"], json!("tt2"));
+    }
+
+    #[test]
+    fn release_rows_build_series_episodes_and_movie_releases() {
+        let series: Value = serde_json::from_str(
+            &calendar_release_rows_json(
+                r#"{"meta":{"id":"tt1","type":"tv","name":"Show","poster":"poster.jpg"},"videos":[{"released":"2026-07-20T00:00:00Z","season":2,"number":1,"name":"Premiere"}],"monthPrefix":"2026-07","movieLabel":"Movie"}"#,
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(series[0]["subtitle"], json!("S2:E1 Premiere"));
+        assert_eq!(series[0]["meta"]["id"], json!("tt1"));
+
+        let movie: Value = serde_json::from_str(
+            &calendar_release_rows_json(
+                r#"{"meta":{"id":"tt2","type":"film","name":"Film","released":"2026-07-21"},"videos":[],"monthPrefix":"2026-07","movieLabel":"Movie"}"#,
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(movie[0]["subtitle"], json!("Movie"));
+    }
 
     #[test]
     fn content_plan_filters_deduplicates_and_sorts_by_date_then_title() {

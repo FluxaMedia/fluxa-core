@@ -350,8 +350,8 @@ impl HeadlessEngine {
             AppAction::LibraryHydrateRequested { profile_id } => {
                 library::dispatch_hydrate(self, profile_id)
             }
-            AppAction::ToggleWatchlistRequested { item } => {
-                library::dispatch_toggle_watchlist(self, item)
+            AppAction::ToggleWatchlistRequested { item, profile } => {
+                library::dispatch_toggle_watchlist(self, item, profile)
             }
             AppAction::ToggleLibraryStatusRequested { list, item } => {
                 library::dispatch_toggle_status(self, list, item)
@@ -1243,14 +1243,14 @@ mod tests {
         let requested: Value = serde_json::from_str(
             &headless_engine_dispatch_json(
                 handle,
-                r#"{"type":"toggleWatchlistRequested","item":{"id":"tt1","name":"Movie","type":"movie"}}"#,
+                r#"{"type":"toggleWatchlistRequested","profile":{"id":"p2"},"item":{"id":"tt1","name":"Movie","type":"movie"}}"#,
             )
             .unwrap(),
         )
         .unwrap();
 
         assert_eq!(requested["effects"][0]["type"], "writeLibraryCommand");
-        assert_eq!(requested["effects"][0]["payload"]["profileId"], "p1");
+        assert_eq!(requested["effects"][0]["payload"]["profileId"], "p2");
         assert_eq!(
             requested["effects"][0]["payload"]["command"]["type"],
             "toggleWatchlist"
