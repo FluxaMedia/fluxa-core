@@ -116,7 +116,9 @@ pub(crate) fn library_continue_watching_items_json(items_json: &str) -> Option<S
     let mut items: Vec<Value> = serde_json::from_str(items_json).ok()?;
     items.retain(|item| {
         let state = item.get("state").unwrap_or(&Value::Null);
-        !state.is_null()
+        let removed = item.get("removed").and_then(Value::as_bool).unwrap_or(false);
+        !removed
+            && !state.is_null()
             && number(state, "timeOffset").unwrap_or(0) > 0
             && number(state, "flaggedWatched").unwrap_or(0) == 0
     });
@@ -151,6 +153,29 @@ pub(crate) fn library_continue_watching_items_json(items_json: &str) -> Option<S
         })
         .collect::<Vec<_>>();
     serde_json::to_string(&metas).ok()
+}
+
+pub(crate) fn library_watchlist_items_json(items_json: &str) -> Option<String> {
+    let items: Vec<Value> = serde_json::from_str(items_json).ok()?;
+    let entries: Vec<Value> = items
+        .iter()
+        .filter(|item| !item.get("removed").and_then(Value::as_bool).unwrap_or(false))
+        .filter_map(|item| {
+            let id = text(item, "_id").filter(|s| !s.is_empty())?.to_string();
+            let updated_at_ms = text(item, "_mtime")
+                .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+                .map(|dt: chrono::DateTime<chrono::FixedOffset>| dt.timestamp_millis())?;
+            Some(json!({
+                "id": id,
+                "name": text(item, "name").unwrap_or(""),
+                "type": text(item, "type").unwrap_or(""),
+                "poster": item.get("poster").cloned().unwrap_or(Value::Null),
+                "background": item.get("background").cloned().unwrap_or(Value::Null),
+                "updatedAtMs": updated_at_ms
+            }))
+        })
+        .collect();
+    serde_json::to_string(&entries).ok()
 }
 
 pub(crate) fn filter_home_continue_watching_json(
@@ -1026,6 +1051,31 @@ pub(crate) fn item_list_new_entries_json(before_json: &str, after_json: &str) ->
 mod tests {
     use super::*;
     use serde_json::Value;
+
+    #[test]
+    fn library_watchlist_items_excludes_removed_and_undated_entries() {
+        let items = r#"[
+            {"_id":"tt1","name":"Active","type":"movie","_mtime":"2026-01-01T00:00:00.000Z"},
+            {"_id":"tt2","name":"Removed","type":"movie","removed":true,"_mtime":"2026-01-01T00:00:00.000Z"},
+            {"_id":"tt3","name":"NoTimestamp","type":"movie"}
+        ]"#;
+        let result: Value = serde_json::from_str(&library_watchlist_items_json(items).unwrap()).unwrap();
+        let ids: Vec<&str> = result.as_array().unwrap().iter().map(|i| i["id"].as_str().unwrap()).collect();
+        assert_eq!(ids, vec!["tt1"]);
+        assert_eq!(result[0]["updatedAtMs"], json!(1767225600000i64));
+    }
+
+    #[test]
+    fn continue_watching_items_exclude_removed_entries() {
+        let items = r#"[
+            {"_id":"tt1","name":"Active","type":"movie","state":{"timeOffset":100,"duration":1000,"flaggedWatched":0}},
+            {"_id":"tt2","name":"Removed","type":"movie","removed":true,"state":{"timeOffset":100,"duration":1000,"flaggedWatched":0}}
+        ]"#;
+        let result: Value =
+            serde_json::from_str(&library_continue_watching_items_json(items).unwrap()).unwrap();
+        assert_eq!(result.as_array().unwrap().len(), 1);
+        assert_eq!(result[0]["id"], "tt1");
+    }
 
     #[test]
     fn watched_state_items_build_series_episode_payloads() {

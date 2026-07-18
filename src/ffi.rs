@@ -2,12 +2,14 @@ use serde_json::{json, Value};
 
 use crate::{
     addon_protocol, addon_resource, addon_store, anime_detection, app_state, calendar_plan,
-    content_identity, core_contract, data_policy, discovery_plan, dolby_vision_rpu,
-    external_sync, headless_adapter_plan, headless_engine, home_ranking, intro_segments,
+    content_identity, core_contract, data_policy, discovery_plan, external_sync,
+    headless_adapter_plan, headless_engine, home_ranking, intro_segments,
     library_state, nuvio_sync, offline_download, platform_plan, player_flow, player_policy,
     player_scrobble, plugins, profile_contract, profile_prefs, repository_flow, search_plan,
     stream_policy, tmdb_plan, watchlist_plan,
 };
+#[cfg(feature = "native")]
+use crate::dolby_vision_rpu;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum ErrorKind {
@@ -96,6 +98,7 @@ const ROUTERS: &[fn(&str, &str) -> Outcome] = &[
     route_headless_adapter_plan,
     route_discovery_plan,
     route_data_policy,
+    #[cfg(feature = "native")]
     route_dolby_vision_rpu,
     route_player_flow,
     route_player_scrobble,
@@ -1353,6 +1356,9 @@ fn route_library_state(method: &str, args_json: &str) -> Outcome {
         "libraryContinueWatchingItems" => opt_json(
             library_state::library_continue_watching_items_json(args_json),
         ),
+        "libraryWatchlistItems" => opt_json(
+            library_state::library_watchlist_items_json(args_json),
+        ),
         "normalizeLibraryDocument" => {
             into_json(library_state::normalize_library_document_json(args_json))
         }
@@ -1850,6 +1856,7 @@ fn route_data_policy(method: &str, args_json: &str) -> Outcome {
     }
 }
 
+#[cfg(feature = "native")]
 fn route_dolby_vision_rpu(method: &str, args_json: &str) -> Outcome {
     match method {
         // args_json IS the request object for both of these

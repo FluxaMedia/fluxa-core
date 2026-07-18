@@ -83,6 +83,7 @@ libraryExternalMergePlan
 libraryLocalStatePlan
 libraryOfflineGrouping
 librarySortPlan
+libraryWatchlistItems
 manifestCandidates
 manifestFetchDecision
 manifestFetchPlan
