@@ -5,6 +5,7 @@ addonStoreInputType
 addonStoreSearchPolicy
 addonStreamsWithProvider
 anilistEntriesToSync
+anilistSaveMediaListEntryVariables
 app.create
 app.destroy
 app.dispatch

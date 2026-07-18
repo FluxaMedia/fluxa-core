@@ -1209,6 +1209,15 @@ fn route_external_sync_anilist(method: &str, args_json: &str) -> Outcome {
                 .ok_or_else(|| fail(ErrorKind::InvalidArgs, "incoming must be an array"))?;
             Ok(external_sync::merge_library_items_by_id(local, incoming))
         }
+        "anilistSaveMediaListEntryVariables" => {
+            let args = object(args_json)?;
+            let progress = args.get("progress").and_then(Value::as_i64);
+            opt_json(external_sync::anilist_save_media_list_entry_variables_json(
+                field_str(&args, "contentId")?,
+                field_str(&args, "status")?,
+                progress,
+            ))
+        }
 
         _ => Err(fail(
             ErrorKind::UnknownMethod,

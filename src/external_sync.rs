@@ -1147,6 +1147,25 @@ fn mark_watched_through(watched: &mut serde_json::Map<String, Value>, id: &str, 
     }
 }
 
+pub(crate) fn anilist_media_id_from_content_id(content_id: &str) -> Option<i64> {
+    content_id.strip_prefix("anilist:")?.parse::<i64>().ok()
+}
+
+pub(crate) fn anilist_save_media_list_entry_variables_json(
+    content_id: &str,
+    status: &str,
+    progress: Option<i64>,
+) -> Option<String> {
+    let media_id = anilist_media_id_from_content_id(content_id)?;
+    let mut variables = Map::new();
+    variables.insert("mediaId".to_string(), json!(media_id));
+    variables.insert("status".to_string(), json!(status));
+    if let Some(progress) = progress {
+        variables.insert("progress".to_string(), json!(progress.max(0)));
+    }
+    serde_json::to_string(&Value::Object(variables)).ok()
+}
+
 pub(crate) fn anilist_entries_to_sync(entries: &[Value], now_ms: i64) -> Value {
     let mut watchlist: Vec<Value> = Vec::new();
     let mut completed: Vec<Value> = Vec::new();
@@ -1458,6 +1477,30 @@ mod tests {
         let result: Value =
             serde_json::from_str(&merge_watchlist_timestamped_json(&local, &remote)).unwrap();
         assert_eq!(result["toPushRemote"]["add"], json!(["a"]));
+    }
+
+    #[test]
+    fn anilist_save_media_list_entry_variables_parses_media_id() {
+        let json = anilist_save_media_list_entry_variables_json("anilist:5", "PLANNING", None).unwrap();
+        let value: Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(value["mediaId"], json!(5));
+        assert_eq!(value["status"], json!("PLANNING"));
+        assert!(value.get("progress").is_none());
+    }
+
+    #[test]
+    fn anilist_save_media_list_entry_variables_includes_progress_when_given() {
+        let json = anilist_save_media_list_entry_variables_json("anilist:5", "COMPLETED", Some(12)).unwrap();
+        let value: Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(value["progress"], json!(12));
+    }
+
+    #[test]
+    fn anilist_save_media_list_entry_variables_rejects_non_anilist_ids() {
+        assert_eq!(
+            anilist_save_media_list_entry_variables_json("tt1234567", "PLANNING", None),
+            None
+        );
     }
 
     #[test]
