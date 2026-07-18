@@ -1,10 +1,12 @@
 use serde_json::{json, Value};
 
 use crate::{
-    addon_protocol, addon_resource, anime_detection, app_state, calendar_plan, content_identity,
-    core_contract, external_sync, headless_engine, home_ranking, intro_segments, library_state,
-    nuvio_sync, offline_download, platform_plan, player_policy, player_scrobble, plugins,
-    repository_flow, search_plan, stream_policy, tmdb_plan, watchlist_plan,
+    addon_protocol, addon_resource, addon_store, anime_detection, app_state, calendar_plan,
+    content_identity, core_contract, data_policy, discovery_plan, dolby_vision_rpu,
+    external_sync, headless_adapter_plan, headless_engine, home_ranking, intro_segments,
+    library_state, nuvio_sync, offline_download, platform_plan, player_flow, player_policy,
+    player_scrobble, plugins, profile_contract, profile_prefs, repository_flow, search_plan,
+    stream_policy, tmdb_plan, watchlist_plan,
 };
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -88,6 +90,15 @@ const ROUTERS: &[fn(&str, &str) -> Outcome] = &[
     route_intro_segments,
     route_core_contract,
     route_plugins,
+    route_addon_store,
+    route_profile_contract,
+    route_profile_prefs,
+    route_headless_adapter_plan,
+    route_discovery_plan,
+    route_data_policy,
+    route_dolby_vision_rpu,
+    route_player_flow,
+    route_player_scrobble,
 ];
 
 fn route(method: &str, args_json: &str) -> Outcome {
@@ -173,12 +184,21 @@ fn route_addon_protocol(method: &str, args_json: &str) -> Outcome {
         "manifestFetchPlan" => opt_json(addon_protocol::manifest_fetch_plan_json(&arg_str(
             args_json, "url",
         )?)),
+        "baseUrl" => Ok(Value::String(addon_protocol::base_url(&arg_str(
+            args_json, "url",
+        )?))),
+        "preferHttpsAssetUrl" => Ok(json!(addon_protocol::prefer_https_asset_url(&arg_str(
+            args_json, "url",
+        )?))),
+        "manifestCandidates" => Ok(json!(addon_protocol::manifest_candidates(&arg_str(
+            args_json, "url",
+        )?))),
         "parseManifest" => {
             let args = object(args_json)?;
             opt_json(addon_protocol::parse_manifest(
                 field_str(&args, "body")?,
                 field_str(&args, "transportUrl")?,
-                "Unknown Addon",
+                field_str(&args, "unknownName")?,
             ))
         }
         // args_json IS the descriptor object
@@ -273,6 +293,20 @@ fn route_addon_resource(method: &str, args_json: &str) -> Outcome {
                 body.as_deref(),
             ))
         }
+        "parseAddonStreamResult" => {
+            let args = object(args_json)?;
+            let body = args.get("body").and_then(Value::as_str).map(str::to_string);
+            let status_code = field(&args, "statusCode")?
+                .as_i64()
+                .ok_or_else(|| fail(ErrorKind::InvalidArgs, "statusCode must be a number"))?
+                as i32;
+            into_json(addon_resource::parse_addon_stream_result_json(
+                field_str(&args, "url")?,
+                status_code,
+                body.as_deref(),
+                field_str(&args, "addonName")?,
+            ))
+        }
         "normalizeAddonSubtitles" => {
             let args = object(args_json)?;
             into_json(addon_resource::normalize_addon_subtitles_json(
@@ -293,6 +327,30 @@ fn route_resource_plan(method: &str, args_json: &str) -> Outcome {
         // Repository / resource flow — args_json IS the request object
         "addonResourceRequestPlan" => {
             opt_json(repository_flow::addon_resource_request_plan_json(args_json))
+        }
+        "repositoryMetaDetailPlan" => {
+            opt_json(repository_flow::repository_meta_detail_plan_json(args_json))
+        }
+        "manifestFetchDecision" => {
+            opt_json(repository_flow::manifest_fetch_decision_json(args_json))
+        }
+        "repositorySeasonVideos" => {
+            let args = object(args_json)?;
+            let season_number = field(&args, "seasonNumber")?
+                .as_i64()
+                .ok_or_else(|| fail(ErrorKind::InvalidArgs, "seasonNumber must be a number"))?
+                as i32;
+            into_json(repository_flow::repository_season_videos_json(
+                field_str(&args, "metaDetailJson")?,
+                season_number,
+            ))
+        }
+        "addonStreamsWithProvider" => {
+            let args = object(args_json)?;
+            into_json(repository_flow::addon_streams_with_provider_json(
+                field_str(&args, "streamsJson")?,
+                field_str(&args, "addonName")?,
+            ))
         }
         "resourceFetchPlan" => opt_json(platform_plan::resource_fetch_plan_json(args_json)),
         "resourceFetchExecutionPolicy" => opt_json(
@@ -356,6 +414,57 @@ fn route_stream_policy(method: &str, args_json: &str) -> Outcome {
         "torrentRuntimeInfo" => opt_json(stream_policy::torrent_runtime_info_json(args_json)),
         "torrentStatusInfo" => opt_json(stream_policy::torrent_status_info_json(args_json)),
         "torrentReadyBudget" => into_json(stream_policy::torrent_ready_budget_json()),
+        "streamRequestHeaders" => {
+            opt_json(stream_policy::stream_request_headers_json(&arg_str(
+                args_json, "headersJson",
+            )?))
+        }
+        "streamRequestReferer" => {
+            opt_json(stream_policy::stream_request_referer(&arg_str(
+                args_json, "url",
+            )?))
+        }
+        "selectStreamIndex" => {
+            let args = object(args_json)?;
+            let saved_url = args.get("savedUrl").and_then(Value::as_str);
+            let saved_title = args.get("savedTitle").and_then(Value::as_str);
+            let regex_pattern = args.get("regexPattern").and_then(Value::as_str);
+            let preferred_binge_group = args.get("preferredBingeGroup").and_then(Value::as_str);
+            Ok(json!(stream_policy::select_stream_index(
+                field_str(&args, "streamsJson")?,
+                field_str(&args, "currentVideoId")?,
+                field(&args, "initialStreamIndex")?
+                    .as_i64()
+                    .ok_or_else(|| fail(
+                        ErrorKind::InvalidArgs,
+                        "initialStreamIndex must be a number"
+                    ))? as i32,
+                saved_url,
+                saved_title,
+                field_str(&args, "sourceSelectionMode")?.into(),
+                regex_pattern,
+                preferred_binge_group,
+            )))
+        }
+        "playerTrackState" => opt_json(stream_policy::player_track_state_json(args_json)),
+        "resolvePreferredAudioLanguage" => {
+            let args = object(args_json)?;
+            let last = args.get("lastAudioLanguage").and_then(Value::as_str);
+            let preferred = args.get("preferredAudioLanguage").and_then(Value::as_str);
+            let original = args.get("originalLanguage").and_then(Value::as_str);
+            Ok(Value::String(stream_policy::resolve_preferred_audio_language(
+                last, preferred, original,
+            )))
+        }
+        "subtitleLanguageMatches" => {
+            let args = object(args_json)?;
+            let language = args.get("language").and_then(Value::as_str);
+            Ok(json!(stream_policy::subtitle_language_matches(
+                field_str(&args, "label")?,
+                language,
+                field_str(&args, "preferredLanguage")?,
+            )))
+        }
         "findPreferredSubtitleIndex" => {
             let args = object(args_json)?;
             let last = args
@@ -402,6 +511,7 @@ fn route_search_plan(method: &str, args_json: &str) -> Outcome {
             ))
         }
         "librarySortPlan" => opt_json(search_plan::library_sort_plan_json(args_json)),
+        "discoverSortPlan" => opt_json(search_plan::discover_sort_plan_json(args_json)),
         "detailSeriesLookupId" => Ok(Value::String(search_plan::detail_series_lookup_id(
             &arg_str(args_json, "id")?,
         ))),
@@ -430,6 +540,10 @@ fn route_search_plan(method: &str, args_json: &str) -> Outcome {
 
 fn route_player_policy(method: &str, args_json: &str) -> Outcome {
     match method {
+        "dvProxyPlan" => opt_json(player_policy::dv_proxy_plan_json(args_json)),
+        "torrentFallbackFilePolicy" => {
+            opt_json(player_policy::torrent_fallback_file_policy_json(args_json))
+        }
         // args_json IS the request object for single-arg methods
         "playerBackendSelection" => {
             opt_json(player_policy::player_backend_selection_json(args_json))
@@ -489,6 +603,15 @@ fn route_watchlist(method: &str, args_json: &str) -> Outcome {
         }
         "importCollections" => opt_json(watchlist_plan::import_collections_json(args_json)),
         "exportCollections" => opt_json(watchlist_plan::export_collections_json(args_json)),
+        "libraryExternalMergePlan" => {
+            opt_json(watchlist_plan::library_external_merge_plan_json(args_json))
+        }
+        "libraryCollectionImportValidation" => opt_json(
+            watchlist_plan::library_collection_import_validation_json(args_json),
+        ),
+        "libraryOfflineGrouping" => {
+            opt_json(watchlist_plan::library_offline_grouping_json(args_json))
+        }
 
         _ => Err(fail(
             ErrorKind::UnknownMethod,
@@ -540,6 +663,181 @@ fn route_content_identity(method: &str, args_json: &str) -> Outcome {
                 max_enabled,
             ))
         }
+        "streamRequestIds" => {
+            let args = object(args_json)?;
+            let detail_id = args.get("detailId").and_then(Value::as_str);
+            let current_series_lookup_id =
+                args.get("currentSeriesLookupId").and_then(Value::as_str);
+            let canonical_base_id = args.get("canonicalBaseId").and_then(Value::as_str);
+            Ok(json!(content_identity::stream_request_ids(
+                field_str(&args, "contentType")?,
+                field_str(&args, "id")?,
+                detail_id,
+                current_series_lookup_id,
+                canonical_base_id,
+            )))
+        }
+        "episodeTextMatches" => {
+            let args = object(args_json)?;
+            let season = field(&args, "season")?
+                .as_i64()
+                .ok_or_else(|| fail(ErrorKind::InvalidArgs, "season must be a number"))?
+                as i32;
+            let episode = field(&args, "episode")?
+                .as_i64()
+                .ok_or_else(|| fail(ErrorKind::InvalidArgs, "episode must be a number"))?
+                as i32;
+            Ok(json!(content_identity::text_matches_episode(
+                field_str(&args, "text")?,
+                season,
+                episode,
+            )))
+        }
+        "streamMatchesEpisode" => {
+            let args = object(args_json)?;
+            let fields = [
+                args.get("title").and_then(Value::as_str).unwrap_or("").to_string(),
+                args.get("name").and_then(Value::as_str).unwrap_or("").to_string(),
+                args.get("description").and_then(Value::as_str).unwrap_or("").to_string(),
+                args.get("filename").and_then(Value::as_str).unwrap_or("").to_string(),
+                args.get("effectiveFilename").and_then(Value::as_str).unwrap_or("").to_string(),
+            ];
+            Ok(json!(content_identity::stream_matches_episode(
+                field_str(&args, "videoId")?,
+                &fields,
+            )))
+        }
+        "contentTraktKeysBatch" => opt_json(content_identity::content_trakt_keys_batch(
+            &arg_str(args_json, "metasJson")?,
+        )),
+        "contentWatchedKeysBatch" => opt_json(content_identity::content_watched_keys_batch(
+            &arg_str(args_json, "metasJson")?,
+        )),
+        "contentMergeKeys" => opt_json(content_identity::content_keys_json(
+            &arg_str(args_json, "metaJson")?,
+            false,
+        )),
+        "episodeFilenameCandidate" => {
+            let args = object(args_json)?;
+            opt_json(content_identity::episode_filename_candidate(
+                field_str(&args, "streamJson")?,
+                field_str(&args, "videoId")?,
+            ))
+        }
+        "streamDiscoveryCacheKey" => opt_str(content_identity::stream_discovery_cache_key(
+            args_json,
+        )),
+        "discoverCatalogCacheKey" => opt_str(content_identity::discover_catalog_cache_key(
+            args_json,
+        )),
+        "stableFeedPart" => Ok(Value::String(content_identity::stable_feed_part(
+            &arg_str(args_json, "value")?,
+        ))),
+        "normalizeContentType" => Ok(json!(content_identity::normalize_content_type(&arg_str(
+            args_json, "value",
+        )?))),
+        "parseExtraArgs" => opt_json(content_identity::parse_extra_args_json(&arg_str(
+            args_json, "extra",
+        )?)),
+        "providerSearchTerms" => Ok(json!(content_identity::provider_search_terms(&arg_str(
+            args_json, "provider",
+        )?))),
+        "filterDiscoverResults" => {
+            let args = object(args_json)?;
+            let year = args.get("year").and_then(Value::as_str);
+            let rating = args.get("rating").and_then(Value::as_f64).map(|v| v as f32);
+            let region = args.get("region").and_then(Value::as_str);
+            opt_json(content_identity::filter_discover_results_json(
+                field_str(&args, "itemsJson")?,
+                year,
+                rating,
+                region,
+            ))
+        }
+        "mergeContinueWatchingDuplicates" => opt_json(
+            content_identity::merge_continue_watching_duplicates_json(&arg_str(
+                args_json, "itemsJson",
+            )?),
+        ),
+        "directPlaybackPlan" => {
+            let args = object(args_json)?;
+            let detail_json = args.get("detailJson").and_then(Value::as_str);
+            opt_json(content_identity::direct_playback_plan_json(
+                field_str(&args, "metaJson")?,
+                detail_json,
+                field_str(&args, "todayIso")?,
+            ))
+        }
+        "streamDiscoveryEpisodeContext" => {
+            let args = object(args_json)?;
+            let detail_json = args.get("detailJson").and_then(Value::as_str);
+            opt_json(content_identity::stream_discovery_episode_context_json(
+                field_str(&args, "contentType")?,
+                field_str(&args, "requestId")?,
+                detail_json,
+                field_str(&args, "seasonEpisodesJson")?,
+            ))
+        }
+        "parseEpisodeLocator" => {
+            let raw = arg_str(args_json, "input")?;
+            match content_identity::parse_episode_locator(&raw) {
+                Some((base_id, season, episode)) => Ok(json!({
+                    "baseId": base_id,
+                    "season": season,
+                    "episode": episode
+                })),
+                None => Ok(Value::Null),
+            }
+        }
+        "playbackStreamRequestIds" => {
+            let args = object(args_json)?;
+            let detail_id = args.get("detailId").and_then(Value::as_str);
+            opt_json(content_identity::playback_stream_request_ids_json(
+                field_str(&args, "contentType")?,
+                field_str(&args, "id")?,
+                detail_id,
+            ))
+        }
+        "toggleMetadataFeed" => {
+            let args = object(args_json)?;
+            opt_json(content_identity::toggle_metadata_feed_json(
+                field_str(&args, "selectedKeys")?,
+                field_str(&args, "availableKeys")?,
+                field_str(&args, "key")?,
+            ))
+        }
+        "setMetadataFeedGroupEnabled" => {
+            let args = object(args_json)?;
+            let enabled = field(&args, "enabled")?
+                .as_bool()
+                .ok_or_else(|| fail(ErrorKind::InvalidArgs, "enabled must be a bool"))?;
+            opt_json(content_identity::set_metadata_feed_group_enabled_json(
+                field_str(&args, "selectedKeys")?,
+                field_str(&args, "availableKeys")?,
+                field_str(&args, "groupKeys")?,
+                enabled,
+            ))
+        }
+        "orderedMetadataFeedKeys" => {
+            let args = object(args_json)?;
+            opt_json(content_identity::ordered_metadata_feed_keys(
+                field_str(&args, "optionKeys")?,
+                field_str(&args, "order")?,
+            ))
+        }
+        "moveMetadataFeedOrder" => {
+            let args = object(args_json)?;
+            let delta = field(&args, "delta")?
+                .as_i64()
+                .ok_or_else(|| fail(ErrorKind::InvalidArgs, "delta must be a number"))?
+                as i32;
+            opt_json(content_identity::move_metadata_feed_order_json(
+                field_str(&args, "optionKeys")?,
+                field_str(&args, "currentOrder")?,
+                field_str(&args, "key")?,
+                delta,
+            ))
+        }
 
         _ => Err(fail(
             ErrorKind::UnknownMethod,
@@ -550,6 +848,17 @@ fn route_content_identity(method: &str, args_json: &str) -> Outcome {
 
 fn route_calendar(method: &str, args_json: &str) -> Outcome {
     match method {
+        "calendarContentPlan" => opt_json(calendar_plan::calendar_content_plan_json(args_json)),
+        "calendarSeasonCandidates" => opt_json(calendar_plan::calendar_season_candidates_json(
+            args_json,
+        )),
+        "calendarWidgetRows" => opt_json(calendar_plan::calendar_widget_rows_json(args_json)),
+        "calendarNotificationContent" => opt_json(
+            calendar_plan::calendar_notification_content_json(args_json),
+        ),
+        "calendarReleaseDetection" => {
+            opt_json(calendar_plan::calendar_release_detection_json(args_json))
+        }
         "calendarItemsFromMeta" => {
             let args = object(args_json)?;
             opt_json(calendar_plan::calendar_items_from_meta_json(
@@ -598,6 +907,66 @@ fn route_calendar(method: &str, args_json: &str) -> Outcome {
 
 fn route_external_sync_trakt(method: &str, args_json: &str) -> Outcome {
     match method {
+        "traktHasClient" => Ok(json!(external_sync::trakt_has_client(&arg_str(
+            args_json, "apiKey",
+        )?))),
+        "traktBearer" => Ok(Value::String(external_sync::trakt_bearer(&arg_str(
+            args_json, "token",
+        )?))),
+        "traktScrobbleUrl" => Ok(Value::String(external_sync::trakt_scrobble_url(&arg_str(
+            args_json, "action",
+        )?))),
+        "traktPlaybackUrl" => {
+            let args = object(args_json)?;
+            let content_type = args.get("contentType").and_then(Value::as_str);
+            Ok(Value::String(external_sync::trakt_playback_url(
+                content_type,
+            )))
+        }
+        "traktTokenExpiresAt" => {
+            let args = object(args_json)?;
+            let created_at_seconds = field(&args, "createdAtSeconds")?
+                .as_i64()
+                .ok_or_else(|| fail(ErrorKind::InvalidArgs, "createdAtSeconds must be a number"))?;
+            let expires_in_seconds = field(&args, "expiresInSeconds")?
+                .as_i64()
+                .ok_or_else(|| fail(ErrorKind::InvalidArgs, "expiresInSeconds must be a number"))?;
+            Ok(json!(external_sync::trakt_token_expires_at(
+                created_at_seconds,
+                expires_in_seconds,
+            )))
+        }
+        "traktContentIdFromIds" => opt_str(external_sync::trakt_content_id_from_ids_json(
+            &arg_str(args_json, "idsJson")?,
+        )),
+        "traktIdsFromContentId" => opt_json(external_sync::trakt_ids_from_content_id_json(
+            &arg_str(args_json, "rawId")?,
+        )),
+        "traktEpisodeLocator" => opt_json(external_sync::trakt_episode_locator_json(&arg_str(
+            args_json, "videoId",
+        )?)),
+        "traktShowIdFromEpisodeId" => Ok(Value::String(
+            external_sync::trakt_show_id_from_episode_id(&arg_str(args_json, "videoId")?),
+        )),
+        "traktScrobbleMediaId" => {
+            let args = object(args_json)?;
+            let video_id = args.get("videoId").and_then(Value::as_str);
+            Ok(Value::String(external_sync::trakt_scrobble_media_id(
+                field_str(&args, "parentId")?,
+                video_id,
+                field_str(&args, "mediaType")?,
+            )))
+        }
+        "traktOAuthErrorCode" => opt_str(external_sync::trakt_oauth_error_code(&arg_str(
+            args_json, "body",
+        )?)),
+        "traktHistoryRequest" => {
+            let args = object(args_json)?;
+            opt_json(external_sync::trakt_history_request_json(
+                field_str(&args, "metaJson")?,
+                field_str(&args, "episodesJson")?,
+            ))
+        }
         // args_json IS the items array for single-array-arg methods
         "traktPlaybackItemsToLibrary" => opt_json(
             external_sync::trakt_playback_items_to_library_json(args_json),
@@ -858,6 +1227,103 @@ fn route_anime_detection(method: &str, args_json: &str) -> Outcome {
 
 fn route_library_state(method: &str, args_json: &str) -> Outcome {
     match method {
+        "playbackProgressItem" => {
+            let args = object(args_json)?;
+            let time_offset = field(&args, "timeOffset")?
+                .as_i64()
+                .ok_or_else(|| fail(ErrorKind::InvalidArgs, "timeOffset must be a number"))?;
+            let duration = field(&args, "duration")?
+                .as_i64()
+                .ok_or_else(|| fail(ErrorKind::InvalidArgs, "duration must be a number"))?;
+            opt_json(library_state::playback_progress_item_json(
+                field_str(&args, "metaJson")?,
+                time_offset,
+                duration,
+                field_str(&args, "nowUtc")?,
+            ))
+        }
+        "clearPlaybackProgressItem" => opt_json(
+            library_state::clear_playback_progress_item_json(&arg_str(args_json, "metaJson")?),
+        ),
+        "watchedStateItems" => {
+            let args = object(args_json)?;
+            let watched = field(&args, "watched")?
+                .as_bool()
+                .ok_or_else(|| fail(ErrorKind::InvalidArgs, "watched must be bool"))?;
+            let watched_at = args.get("watchedAt").and_then(Value::as_str);
+            opt_json(library_state::watched_state_items_json(
+                field_str(&args, "metaJson")?,
+                field_str(&args, "episodesJson")?,
+                watched,
+                watched_at,
+            ))
+        }
+        "filterHomeContinueWatching" => {
+            let args = object(args_json)?;
+            let trakt_watched_json = args
+                .get("traktWatchedJson")
+                .and_then(Value::as_str)
+                .unwrap_or("");
+            opt_json(library_state::filter_home_continue_watching_json(
+                field_str(&args, "itemsJson")?,
+                trakt_watched_json,
+            ))
+        }
+        "watchedVideoIds" => {
+            let args = object(args_json)?;
+            opt_json(library_state::watched_video_ids_json(
+                field_str(&args, "itemsJson")?,
+                field_str(&args, "imdbId")?,
+            ))
+        }
+        "curateHomeItems" => opt_json(home_ranking::curate_home_items_json(&arg_str(
+            args_json,
+            "categoryJson",
+        )?)),
+        "homeOverlapRatio" => {
+            let args = object(args_json)?;
+            Ok(json!(home_ranking::home_overlap_ratio_json(
+                field_str(&args, "firstJson")?,
+                field_str(&args, "secondJson")?,
+            )))
+        }
+        "homePersonalizationScore" => {
+            let args = object(args_json)?;
+            Ok(json!(home_ranking::home_personalization_score_json(
+                field_str(&args, "categoryJson")?,
+                field_str(&args, "preferredGenresJson")?,
+                field_str(&args, "preferredTypesJson")?,
+                field_str(&args, "priorityLabelsJson")?,
+            )))
+        }
+        "prioritizeHomeRows" => {
+            let args = object(args_json)?;
+            opt_json(home_ranking::home_prioritize_rows_json(
+                field_str(&args, "categoriesJson")?,
+                field_str(&args, "preferredOrderLabelsJson")?,
+                field_str(&args, "preferredGenresJson")?,
+                field_str(&args, "preferredTypesJson")?,
+                field_str(&args, "priorityLabelsJson")?,
+            ))
+        }
+        "optimizeHomeRows" => opt_json(home_ranking::optimize_home_rows_json(args_json)),
+        "buildBillboardPool" => {
+            let args = object(args_json)?;
+            opt_json(home_ranking::build_billboard_pool_json(
+                field_str(&args, "enrichedJson")?,
+                field_str(&args, "candidatesJson")?,
+            ))
+        }
+        "normalizeHomeCatalogItems" => {
+            let args = object(args_json)?;
+            let genre = args.get("genre").and_then(Value::as_str);
+            opt_json(home_ranking::normalize_home_catalog_items_json(
+                field_str(&args, "itemsJson")?,
+                field_str(&args, "catalogId")?,
+                genre,
+                field_str(&args, "todayIso")?,
+            ))
+        }
         // args_json IS the items/item/doc JSON for single-arg methods
         "libraryContinueWatchingItems" => opt_json(
             library_state::library_continue_watching_items_json(args_json),
@@ -1181,6 +1647,335 @@ fn route_core_contract(method: &str, args_json: &str) -> Outcome {
     }
 }
 
+fn route_addon_store(method: &str, args_json: &str) -> Outcome {
+    match method {
+        "addonStoreInputType" => Ok(Value::String(
+            addon_store::addon_store_input_type(&arg_str(args_json, "input")?).to_string(),
+        )),
+        "normalizeCloudstreamRepoUrl" => Ok(Value::String(
+            addon_store::normalize_cloudstream_repo_url(&arg_str(args_json, "url")?),
+        )),
+        "normalizePluginRepositoryUrl" => Ok(Value::String(
+            addon_store::normalize_plugin_repository_url(&arg_str(args_json, "url")?),
+        )),
+        "isSecureRemoteUrl" => Ok(json!(addon_store::is_secure_remote_url(&arg_str(
+            args_json, "url",
+        )?))),
+        "samePluginRepositoryUrl" => {
+            let args = object(args_json)?;
+            Ok(json!(addon_store::same_plugin_repository_url(
+                field_str(&args, "left")?,
+                field_str(&args, "right")?,
+            )))
+        }
+        // args_json IS the profile object
+        "profileLocalAddonsKey" => opt_json(addon_store::profile_local_addons_key_json(
+            args_json,
+        )),
+        "sanitizeProfile" => {
+            let args = object(args_json)?;
+            let merge_mirrored_addons = field(&args, "mergeMirroredAddons")?
+                .as_bool()
+                .ok_or_else(|| {
+                    fail(
+                        ErrorKind::InvalidArgs,
+                        "mergeMirroredAddons must be bool",
+                    )
+                })?;
+            opt_json(addon_store::sanitize_profile_json(
+                field_str(&args, "profile")?,
+                field_str(&args, "mirroredAddons")?,
+                merge_mirrored_addons,
+            ))
+        }
+        // args_json IS the request object
+        "addonStoreSearchPolicy" => opt_json(addon_store::addon_store_search_policy_json(
+            args_json,
+        )),
+        "extractAddonManifestUrl" => opt_json(addon_store::extract_addon_manifest_url(
+            &arg_str(args_json, "text")?,
+        )),
+
+        _ => Err(fail(
+            ErrorKind::UnknownMethod,
+            format!("no such method `{method}`"),
+        )),
+    }
+}
+
+fn route_profile_contract(method: &str, args_json: &str) -> Outcome {
+    match method {
+        // args_json IS the request object for all of these
+        "activeProfilePlan" => opt_json(profile_contract::active_profile_plan_json(args_json)),
+        "tokenMergePlan" => opt_json(profile_contract::token_merge_plan_json(args_json)),
+        "profileDefaultSeed" => opt_json(profile_contract::profile_default_seed_json(args_json)),
+        "profileSettingsMigrationPlan" => opt_json(
+            profile_contract::profile_settings_migration_plan_json(args_json),
+        ),
+        "profileAvatarDefault" => {
+            opt_json(profile_contract::profile_avatar_default_json(args_json))
+        }
+
+        _ => Err(fail(
+            ErrorKind::UnknownMethod,
+            format!("no such method `{method}`"),
+        )),
+    }
+}
+
+fn route_profile_prefs(method: &str, args_json: &str) -> Outcome {
+    match method {
+        "safePlayerBufferCacheMb" => {
+            let args = object(args_json)?;
+            let value = args.get("value").and_then(Value::as_i64).map(|v| v as i32);
+            Ok(json!(profile_prefs::safe_player_buffer_cache_mb(value)))
+        }
+        "safeDolbyVisionFallbackMode" => {
+            let args = object(args_json)?;
+            let mode = args.get("mode").and_then(Value::as_str);
+            let legacy_dv7_fallback = args.get("legacyDv7Fallback").and_then(Value::as_bool);
+            let legacy_dv7_to_dv8_fallback = args
+                .get("legacyDv7ToDv8Fallback")
+                .and_then(Value::as_bool);
+            Ok(Value::String(
+                profile_prefs::safe_dolby_vision_fallback_mode(
+                    mode,
+                    legacy_dv7_fallback,
+                    legacy_dv7_to_dv8_fallback,
+                )
+                .to_string(),
+            ))
+        }
+        "safeStreamSourceSelectionMode" => {
+            let args = object(args_json)?;
+            let mode = args.get("mode").and_then(Value::as_str);
+            Ok(Value::String(
+                profile_prefs::safe_stream_source_selection_mode(mode).to_string(),
+            ))
+        }
+        // args_json IS the profile object
+        "profileSafePrefs" => opt_json(profile_prefs::profile_safe_prefs_json(args_json)),
+
+        _ => Err(fail(
+            ErrorKind::UnknownMethod,
+            format!("no such method `{method}`"),
+        )),
+    }
+}
+
+fn route_headless_adapter_plan(method: &str, args_json: &str) -> Outcome {
+    match method {
+        // args_json IS the request object
+        "providerAvailabilityPlan" => opt_json(
+            headless_adapter_plan::provider_availability_plan_json(args_json),
+        ),
+        "detailStreamResultPlan" => opt_json(
+            headless_adapter_plan::detail_stream_result_plan_json(args_json),
+        ),
+        "prefetchDetailStreamsPlan" => opt_json(
+            headless_adapter_plan::prefetch_detail_streams_plan_json(args_json),
+        ),
+        "directPlaybackPolicy" => {
+            into_json(headless_adapter_plan::direct_playback_policy_json())
+        }
+
+        _ => Err(fail(
+            ErrorKind::UnknownMethod,
+            format!("no such method `{method}`"),
+        )),
+    }
+}
+
+fn route_discovery_plan(method: &str, args_json: &str) -> Outcome {
+    match method {
+        // args_json IS the request object
+        "streamDiscoveryPlan" => {
+            opt_json(discovery_plan::stream_discovery_plan_json(args_json))
+        }
+        "streamDiscoveryExecutionPolicy" => opt_json(
+            discovery_plan::stream_discovery_execution_policy_json(args_json),
+        ),
+        "streamDiscoveryCachePrefix" => {
+            let args = object(args_json)?;
+            Ok(Value::String(discovery_plan::stream_discovery_cache_prefix(
+                field_str(&args, "contentType")?,
+                field_str(&args, "id")?,
+                field_str(&args, "language")?,
+            )))
+        }
+
+        _ => Err(fail(
+            ErrorKind::UnknownMethod,
+            format!("no such method `{method}`"),
+        )),
+    }
+}
+
+fn route_data_policy(method: &str, args_json: &str) -> Outcome {
+    match method {
+        // args_json IS the request object for all of these
+        "cacheEntryPolicy" => opt_json(data_policy::cache_entry_policy_json(args_json)),
+        "cacheTrimPolicy" => opt_json(data_policy::cache_trim_policy_json(args_json)),
+        "dataFailurePolicy" => opt_json(data_policy::data_failure_policy_json(args_json)),
+
+        _ => Err(fail(
+            ErrorKind::UnknownMethod,
+            format!("no such method `{method}`"),
+        )),
+    }
+}
+
+fn route_dolby_vision_rpu(method: &str, args_json: &str) -> Outcome {
+    match method {
+        // args_json IS the request object for both of these
+        "dolbyVisionRpuInfo" => opt_json(dolby_vision_rpu::dolby_vision_rpu_info_json(args_json)),
+        "dolbyVisionConvertRpu" => opt_json(dolby_vision_rpu::dolby_vision_convert_rpu_json(
+            args_json,
+        )),
+
+        _ => Err(fail(
+            ErrorKind::UnknownMethod,
+            format!("no such method `{method}`"),
+        )),
+    }
+}
+
+fn route_player_flow(method: &str, args_json: &str) -> Outcome {
+    match method {
+        "playerFlowDispatch" => {
+            let args = object(args_json)?;
+            opt_json(player_flow::player_flow_dispatch_json(
+                field_str(&args, "state")?,
+                field_str(&args, "action")?,
+            ))
+        }
+
+        _ => Err(fail(
+            ErrorKind::UnknownMethod,
+            format!("no such method `{method}`"),
+        )),
+    }
+}
+
+fn route_player_scrobble(method: &str, args_json: &str) -> Outcome {
+    match method {
+        "playerProgressPercent" => {
+            let args = object(args_json)?;
+            let position_ms = field(&args, "positionMs")?
+                .as_i64()
+                .ok_or_else(|| fail(ErrorKind::InvalidArgs, "positionMs must be a number"))?;
+            let duration_ms = field(&args, "durationMs")?
+                .as_i64()
+                .ok_or_else(|| fail(ErrorKind::InvalidArgs, "durationMs must be a number"))?;
+            Ok(json!(player_scrobble::progress_percent(
+                position_ms,
+                duration_ms,
+            )))
+        }
+        "playerShouldSendScrobbleStart" => {
+            let args = object(args_json)?;
+            let token = args.get("token").and_then(Value::as_str);
+            let is_playing = field(&args, "isPlaying")?
+                .as_bool()
+                .ok_or_else(|| fail(ErrorKind::InvalidArgs, "isPlaying must be bool"))?;
+            let has_scrobbled_start = field(&args, "hasScrobbledStart")?
+                .as_bool()
+                .ok_or_else(|| fail(ErrorKind::InvalidArgs, "hasScrobbledStart must be bool"))?;
+            let progress = field(&args, "progress")?
+                .as_f64()
+                .ok_or_else(|| fail(ErrorKind::InvalidArgs, "progress must be a number"))?
+                as f32;
+            Ok(json!(player_scrobble::should_send_start(
+                token,
+                is_playing,
+                has_scrobbled_start,
+                progress,
+            )))
+        }
+        "playerShouldMarkScrobbleStopped" => {
+            let args = object(args_json)?;
+            let has_scrobbled_stop = field(&args, "hasScrobbledStop")?
+                .as_bool()
+                .ok_or_else(|| fail(ErrorKind::InvalidArgs, "hasScrobbledStop must be bool"))?;
+            let progress = field(&args, "progress")?
+                .as_f64()
+                .ok_or_else(|| fail(ErrorKind::InvalidArgs, "progress must be a number"))?
+                as f32;
+            Ok(json!(player_scrobble::should_mark_stopped(
+                has_scrobbled_stop,
+                progress,
+            )))
+        }
+        "playerShouldQueueScrobblePause" => {
+            let args = object(args_json)?;
+            let token = args.get("token").and_then(Value::as_str);
+            let was_play_when_ready = field(&args, "wasPlayWhenReady")?
+                .as_bool()
+                .ok_or_else(|| fail(ErrorKind::InvalidArgs, "wasPlayWhenReady must be bool"))?;
+            let has_scrobbled_start = field(&args, "hasScrobbledStart")?
+                .as_bool()
+                .ok_or_else(|| fail(ErrorKind::InvalidArgs, "hasScrobbledStart must be bool"))?;
+            let has_scrobbled_stop = field(&args, "hasScrobbledStop")?
+                .as_bool()
+                .ok_or_else(|| fail(ErrorKind::InvalidArgs, "hasScrobbledStop must be bool"))?;
+            Ok(json!(player_scrobble::should_queue_pause(
+                token,
+                was_play_when_ready,
+                has_scrobbled_start,
+                has_scrobbled_stop,
+            )))
+        }
+        "playerShouldEnqueueDurableScrobble" => {
+            let args = object(args_json)?;
+            let token = args.get("token").and_then(Value::as_str);
+            let progress = field(&args, "progress")?
+                .as_f64()
+                .ok_or_else(|| fail(ErrorKind::InvalidArgs, "progress must be a number"))?
+                as f32;
+            Ok(json!(player_scrobble::should_enqueue_durable(
+                field_str(&args, "action")?,
+                token,
+                progress,
+            )))
+        }
+        "playerShouldSavePeriodicProgress" => {
+            let args = object(args_json)?;
+            let is_playing = field(&args, "isPlaying")?
+                .as_bool()
+                .ok_or_else(|| fail(ErrorKind::InvalidArgs, "isPlaying must be bool"))?;
+            let now_ms = field(&args, "nowMs")?
+                .as_i64()
+                .ok_or_else(|| fail(ErrorKind::InvalidArgs, "nowMs must be a number"))?;
+            let last_saved_at_ms = field(&args, "lastSavedAtMs")?
+                .as_i64()
+                .ok_or_else(|| fail(ErrorKind::InvalidArgs, "lastSavedAtMs must be a number"))?;
+            Ok(json!(player_scrobble::should_save_periodic_progress(
+                is_playing,
+                now_ms,
+                last_saved_at_ms,
+            )))
+        }
+        "playerShouldSaveOnDispose" => {
+            let args = object(args_json)?;
+            let position_ms = field(&args, "positionMs")?
+                .as_i64()
+                .ok_or_else(|| fail(ErrorKind::InvalidArgs, "positionMs must be a number"))?;
+            Ok(json!(player_scrobble::should_save_on_dispose(
+                position_ms
+            )))
+        }
+
+        _ => Err(fail(
+            ErrorKind::UnknownMethod,
+            format!("no such method `{method}`"),
+        )),
+    }
+}
+
+fn opt_str(value: Option<String>) -> Outcome {
+    Ok(value.map(Value::String).unwrap_or(Value::Null))
+}
+
 fn opt_json(value: Option<String>) -> Outcome {
     Ok(match value {
         Some(s) => serde_json::from_str(&s).map_err(|e| {
@@ -1358,6 +2153,209 @@ mod tests {
         let destroyed = parse(&core_invoke("engine.destroy", &h.to_string()));
         assert_eq!(destroyed["ok"], json!(true));
         assert_eq!(destroyed["value"], json!(true));
+    }
+
+    #[test]
+    fn calendar_plan_methods_route_and_compute() {
+        let candidates = parse(&core_invoke(
+            "calendarSeasonCandidates",
+            r#"{"seasonsCount":10,"lastVideoId":"tt1:2:3"}"#,
+        ));
+        assert_eq!(candidates["ok"], json!(true));
+        assert_eq!(candidates["value"], json!([2, 3, 10]));
+
+        let rows = parse(&core_invoke(
+            "calendarWidgetRows",
+            r#"{"items":[{"dateIso":"2026-07-18","title":"Show","seasonNumber":1,"episodeNumber":2}],"maxRows":4}"#,
+        ));
+        assert_eq!(rows["value"][0]["episodeText"], json!("S1E2"));
+
+        let content = parse(&core_invoke(
+            "calendarContentPlan",
+            r#"{"items":[{"dateIso":"2026-07-18","metaId":"tt1","title":"Show"}],"monthPrefix":"2026-07"}"#,
+        ));
+        assert_eq!(content["value"][0]["metaId"], json!("tt1"));
+
+        let notifications = parse(&core_invoke(
+            "calendarNotificationContent",
+            r#"{"items":[{"dateIso":"2026-07-18","metaId":"tt1","metaType":"series","title":"Show","seasonNumber":1,"episodeNumber":1}],"todayIso":"2026-07-18","alreadyNotifiedKeys":[]}"#,
+        ));
+        assert_eq!(notifications["value"]["items"][0]["titleKey"], json!("notification.new_season_released"));
+        assert_eq!(notifications["value"]["keys"].as_array().unwrap().len(), 1);
+
+        let released = parse(&core_invoke(
+            "calendarReleaseDetection",
+            r#"{"items":[{"dateIso":"2026-07-18"},{"dateIso":"2026-07-19"}],"todayIso":"2026-07-18"}"#,
+        ));
+        assert_eq!(released["value"].as_array().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn newly_routed_modules_compute() {
+        let input_type = parse(&core_invoke(
+            "addonStoreInputType",
+            r#"{"input":"https://example.com/addon/manifest.json"}"#,
+        ));
+        assert_eq!(input_type["value"], json!("stremio_manifest"));
+
+        let secure = parse(&core_invoke(
+            "isSecureRemoteUrl",
+            r#"{"url":"http://example.com"}"#,
+        ));
+        assert_eq!(secure["value"], json!(false));
+
+        let same = parse(&core_invoke(
+            "samePluginRepositoryUrl",
+            r#"{"left":"https://Example.com/repo/","right":"http://example.com/repo"}"#,
+        ));
+        assert_eq!(same["value"], json!(true));
+
+        let buffer = parse(&core_invoke(
+            "safePlayerBufferCacheMb",
+            r#"{"value":50}"#,
+        ));
+        assert_eq!(buffer["value"], json!(100));
+
+        let dv_mode = parse(&core_invoke(
+            "safeDolbyVisionFallbackMode",
+            r#"{"mode":"dv8"}"#,
+        ));
+        assert_eq!(dv_mode["value"], json!("dv8"));
+
+        let source_mode = parse(&core_invoke(
+            "safeStreamSourceSelectionMode",
+            r#"{"mode":"regex"}"#,
+        ));
+        assert_eq!(source_mode["value"], json!("regex"));
+
+        let policy = parse(&core_invoke("directPlaybackPolicy", "{}"));
+        assert_eq!(policy["value"]["metaDetailTimeoutMs"], json!(3500));
+
+        let prefix = parse(&core_invoke(
+            "streamDiscoveryCachePrefix",
+            r#"{"contentType":"movie","id":"tt1","language":"en"}"#,
+        ));
+        assert_eq!(prefix["value"], json!("movie|tt1|en"));
+    }
+
+    #[test]
+    fn gap_filled_routes_compute() {
+        let bearer = parse(&core_invoke("traktBearer", r#"{"token":"abc"}"#));
+        assert_eq!(bearer["value"], json!("Bearer abc"));
+
+        let has_client = parse(&core_invoke("traktHasClient", r#"{"apiKey":""}"#));
+        assert_eq!(has_client["value"], json!(false));
+
+        let expires_at = parse(&core_invoke(
+            "traktTokenExpiresAt",
+            r#"{"createdAtSeconds":1000,"expiresInSeconds":7200}"#,
+        ));
+        assert_eq!(expires_at["value"], json!((1000 * 1000) + (6900 * 1000)));
+
+        let show_id = parse(&core_invoke(
+            "traktShowIdFromEpisodeId",
+            r#"{"videoId":"tt1:2:3"}"#,
+        ));
+        assert_eq!(show_id["value"], json!("tt1"));
+
+        let episode_matches = parse(&core_invoke(
+            "episodeTextMatches",
+            r#"{"text":"Show S01E02","season":1,"episode":2}"#,
+        ));
+        assert_eq!(episode_matches["value"], json!(true));
+
+        let stream_matches = parse(&core_invoke(
+            "streamMatchesEpisode",
+            r#"{"videoId":"tt1:1:2","title":"","name":"","description":"","filename":"Show.S01E02.mkv","effectiveFilename":""}"#,
+        ));
+        assert_eq!(stream_matches["value"], json!(true));
+
+        let content_type = parse(&core_invoke(
+            "normalizeContentType",
+            r#"{"value":"tv"}"#,
+        ));
+        assert_eq!(content_type["value"], json!("series"));
+
+        let feed_part = parse(&core_invoke("stableFeedPart", r#"{"value":"Foo Bar!"}"#));
+        assert_eq!(feed_part["value"], json!("foo_bar"));
+
+        let base = parse(&core_invoke(
+            "baseUrl",
+            r#"{"url":"https://example.com/addon/manifest.json"}"#,
+        ));
+        assert_eq!(base["value"], json!("https://example.com/addon/"));
+
+        let progress = parse(&core_invoke(
+            "playerProgressPercent",
+            r#"{"positionMs":50,"durationMs":100}"#,
+        ));
+        assert_eq!(progress["value"], json!(50.0));
+
+        let should_save = parse(&core_invoke(
+            "playerShouldSaveOnDispose",
+            r#"{"positionMs":6000}"#,
+        ));
+        assert_eq!(should_save["value"], json!(true));
+
+        let category_json = r#"{\"id\":\"a\",\"name\":\"A\",\"type\":\"movie\",\"items\":[{\"id\":\"tt1\"}]}"#;
+        let overlap = parse(&core_invoke(
+            "homeOverlapRatio",
+            &format!(r#"{{"firstJson":"{category_json}","secondJson":"{category_json}"}}"#),
+        ));
+        assert_eq!(overlap["value"], json!(1.0));
+
+        let select = parse(&core_invoke(
+            "selectStreamIndex",
+            r#"{"streamsJson":"[]","currentVideoId":"tt1","initialStreamIndex":0,"sourceSelectionMode":"manual"}"#,
+        ));
+        assert_eq!(select["value"], json!(-1));
+
+        let ids = parse(&core_invoke(
+            "streamRequestIds",
+            r#"{"contentType":"movie","id":"tt1"}"#,
+        ));
+        assert_eq!(ids["value"], json!(["tt1"]));
+    }
+
+    #[test]
+    fn last_gap_filled_routes_compute() {
+        let locator = parse(&core_invoke(
+            "parseEpisodeLocator",
+            r#"{"input":"tt1:2:3"}"#,
+        ));
+        assert_eq!(locator["value"]["baseId"], json!("tt1"));
+        assert_eq!(locator["value"]["season"], json!(2));
+        assert_eq!(locator["value"]["episode"], json!(3));
+
+        let no_locator = parse(&core_invoke("parseEpisodeLocator", r#"{"input":"nope"}"#));
+        assert_eq!(no_locator["value"], Value::Null);
+
+        let audio = parse(&core_invoke(
+            "resolvePreferredAudioLanguage",
+            r#"{"lastAudioLanguage":null,"preferredAudioLanguage":"en","originalLanguage":"ja"}"#,
+        ));
+        assert_eq!(audio["value"], json!("ja"));
+
+        let subtitle_match = parse(&core_invoke(
+            "subtitleLanguageMatches",
+            r#"{"label":"english","language":null,"preferredLanguage":"en"}"#,
+        ));
+        assert_eq!(subtitle_match["value"], json!(true));
+
+        let toggled = parse(&core_invoke(
+            "toggleMetadataFeed",
+            r#"{"selectedKeys":"[]","availableKeys":"[\"a\"]","key":"a"}"#,
+        ));
+        assert_eq!(toggled["value"], json!(["a"]));
+
+        let manifest_request = json!({
+            "body": json!({"resources": ["catalog"], "types": ["movie"]}).to_string(),
+            "transportUrl": "https://example.com/manifest.json",
+            "unknownName": "Unknown Addon"
+        });
+        let manifest = parse(&core_invoke("parseManifest", &manifest_request.to_string()));
+        assert_eq!(manifest["ok"], json!(true));
+        assert_eq!(manifest["value"]["manifest"]["name"], json!("Unknown Addon"));
     }
 
     // tests/wire/core_invoke_methods.txt is a checked-in list of every method

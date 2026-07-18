@@ -713,11 +713,6 @@ pub(crate) fn content_watched_keys_value(meta: &Value) -> Vec<String> {
     keys
 }
 
-pub(crate) fn content_trakt_key(meta_json: &str) -> Option<String> {
-    let meta = serde_json::from_str::<Value>(meta_json).ok()?;
-    Some(content_trakt_key_value(&meta))
-}
-
 pub(crate) fn content_trakt_keys_batch(metas_json: &str) -> Option<String> {
     let metas: Vec<Value> = serde_json::from_str(metas_json).ok()?;
     let keys: Vec<String> = metas.iter().map(content_trakt_key_value).collect();
@@ -1139,9 +1134,24 @@ pub(crate) fn merge_continue_watching_duplicates_json(items_json: &str) -> Optio
         }
 
         if let Some(index) = key_to_index.get(&key).copied() {
-            if is_trakt_continue_watching_source(&item)
-                || !is_trakt_continue_watching_source(&merged[index])
-            {
+            let item_is_trakt = is_trakt_continue_watching_source(&item);
+            let existing_is_trakt = is_trakt_continue_watching_source(&merged[index]);
+            let should_replace = if item_is_trakt {
+                true
+            } else if existing_is_trakt {
+                false
+            } else {
+                let existing_watched_at = merged[index]
+                    .get("lastWatchedAt")
+                    .and_then(Value::as_i64)
+                    .unwrap_or(0);
+                let item_watched_at = item
+                    .get("lastWatchedAt")
+                    .and_then(Value::as_i64)
+                    .unwrap_or(0);
+                item_watched_at >= existing_watched_at
+            };
+            if should_replace {
                 merged[index] = item;
             }
         } else {
