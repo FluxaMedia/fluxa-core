@@ -163,6 +163,89 @@ pub(crate) fn calendar_content_plan_json(request_json: &str) -> Option<String> {
     serde_json::to_string(&out).ok()
 }
 
+pub(crate) fn desktop_calendar_read_plan_json(request_json: &str) -> Option<String> {
+    let request: Value = serde_json::from_str(request_json).ok()?;
+    let prefix = request
+        .get("monthPrefix")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    let mut seen = std::collections::HashSet::new();
+    let local_items: Vec<Value> = request
+        .get("libraryItems")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter(|item| item.get("type").and_then(Value::as_str) == Some("series"))
+        .filter_map(|item| {
+            let date_iso = item.get("nextEpisodeAirDate")?.as_str()?;
+            if !prefix.is_empty() && !date_iso.starts_with(prefix) {
+                return None;
+            }
+            let id = item.get("id")?.as_str()?;
+            let key = format!("{}:{}", id, date_iso.get(..10).unwrap_or(date_iso));
+            if !seen.insert(key.clone()) {
+                return None;
+            }
+            Some(json!({"id": key, "title": item.get("name"), "name": item.get("name"), "dateIso": date_iso, "poster": item.get("poster"), "contentId": id, "seriesId": id}))
+        })
+        .collect();
+    let external_items: Vec<&Value> = request
+        .get("externalItems")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter(|item| {
+            prefix.is_empty()
+                || item
+                    .get("dateIso")
+                    .and_then(Value::as_str)
+                    .is_some_and(|date| date.starts_with(prefix))
+        })
+        .collect();
+    serde_json::to_string(&json!({"items": request.get("plannedItems").and_then(Value::as_array).cloned().unwrap_or_default(), "localItems": local_items, "externalItems": external_items})).ok()
+}
+
+pub(crate) fn desktop_calendar_notification_plan_json(request_json: &str) -> Option<String> {
+    let request: Value = serde_json::from_str(request_json).ok()?;
+    let today = request
+        .get("todayIso")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    let limit = request.get("limit").and_then(Value::as_u64).unwrap_or(500) as usize;
+    let mut notified: Vec<String> = request
+        .get("notifiedIds")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .map(str::to_string)
+        .collect();
+    let notified_set: std::collections::HashSet<String> = notified.iter().cloned().collect();
+    let fresh: Vec<&Value> = request
+        .get("items")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter(|item| {
+            item.get("dateIso")
+                .and_then(Value::as_str)
+                .is_some_and(|date| date.get(..10) == Some(today))
+                && item
+                    .get("id")
+                    .and_then(Value::as_str)
+                    .is_some_and(|id| !notified_set.contains(id))
+        })
+        .collect();
+    notified.extend(
+        fresh
+            .iter()
+            .filter_map(|item| item.get("id").and_then(Value::as_str))
+            .map(str::to_string),
+    );
+    let start = notified.len().saturating_sub(limit);
+    serde_json::to_string(&json!({"items": fresh, "notifiedIds": &notified[start..]})).ok()
+}
+
 pub(crate) fn calendar_candidate_plan_json(request_json: &str) -> Option<String> {
     let request = serde_json::from_str::<CandidatePlanRequest>(request_json).ok()?;
     let mut seen = std::collections::HashSet::new();

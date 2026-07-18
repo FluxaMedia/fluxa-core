@@ -321,6 +321,161 @@ pub(crate) fn player_retry_policy_json(request_json: &str) -> Option<String> {
     .ok()
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct NextRetrySourceRequest {
+    current_stream: Value,
+    candidates: Vec<Value>,
+    attempted_keys: Vec<String>,
+    auto_retry: bool,
+    force: bool,
+    try_binge_group: bool,
+    p2p_enabled: bool,
+}
+
+pub(crate) fn next_retry_source_plan_json(request_json: &str) -> Option<String> {
+    let request: NextRetrySourceRequest = serde_json::from_str(request_json).ok()?;
+    if !request.force && !request.auto_retry {
+        return Some(json!({"stream": null, "attemptedKeys": request.attempted_keys}).to_string());
+    }
+    if request.candidates.len() < 2 {
+        return Some(json!({"stream": null, "attemptedKeys": request.attempted_keys}).to_string());
+    }
+    let current_key = retry_stream_key(&request.current_stream);
+    let mut attempted = request.attempted_keys;
+    if !current_key.is_empty() && !attempted.contains(&current_key) {
+        attempted.push(current_key.clone());
+    }
+    let start = request
+        .candidates
+        .iter()
+        .position(|candidate| retry_stream_key(candidate) == current_key)
+        .unwrap_or(0);
+    let binge_group = request
+        .try_binge_group
+        .then(|| behavior_text(&request.current_stream, "bingeGroup"))
+        .flatten();
+    for offset in 1..=request.candidates.len() {
+        let candidate = &request.candidates[(start + offset) % request.candidates.len()];
+        let key = retry_stream_key(candidate);
+        if key.is_empty() || attempted.contains(&key) {
+            continue;
+        }
+        if binge_group.is_some() && behavior_text(candidate, "bingeGroup") != binge_group {
+            continue;
+        }
+        if !request.p2p_enabled && stream_is_p2p(candidate) {
+            attempted.push(key);
+            continue;
+        }
+        attempted.push(key);
+        return Some(json!({"stream": candidate, "attemptedKeys": attempted}).to_string());
+    }
+    Some(json!({"stream": null, "attemptedKeys": attempted}).to_string())
+}
+
+pub(crate) fn playback_close_plan_json(input: &str) -> Option<String> {
+    let value: Value = serde_json::from_str(input).ok()?;
+    let meta = value.get("meta")?;
+    let episode = value.get("episode").filter(|value| !value.is_null());
+    let stream = value.get("stream").filter(|value| !value.is_null());
+    let next_episode = value.get("nextEpisode").filter(|value| !value.is_null());
+    let time_pos = value
+        .get("timePos")
+        .and_then(Value::as_f64)
+        .unwrap_or_default();
+    let duration = value
+        .get("duration")
+        .and_then(Value::as_f64)
+        .unwrap_or_default();
+    let threshold = value
+        .get("watchedThresholdPercent")
+        .and_then(Value::as_f64)
+        .filter(|value| *value > 0.0)
+        .unwrap_or(90.0)
+        / 100.0;
+    let meaningful = time_pos > 30.0 && duration > 0.0;
+    let watched = meaningful && time_pos / duration >= threshold;
+    let field = |source: Option<&Value>, names: &[&str]| {
+        names
+            .iter()
+            .find_map(|name| source.and_then(|source| source.get(*name)))
+            .cloned()
+            .unwrap_or(Value::Null)
+    };
+    let progress = |target: Option<&Value>, position: i64, target_duration: i64, scrobble: bool| {
+        json!({
+            "type": "savePlaybackProgressRequested", "meta": meta, "timeOffset": position, "duration": target_duration,
+            "lastVideoId": field(target, &["id"]),
+            "lastStreamIndex": if target.is_some() { value.get("streamIndex").cloned().unwrap_or(Value::Null) } else { Value::Null },
+            "lastEpisodeName": field(target, &["name", "title"]), "lastEpisodeSeason": field(target, &["season"]),
+            "lastEpisodeNumber": field(target, &["episode", "number"]), "lastEpisodeThumbnail": field(target, &["thumbnail"]),
+            "lastStreamUrl": if target.is_some() { field(stream, &["playableUrl", "url"]) } else { Value::Null },
+            "lastStreamTitle": if target.is_some() { field(stream, &["title", "name"]) } else { Value::Null },
+            "lastAudioLanguage": Value::Null, "lastSubtitleLanguage": Value::Null, "scrobbleTraktPause": scrobble,
+        })
+    };
+    let progress_action = progress(
+        episode,
+        if meaningful {
+            time_pos.floor() as i64
+        } else {
+            1
+        },
+        if duration > 0.0 {
+            duration.floor() as i64
+        } else {
+            99_999
+        },
+        true,
+    );
+    let mark_watched_action = watched.then(|| json!({
+        "type": "markWatchedRequested", "seriesId": meta.get("id").cloned().unwrap_or(Value::Null),
+        "videoIds": [field(episode.or(Some(meta)), &["id"])], "watched": true, "meta": meta,
+        "episodes": episode.map(|episode| vec![json!({"id": episode.get("id").cloned().unwrap_or(Value::Null), "name": field(Some(episode), &["name", "title"]), "season": episode.get("season").cloned().unwrap_or(Value::Null), "number": field(Some(episode), &["episode", "number"]), "thumbnail": episode.get("thumbnail").cloned().unwrap_or(Value::Null)})]).unwrap_or_default(),
+    }));
+    let up_next_action = (watched
+        && meta.get("type").and_then(Value::as_str) == Some("series")
+        && next_episode.is_some())
+    .then(|| progress(next_episode, 1, 99_999, false));
+    serde_json::to_string(&json!({"shouldScrobble": meaningful, "progressAction": progress_action, "markWatchedAction": mark_watched_action, "upNextAction": up_next_action, "reloadHome": meaningful})).ok()
+}
+
+fn retry_stream_key(stream: &Value) -> String {
+    ["url", "playableUrl", "infoHash", "fileIdx", "title", "name"]
+        .iter()
+        .map(|key| stream.get(key).map(value_key_part).unwrap_or_default())
+        .collect::<Vec<_>>()
+        .join("|")
+}
+
+fn value_key_part(value: &Value) -> String {
+    value.as_str().map(str::to_string).unwrap_or_else(|| {
+        if value.is_null() {
+            String::new()
+        } else {
+            value.to_string().trim_matches('"').to_string()
+        }
+    })
+}
+
+fn behavior_text<'a>(stream: &'a Value, key: &str) -> Option<&'a str> {
+    stream
+        .get("behaviorHints")
+        .and_then(|hints| hints.get(key))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+}
+
+fn stream_is_p2p(stream: &Value) -> bool {
+    stream.get("isTorrent").and_then(Value::as_bool) == Some(true)
+        || stream
+            .get("infoHash")
+            .and_then(Value::as_str)
+            .is_some_and(|value| !value.is_empty())
+}
+
 /// Build the source sidebar option state: which streams to show and which is selected.
 pub fn player_source_sidebar_plan_json(request_json: &str) -> Option<String> {
     let request = serde_json::from_str::<SourceSidebarRequest>(request_json)

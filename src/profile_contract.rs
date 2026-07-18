@@ -1,6 +1,7 @@
 use crate::constants::{DEFAULT_LANGUAGE, GUEST_PROFILE_ID};
 use serde::Deserialize;
 use serde_json::{json, Value};
+use sha2::{Digest, Sha256};
 
 const DEFAULT_ADDON_URL: &str = "https://v3-cinemeta.strem.io/manifest.json";
 
@@ -409,6 +410,71 @@ pub(crate) fn profile_avatar_default_json(request_json: &str) -> Option<String> 
         "fromCatalog": first_catalog.is_some()
     }))
     .ok()
+}
+
+pub(crate) fn profile_mutation_plan_json(request_json: &str) -> Option<String> {
+    let request: Value = serde_json::from_str(request_json).ok()?;
+    let operation = request.get("operation")?.as_str()?;
+    let mut profiles = request
+        .get("profiles")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    match operation {
+        "save" => {
+            let profile = request.get("profile")?.clone();
+            let id = profile.get("id")?.as_str()?;
+            if let Some(index) = profiles
+                .iter()
+                .position(|item| item.get("id").and_then(Value::as_str) == Some(id))
+            {
+                profiles[index] = profile;
+            } else {
+                profiles.push(profile);
+            }
+        }
+        "delete" => {
+            let id = request.get("id")?.as_str()?;
+            profiles.retain(|item| item.get("id").and_then(Value::as_str) != Some(id));
+        }
+        _ => return None,
+    }
+    serde_json::to_string(&profiles).ok()
+}
+
+pub(crate) fn create_profile_plan_json(request_json: &str) -> Option<String> {
+    let request: Value = serde_json::from_str(request_json).ok()?;
+    Some(json!({"id": request.get("id")?.as_str()?, "name": request.get("name").and_then(Value::as_str).unwrap_or("").trim(), "color": request.get("color").and_then(Value::as_str).unwrap_or("#E85D3F")}).to_string())
+}
+
+pub(crate) fn profile_pin_hash(pin: &str) -> String {
+    let digest = Sha256::digest(pin.as_bytes());
+    digest.iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
+pub(crate) fn profile_pin_matches(profile_json: &str, pin: &str) -> bool {
+    let profile: Value = serde_json::from_str(profile_json).unwrap_or(Value::Null);
+    profile
+        .get("pinHash")
+        .and_then(Value::as_str)
+        .is_none_or(|hash| hash == profile_pin_hash(pin))
+}
+
+pub(crate) fn profile_connection_state_json(profile_json: &str, now_epoch_seconds: i64) -> String {
+    let profile: Value = serde_json::from_str(profile_json).unwrap_or(Value::Null);
+    let trakt = profile
+        .get("traktAccessToken")
+        .and_then(Value::as_str)
+        .is_some_and(|token| !token.is_empty())
+        && profile
+            .get("traktTokenExpiresAt")
+            .and_then(Value::as_i64)
+            .is_none_or(|expires| expires >= now_epoch_seconds);
+    let simkl = profile
+        .get("simklAccessToken")
+        .and_then(Value::as_str)
+        .is_some_and(|token| !token.is_empty());
+    json!({"trakt": trakt, "simkl": simkl}).to_string()
 }
 
 #[cfg(test)]

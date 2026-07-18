@@ -747,6 +747,73 @@ pub(crate) fn resolve_feed_option_genre_json(
     serde_json::to_string(resolved).ok()
 }
 
+pub(crate) fn recent_searches_plan_json(request_json: &str) -> Option<String> {
+    let request: Value = serde_json::from_str(request_json).ok()?;
+    let operation = request
+        .get("operation")
+        .and_then(Value::as_str)
+        .unwrap_or("normalize");
+    let mut items = request
+        .get("items")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    match operation {
+        "add" => {
+            let query = request
+                .get("query")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .trim();
+            if query.chars().count() >= 2 {
+                items.retain(|item| {
+                    item.get("query")
+                        .and_then(Value::as_str)
+                        .is_none_or(|value| !value.eq_ignore_ascii_case(query))
+                });
+                let mut item = json!({"query": query});
+                if let Some(meta) = request.get("meta").filter(|value| !value.is_null()) {
+                    item["meta"] = meta.clone();
+                }
+                items.insert(0, item);
+            }
+        }
+        "remove" => {
+            let query = request.get("query").and_then(Value::as_str).unwrap_or("");
+            items.retain(|item| item.get("query").and_then(Value::as_str) != Some(query));
+        }
+        "clear" => items.clear(),
+        "normalize" => {}
+        _ => return None,
+    }
+    let mut seen = std::collections::HashSet::new();
+    let normalized = items
+        .into_iter()
+        .filter_map(|item| {
+            let (query, meta) = match item {
+                Value::String(query) => (query.trim().to_string(), None),
+                Value::Object(object) => (
+                    object.get("query")?.as_str()?.trim().to_string(),
+                    object
+                        .get("meta")
+                        .filter(|value| value.is_object())
+                        .cloned(),
+                ),
+                _ => return None,
+            };
+            if query.is_empty() || !seen.insert(query.to_lowercase()) {
+                return None;
+            }
+            Some(match meta {
+                Some(meta) => json!({"query": query, "meta": meta}),
+                None => json!({"query": query}),
+            })
+        })
+        .take(8)
+        .collect::<Vec<_>>();
+    serde_json::to_string(&normalized).ok()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -44,9 +44,9 @@ mod core_error;
 #[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
 mod data_policy;
 #[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
-mod discovery_plan;
-#[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
 mod desktop_playback;
+#[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
+mod discovery_plan;
 #[cfg(feature = "native")]
 mod dolby_vision_rpu;
 #[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
@@ -60,12 +60,14 @@ mod home_ranking;
 #[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
 mod intro_segments;
 #[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
-mod library_state;
-#[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
 mod library_persistence;
+#[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
+mod library_state;
 pub mod log_sink;
 #[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
 mod nuvio_sync;
+#[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
+mod oauth_plan;
 #[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
 mod offline_download;
 #[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
@@ -91,6 +93,8 @@ mod stream_policy;
 mod subtitle_sync;
 #[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
 mod tmdb_plan;
+#[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
+mod trailer_subtitles;
 #[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
 mod watchlist_plan;
 
@@ -325,7 +329,10 @@ mod tests {
         .and_then(|json| serde_json::from_str::<Value>(&json).ok())
         .expect("torrent episode info");
 
-        assert_eq!(episode.get("selectedFileIdx").and_then(Value::as_i64), Some(1));
+        assert_eq!(
+            episode.get("selectedFileIdx").and_then(Value::as_i64),
+            Some(1)
+        );
         assert_eq!(
             episode.get("selectedReason").and_then(Value::as_str),
             Some("episode")

@@ -116,7 +116,10 @@ pub(crate) fn library_continue_watching_items_json(items_json: &str) -> Option<S
     let mut items: Vec<Value> = serde_json::from_str(items_json).ok()?;
     items.retain(|item| {
         let state = item.get("state").unwrap_or(&Value::Null);
-        let removed = item.get("removed").and_then(Value::as_bool).unwrap_or(false);
+        let removed = item
+            .get("removed")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
         !removed
             && !state.is_null()
             && number(state, "timeOffset").unwrap_or(0) > 0
@@ -159,7 +162,12 @@ pub(crate) fn library_watchlist_items_json(items_json: &str) -> Option<String> {
     let items: Vec<Value> = serde_json::from_str(items_json).ok()?;
     let entries: Vec<Value> = items
         .iter()
-        .filter(|item| !item.get("removed").and_then(Value::as_bool).unwrap_or(false))
+        .filter(|item| {
+            !item
+                .get("removed")
+                .and_then(Value::as_bool)
+                .unwrap_or(false)
+        })
         .filter_map(|item| {
             let id = text(item, "_id").filter(|s| !s.is_empty())?.to_string();
             let updated_at_ms = text(item, "_mtime")
@@ -820,6 +828,29 @@ pub(crate) fn resolve_next_episode_json(
     serde_json::to_string(&next).ok()
 }
 
+pub(crate) fn resolve_next_after_watched_json(request_json: &str) -> Option<String> {
+    let request: Value = serde_json::from_str(request_json).ok()?;
+    let watched = request.get("watchedEpisodes")?.as_array()?;
+    let last = watched.iter().max_by_key(|episode| {
+        episode.get("season").and_then(Value::as_i64).unwrap_or(1) * 10_000
+            + episode
+                .get("episode")
+                .or_else(|| episode.get("number"))
+                .and_then(Value::as_i64)
+                .unwrap_or(0)
+    })?;
+    resolve_next_episode_json(
+        &request.get("videos")?.to_string(),
+        last.get("season").and_then(Value::as_i64).unwrap_or(1),
+        last.get("episode")
+            .or_else(|| last.get("number"))
+            .and_then(Value::as_i64)
+            .unwrap_or(0),
+        request.get("nowMs").and_then(Value::as_i64).unwrap_or(0),
+        false,
+    )
+}
+
 /// Formats a "S1:E2 Episode Name" line from the episode progress fields.
 /// Falls back to parsing season/episode from lastVideoId when the explicit
 /// season/episode numbers are absent.
@@ -1059,8 +1090,14 @@ mod tests {
             {"_id":"tt2","name":"Removed","type":"movie","removed":true,"_mtime":"2026-01-01T00:00:00.000Z"},
             {"_id":"tt3","name":"NoTimestamp","type":"movie"}
         ]"#;
-        let result: Value = serde_json::from_str(&library_watchlist_items_json(items).unwrap()).unwrap();
-        let ids: Vec<&str> = result.as_array().unwrap().iter().map(|i| i["id"].as_str().unwrap()).collect();
+        let result: Value =
+            serde_json::from_str(&library_watchlist_items_json(items).unwrap()).unwrap();
+        let ids: Vec<&str> = result
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|i| i["id"].as_str().unwrap())
+            .collect();
         assert_eq!(ids, vec!["tt1"]);
         assert_eq!(result[0]["updatedAtMs"], json!(1767225600000i64));
     }

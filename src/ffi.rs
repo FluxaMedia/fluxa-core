@@ -1,15 +1,15 @@
 use serde_json::{json, Value};
 
+#[cfg(feature = "native")]
+use crate::dolby_vision_rpu;
 use crate::{
     addon_protocol, addon_resource, addon_store, anime_detection, app_state, calendar_plan,
     content_identity, core_contract, data_policy, discovery_plan, external_sync,
-    headless_adapter_plan, headless_engine, home_ranking, intro_segments,
-    library_state, nuvio_sync, offline_download, platform_plan, player_flow, player_policy,
-    player_scrobble, plugins, profile_contract, profile_prefs, repository_flow, search_plan,
-    stream_policy, tmdb_plan, watchlist_plan,
+    headless_adapter_plan, headless_engine, home_ranking, intro_segments, library_state,
+    nuvio_sync, offline_download, platform_plan, player_flow, player_policy, player_scrobble,
+    plugins, profile_contract, profile_prefs, repository_flow, search_plan, stream_policy,
+    tmdb_plan, trailer_subtitles, watchlist_plan,
 };
-#[cfg(feature = "native")]
-use crate::dolby_vision_rpu;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum ErrorKind {
@@ -102,7 +102,26 @@ const ROUTERS: &[fn(&str, &str) -> Outcome] = &[
     route_dolby_vision_rpu,
     route_player_flow,
     route_player_scrobble,
+    route_trailer_subtitles,
 ];
+
+fn route_trailer_subtitles(method: &str, args_json: &str) -> Outcome {
+    match method {
+        "trailerSubtitleSelectionPlan" => opt_json(
+            trailer_subtitles::trailer_subtitle_selection_plan_json(args_json),
+        ),
+        "normalizeTrailerSubtitleUrl" => opt_json(
+            trailer_subtitles::normalize_trailer_subtitle_url_json(args_json),
+        ),
+        "parseTrailerSubtitleCues" => opt_json(
+            trailer_subtitles::parse_trailer_subtitle_cues_json(args_json),
+        ),
+        _ => Err(fail(
+            ErrorKind::UnknownMethod,
+            "unknown trailer subtitle method",
+        )),
+    }
+}
 
 fn route(method: &str, args_json: &str) -> Outcome {
     for router in ROUTERS {
@@ -256,6 +275,9 @@ fn route_addon_protocol(method: &str, args_json: &str) -> Outcome {
                 field_str(&args, "extraName")?,
             )))
         }
+        "normalizeAddonDescriptor" => opt_json(addon_protocol::normalize_addon_descriptor_json(
+            &arg_str(args_json, "addonJson")?,
+        )),
         "catalogRequiresExtra" => {
             let args = object(args_json)?;
             Ok(json!(addon_protocol::catalog_requires_extra(
@@ -417,16 +439,13 @@ fn route_stream_policy(method: &str, args_json: &str) -> Outcome {
         "torrentRuntimeInfo" => opt_json(stream_policy::torrent_runtime_info_json(args_json)),
         "torrentStatusInfo" => opt_json(stream_policy::torrent_status_info_json(args_json)),
         "torrentReadyBudget" => into_json(stream_policy::torrent_ready_budget_json()),
-        "streamRequestHeaders" => {
-            opt_json(stream_policy::stream_request_headers_json(&arg_str(
-                args_json, "headersJson",
-            )?))
-        }
-        "streamRequestReferer" => {
-            opt_json(stream_policy::stream_request_referer(&arg_str(
-                args_json, "url",
-            )?))
-        }
+        "streamRequestHeaders" => opt_json(stream_policy::stream_request_headers_json(&arg_str(
+            args_json,
+            "headersJson",
+        )?)),
+        "streamRequestReferer" => opt_json(stream_policy::stream_request_referer(&arg_str(
+            args_json, "url",
+        )?)),
         "selectStreamIndex" => {
             let args = object(args_json)?;
             let saved_url = args.get("savedUrl").and_then(Value::as_str);
@@ -455,9 +474,9 @@ fn route_stream_policy(method: &str, args_json: &str) -> Outcome {
             let last = args.get("lastAudioLanguage").and_then(Value::as_str);
             let preferred = args.get("preferredAudioLanguage").and_then(Value::as_str);
             let original = args.get("originalLanguage").and_then(Value::as_str);
-            Ok(Value::String(stream_policy::resolve_preferred_audio_language(
-                last, preferred, original,
-            )))
+            Ok(Value::String(
+                stream_policy::resolve_preferred_audio_language(last, preferred, original),
+            ))
         }
         "subtitleLanguageMatches" => {
             let args = object(args_json)?;
@@ -501,6 +520,7 @@ fn route_search_plan(method: &str, args_json: &str) -> Outcome {
     match method {
         // args_json IS the request object for single-arg methods
         "searchResultGrouping" => opt_json(search_plan::search_result_grouping_json(args_json)),
+        "recentSearchesPlan" => opt_json(search_plan::recent_searches_plan_json(args_json)),
         // args_json IS the sources array
         "mergeSearchSources" => opt_json(search_plan::merge_search_sources_json(args_json)),
         "buildMetadataFeedOptions" => {
@@ -553,6 +573,8 @@ fn route_player_policy(method: &str, args_json: &str) -> Outcome {
         }
         "playerBufferTargets" => opt_json(player_policy::player_buffer_targets_json(args_json)),
         "playerRetryPolicy" => opt_json(player_policy::player_retry_policy_json(args_json)),
+        "nextRetrySourcePlan" => opt_json(player_policy::next_retry_source_plan_json(args_json)),
+        "playbackClosePlan" => opt_json(player_policy::playback_close_plan_json(args_json)),
         "playerSourceSidebarPlan" => {
             opt_json(player_policy::player_source_sidebar_plan_json(args_json))
         }
@@ -584,8 +606,12 @@ fn route_watchlist(method: &str, args_json: &str) -> Outcome {
     match method {
         // args_json IS the request object
         "watchlistTogglePlan" => opt_json(watchlist_plan::watchlist_toggle_plan_json(args_json)),
+        "libraryCommandPlan" => opt_json(watchlist_plan::library_command_plan_json(args_json)),
         "playbackProgressMergePlan" => {
             opt_json(watchlist_plan::playback_progress_merge_plan_json(args_json))
+        }
+        "playbackProgressWritePlan" => {
+            opt_json(watchlist_plan::playback_progress_write_plan_json(args_json))
         }
         "libraryApplyMarkWatched" => {
             let args = object(args_json)?;
@@ -699,20 +725,36 @@ fn route_content_identity(method: &str, args_json: &str) -> Outcome {
         "streamMatchesEpisode" => {
             let args = object(args_json)?;
             let fields = [
-                args.get("title").and_then(Value::as_str).unwrap_or("").to_string(),
-                args.get("name").and_then(Value::as_str).unwrap_or("").to_string(),
-                args.get("description").and_then(Value::as_str).unwrap_or("").to_string(),
-                args.get("filename").and_then(Value::as_str).unwrap_or("").to_string(),
-                args.get("effectiveFilename").and_then(Value::as_str).unwrap_or("").to_string(),
+                args.get("title")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_string(),
+                args.get("name")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_string(),
+                args.get("description")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_string(),
+                args.get("filename")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_string(),
+                args.get("effectiveFilename")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_string(),
             ];
             Ok(json!(content_identity::stream_matches_episode(
                 field_str(&args, "videoId")?,
                 &fields,
             )))
         }
-        "contentTraktKeysBatch" => opt_json(content_identity::content_trakt_keys_batch(
-            &arg_str(args_json, "metasJson")?,
-        )),
+        "contentTraktKeysBatch" => opt_json(content_identity::content_trakt_keys_batch(&arg_str(
+            args_json,
+            "metasJson",
+        )?)),
         "contentWatchedKeysBatch" => opt_json(content_identity::content_watched_keys_batch(
             &arg_str(args_json, "metasJson")?,
         )),
@@ -727,15 +769,15 @@ fn route_content_identity(method: &str, args_json: &str) -> Outcome {
                 field_str(&args, "videoId")?,
             ))
         }
-        "streamDiscoveryCacheKey" => opt_str(content_identity::stream_discovery_cache_key(
-            args_json,
-        )),
-        "discoverCatalogCacheKey" => opt_str(content_identity::discover_catalog_cache_key(
-            args_json,
-        )),
-        "stableFeedPart" => Ok(Value::String(content_identity::stable_feed_part(
-            &arg_str(args_json, "value")?,
-        ))),
+        "streamDiscoveryCacheKey" => {
+            opt_str(content_identity::stream_discovery_cache_key(args_json))
+        }
+        "discoverCatalogCacheKey" => {
+            opt_str(content_identity::discover_catalog_cache_key(args_json))
+        }
+        "stableFeedPart" => Ok(Value::String(content_identity::stable_feed_part(&arg_str(
+            args_json, "value",
+        )?))),
         "normalizeContentType" => Ok(json!(content_identity::normalize_content_type(&arg_str(
             args_json, "value",
         )?))),
@@ -757,11 +799,11 @@ fn route_content_identity(method: &str, args_json: &str) -> Outcome {
                 region,
             ))
         }
-        "mergeContinueWatchingDuplicates" => opt_json(
-            content_identity::merge_continue_watching_duplicates_json(&arg_str(
-                args_json, "itemsJson",
-            )?),
-        ),
+        "mergeContinueWatchingDuplicates" => {
+            opt_json(content_identity::merge_continue_watching_duplicates_json(
+                &arg_str(args_json, "itemsJson")?,
+            ))
+        }
         "directPlaybackPlan" => {
             let args = object(args_json)?;
             let detail_json = args.get("detailJson").and_then(Value::as_str);
@@ -854,13 +896,19 @@ fn route_calendar(method: &str, args_json: &str) -> Outcome {
         "calendarCandidatePlan" => opt_json(calendar_plan::calendar_candidate_plan_json(args_json)),
         "calendarReleaseRows" => opt_json(calendar_plan::calendar_release_rows_json(args_json)),
         "calendarContentPlan" => opt_json(calendar_plan::calendar_content_plan_json(args_json)),
-        "calendarSeasonCandidates" => opt_json(calendar_plan::calendar_season_candidates_json(
-            args_json,
-        )),
-        "calendarWidgetRows" => opt_json(calendar_plan::calendar_widget_rows_json(args_json)),
-        "calendarNotificationContent" => opt_json(
-            calendar_plan::calendar_notification_content_json(args_json),
+        "desktopCalendarReadPlan" => {
+            opt_json(calendar_plan::desktop_calendar_read_plan_json(args_json))
+        }
+        "desktopCalendarNotificationPlan" => opt_json(
+            calendar_plan::desktop_calendar_notification_plan_json(args_json),
         ),
+        "calendarSeasonCandidates" => {
+            opt_json(calendar_plan::calendar_season_candidates_json(args_json))
+        }
+        "calendarWidgetRows" => opt_json(calendar_plan::calendar_widget_rows_json(args_json)),
+        "calendarNotificationContent" => {
+            opt_json(calendar_plan::calendar_notification_content_json(args_json))
+        }
         "calendarReleaseDetection" => {
             opt_json(calendar_plan::calendar_release_detection_json(args_json))
         }
@@ -1270,9 +1318,9 @@ fn route_library_state(method: &str, args_json: &str) -> Outcome {
                 field_str(&args, "nowUtc")?,
             ))
         }
-        "clearPlaybackProgressItem" => opt_json(
-            library_state::clear_playback_progress_item_json(&arg_str(args_json, "metaJson")?),
-        ),
+        "clearPlaybackProgressItem" => opt_json(library_state::clear_playback_progress_item_json(
+            &arg_str(args_json, "metaJson")?,
+        )),
         "watchedStateItems" => {
             let args = object(args_json)?;
             let watched = field(&args, "watched")?
@@ -1356,9 +1404,7 @@ fn route_library_state(method: &str, args_json: &str) -> Outcome {
         "libraryContinueWatchingItems" => opt_json(
             library_state::library_continue_watching_items_json(args_json),
         ),
-        "libraryWatchlistItems" => opt_json(
-            library_state::library_watchlist_items_json(args_json),
-        ),
+        "libraryWatchlistItems" => opt_json(library_state::library_watchlist_items_json(args_json)),
         "normalizeLibraryDocument" => {
             into_json(library_state::normalize_library_document_json(args_json))
         }
@@ -1404,6 +1450,9 @@ fn route_library_state(method: &str, args_json: &str) -> Outcome {
                     .as_bool()
                     .ok_or_else(|| fail(ErrorKind::InvalidArgs, "releasedOnly must be bool"))?,
             ))
+        }
+        "resolveNextAfterWatched" => {
+            opt_json(library_state::resolve_next_after_watched_json(args_json))
         }
         "formatEpisodeLine" => {
             let args = object(args_json)?;
@@ -1700,19 +1749,12 @@ fn route_addon_store(method: &str, args_json: &str) -> Outcome {
             )))
         }
         // args_json IS the profile object
-        "profileLocalAddonsKey" => opt_str(addon_store::profile_local_addons_key_json(
-            args_json,
-        )),
+        "profileLocalAddonsKey" => opt_str(addon_store::profile_local_addons_key_json(args_json)),
         "sanitizeProfile" => {
             let args = object(args_json)?;
             let merge_mirrored_addons = field(&args, "mergeMirroredAddons")?
                 .as_bool()
-                .ok_or_else(|| {
-                    fail(
-                        ErrorKind::InvalidArgs,
-                        "mergeMirroredAddons must be bool",
-                    )
-                })?;
+                .ok_or_else(|| fail(ErrorKind::InvalidArgs, "mergeMirroredAddons must be bool"))?;
             opt_json(addon_store::sanitize_profile_json(
                 field_str(&args, "profile")?,
                 field_str(&args, "mirroredAddons")?,
@@ -1720,12 +1762,12 @@ fn route_addon_store(method: &str, args_json: &str) -> Outcome {
             ))
         }
         // args_json IS the request object
-        "addonStoreSearchPolicy" => opt_json(addon_store::addon_store_search_policy_json(
-            args_json,
-        )),
-        "extractAddonManifestUrl" => opt_json(addon_store::extract_addon_manifest_url(
-            &arg_str(args_json, "text")?,
-        )),
+        "addonStoreSearchPolicy" => {
+            opt_json(addon_store::addon_store_search_policy_json(args_json))
+        }
+        "extractAddonManifestUrl" => opt_json(addon_store::extract_addon_manifest_url(&arg_str(
+            args_json, "text",
+        )?)),
 
         _ => Err(fail(
             ErrorKind::UnknownMethod,
@@ -1746,6 +1788,25 @@ fn route_profile_contract(method: &str, args_json: &str) -> Outcome {
         "profileAvatarDefault" => {
             opt_json(profile_contract::profile_avatar_default_json(args_json))
         }
+        "profileMutationPlan" => opt_json(profile_contract::profile_mutation_plan_json(args_json)),
+        "createProfilePlan" => opt_json(profile_contract::create_profile_plan_json(args_json)),
+        "profilePinHash" => Ok(Value::String(profile_contract::profile_pin_hash(&arg_str(
+            args_json, "pin",
+        )?))),
+        "profilePinMatches" => {
+            let args = object(args_json)?;
+            Ok(json!(profile_contract::profile_pin_matches(
+                field_str(&args, "profileJson")?,
+                field_str(&args, "pin")?
+            )))
+        }
+        "profileConnectionState" => {
+            let args = object(args_json)?;
+            into_json(profile_contract::profile_connection_state_json(
+                field_str(&args, "profileJson")?,
+                field(&args, "nowEpochSeconds")?.as_i64().unwrap_or(0),
+            ))
+        }
 
         _ => Err(fail(
             ErrorKind::UnknownMethod,
@@ -1765,9 +1826,8 @@ fn route_profile_prefs(method: &str, args_json: &str) -> Outcome {
             let args = object(args_json)?;
             let mode = args.get("mode").and_then(Value::as_str);
             let legacy_dv7_fallback = args.get("legacyDv7Fallback").and_then(Value::as_bool);
-            let legacy_dv7_to_dv8_fallback = args
-                .get("legacyDv7ToDv8Fallback")
-                .and_then(Value::as_bool);
+            let legacy_dv7_to_dv8_fallback =
+                args.get("legacyDv7ToDv8Fallback").and_then(Value::as_bool);
             Ok(Value::String(
                 profile_prefs::safe_dolby_vision_fallback_mode(
                     mode,
@@ -1806,9 +1866,7 @@ fn route_headless_adapter_plan(method: &str, args_json: &str) -> Outcome {
         "prefetchDetailStreamsPlan" => opt_json(
             headless_adapter_plan::prefetch_detail_streams_plan_json(args_json),
         ),
-        "directPlaybackPolicy" => {
-            into_json(headless_adapter_plan::direct_playback_policy_json())
-        }
+        "directPlaybackPolicy" => into_json(headless_adapter_plan::direct_playback_policy_json()),
 
         _ => Err(fail(
             ErrorKind::UnknownMethod,
@@ -1820,19 +1878,19 @@ fn route_headless_adapter_plan(method: &str, args_json: &str) -> Outcome {
 fn route_discovery_plan(method: &str, args_json: &str) -> Outcome {
     match method {
         // args_json IS the request object
-        "streamDiscoveryPlan" => {
-            opt_json(discovery_plan::stream_discovery_plan_json(args_json))
-        }
+        "streamDiscoveryPlan" => opt_json(discovery_plan::stream_discovery_plan_json(args_json)),
         "streamDiscoveryExecutionPolicy" => opt_json(
             discovery_plan::stream_discovery_execution_policy_json(args_json),
         ),
         "streamDiscoveryCachePrefix" => {
             let args = object(args_json)?;
-            Ok(Value::String(discovery_plan::stream_discovery_cache_prefix(
-                field_str(&args, "contentType")?,
-                field_str(&args, "id")?,
-                field_str(&args, "language")?,
-            )))
+            Ok(Value::String(
+                discovery_plan::stream_discovery_cache_prefix(
+                    field_str(&args, "contentType")?,
+                    field_str(&args, "id")?,
+                    field_str(&args, "language")?,
+                ),
+            ))
         }
 
         _ => Err(fail(
@@ -1861,9 +1919,9 @@ fn route_dolby_vision_rpu(method: &str, args_json: &str) -> Outcome {
     match method {
         // args_json IS the request object for both of these
         "dolbyVisionRpuInfo" => opt_json(dolby_vision_rpu::dolby_vision_rpu_info_json(args_json)),
-        "dolbyVisionConvertRpu" => opt_json(dolby_vision_rpu::dolby_vision_convert_rpu_json(
-            args_json,
-        )),
+        "dolbyVisionConvertRpu" => {
+            opt_json(dolby_vision_rpu::dolby_vision_convert_rpu_json(args_json))
+        }
 
         _ => Err(fail(
             ErrorKind::UnknownMethod,
@@ -1992,9 +2050,7 @@ fn route_player_scrobble(method: &str, args_json: &str) -> Outcome {
             let position_ms = field(&args, "positionMs")?
                 .as_i64()
                 .ok_or_else(|| fail(ErrorKind::InvalidArgs, "positionMs must be a number"))?;
-            Ok(json!(player_scrobble::should_save_on_dispose(
-                position_ms
-            )))
+            Ok(json!(player_scrobble::should_save_on_dispose(position_ms)))
         }
 
         _ => Err(fail(
@@ -2212,7 +2268,10 @@ mod tests {
             "calendarNotificationContent",
             r#"{"items":[{"dateIso":"2026-07-18","metaId":"tt1","metaType":"series","title":"Show","seasonNumber":1,"episodeNumber":1}],"todayIso":"2026-07-18","alreadyNotifiedKeys":[]}"#,
         ));
-        assert_eq!(notifications["value"]["items"][0]["titleKey"], json!("notification.new_season_released"));
+        assert_eq!(
+            notifications["value"]["items"][0]["titleKey"],
+            json!("notification.new_season_released")
+        );
         assert_eq!(notifications["value"]["keys"].as_array().unwrap().len(), 1);
 
         let released = parse(&core_invoke(
@@ -2242,10 +2301,7 @@ mod tests {
         ));
         assert_eq!(same["value"], json!(true));
 
-        let buffer = parse(&core_invoke(
-            "safePlayerBufferCacheMb",
-            r#"{"value":50}"#,
-        ));
+        let buffer = parse(&core_invoke("safePlayerBufferCacheMb", r#"{"value":50}"#));
         assert_eq!(buffer["value"], json!(100));
 
         let dv_mode = parse(&core_invoke(
@@ -2302,10 +2358,7 @@ mod tests {
         ));
         assert_eq!(stream_matches["value"], json!(true));
 
-        let content_type = parse(&core_invoke(
-            "normalizeContentType",
-            r#"{"value":"tv"}"#,
-        ));
+        let content_type = parse(&core_invoke("normalizeContentType", r#"{"value":"tv"}"#));
         assert_eq!(content_type["value"], json!("series"));
 
         let feed_part = parse(&core_invoke("stableFeedPart", r#"{"value":"Foo Bar!"}"#));
@@ -2329,7 +2382,8 @@ mod tests {
         ));
         assert_eq!(should_save["value"], json!(true));
 
-        let category_json = r#"{\"id\":\"a\",\"name\":\"A\",\"type\":\"movie\",\"items\":[{\"id\":\"tt1\"}]}"#;
+        let category_json =
+            r#"{\"id\":\"a\",\"name\":\"A\",\"type\":\"movie\",\"items\":[{\"id\":\"tt1\"}]}"#;
         let overlap = parse(&core_invoke(
             "homeOverlapRatio",
             &format!(r#"{{"firstJson":"{category_json}","secondJson":"{category_json}"}}"#),
@@ -2387,7 +2441,10 @@ mod tests {
         });
         let manifest = parse(&core_invoke("parseManifest", &manifest_request.to_string()));
         assert_eq!(manifest["ok"], json!(true));
-        assert_eq!(manifest["value"]["manifest"]["name"], json!("Unknown Addon"));
+        assert_eq!(
+            manifest["value"]["manifest"]["name"],
+            json!("Unknown Addon")
+        );
     }
 
     // tests/wire/core_invoke_methods.txt is a checked-in list of every method

@@ -699,6 +699,30 @@ pub(crate) fn catalog_supports_extra(catalog_json: &str, extra_name: &str) -> bo
             })
 }
 
+pub(crate) fn normalize_addon_descriptor_json(addon_json: &str) -> Option<String> {
+    let addon: Value = serde_json::from_str(addon_json).ok()?;
+    if addon.get("manifest").is_some_and(Value::is_object) {
+        let mut normalized = addon.as_object()?.clone();
+        normalized
+            .entry("transportUrl")
+            .or_insert_with(|| Value::String(String::new()));
+        return serde_json::to_string(&normalized).ok();
+    }
+    let manifest = json!({
+        "id": addon.get("id").and_then(Value::as_str).unwrap_or(""),
+        "name": addon.get("name").and_then(Value::as_str).map(str::trim).filter(|value| !value.is_empty()).unwrap_or("Unknown Addon"),
+        "description": addon.get("description").cloned().unwrap_or(Value::Null),
+        "version": addon.get("version").cloned().unwrap_or(Value::Null),
+        "resources": addon.get("resources").cloned().unwrap_or_else(|| json!([])),
+        "types": addon.get("types").cloned().unwrap_or_else(|| json!([])),
+        "catalogs": addon.get("catalogs").cloned().unwrap_or_else(|| json!([])),
+        "logo": addon.get("logo").cloned().unwrap_or(Value::Null),
+        "background": addon.get("background").cloned().unwrap_or(Value::Null),
+        "configurable": addon.get("behaviorHints").and_then(|value| value.get("configurable")).cloned().unwrap_or(Value::Null),
+    });
+    Some(json!({"transportUrl": addon.get("transportUrl").or_else(|| addon.get("id")).and_then(Value::as_str).unwrap_or(""), "manifest": manifest}).to_string())
+}
+
 pub(crate) fn catalog_requires_extra(catalog_json: &str, extra_name: &str) -> bool {
     let Ok(catalog) = serde_json::from_str::<Value>(catalog_json) else {
         return false;

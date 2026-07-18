@@ -22,6 +22,8 @@ cacheEntryPolicy
 cacheTrimPolicy
 calendarCandidatePlan
 calendarContentPlan
+desktopCalendarReadPlan
+desktopCalendarNotificationPlan
 calendarItemMatchesMonth
 calendarItemsFromMeta
 calendarNotificationContent
@@ -33,6 +35,10 @@ canPrefetchNextEpisode
 catalogHasRequiredExtraExcept
 catalogRequiresExtra
 catalogSupportsExtra
+normalizeAddonDescriptor
+normalizeTrailerSubtitleUrl
+parseTrailerSubtitleCues
+trailerSubtitleSelectionPlan
 clearPlaybackProgressItem
 computeContinueWatchingBadges
 contentMergeKeys
@@ -77,6 +83,7 @@ importCollections
 isSecureRemoteUrl
 isUpNextContinueWatchingItem
 libraryApplyMarkWatched
+libraryCommandPlan
 libraryCollectionImportValidation
 libraryContinueWatchingItems
 libraryExternalMergePlan
@@ -121,12 +128,15 @@ playbackIntroLookupContentId
 playbackPreparePlan
 playbackProgressItem
 playbackProgressMergePlan
+playbackProgressWritePlan
 playbackStreamRequestIds
 playerBackendSelection
 playerBufferTargets
 playerFlowDispatch
 playerProgressPercent
 playerRetryPolicy
+playbackClosePlan
+nextRetrySourcePlan
 playerShouldEnqueueDurableScrobble
 playerShouldMarkScrobbleStopped
 playerShouldQueueScrobblePause
@@ -140,6 +150,11 @@ preferHttpsAssetUrl
 prefetchDetailStreamsPlan
 prioritizeHomeRows
 profileAvatarDefault
+profileMutationPlan
+createProfilePlan
+profilePinHash
+profilePinMatches
+profileConnectionState
 profileDefaultSeed
 profileLocalAddonsKey
 profileSafePrefs
@@ -153,6 +168,7 @@ repositorySeasonVideos
 resolveFeedOptionGenre
 resolveManifestAssets
 resolveNextEpisode
+resolveNextAfterWatched
 resolvePreferredAudioLanguage
 resolveTransportUrl
 resourceFetchPlan
@@ -164,6 +180,7 @@ safeStreamSourceSelectionMode
 samePluginRepositoryUrl
 sanitizeProfile
 searchResultGrouping
+recentSearchesPlan
 selectContinueWatchingArtwork
 selectNextEpisodeStream
 selectStreamIndex

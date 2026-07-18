@@ -1141,9 +1141,17 @@ fn anilist_updated_at(updated_at_seconds: Option<i64>, now_ms: i64) -> String {
         .unwrap_or_default()
 }
 
-fn mark_watched_through(watched: &mut serde_json::Map<String, Value>, id: &str, through: i64) {
+fn mark_watched_through(
+    watched: &mut serde_json::Map<String, Value>,
+    watched_at_ms: &mut serde_json::Map<String, Value>,
+    id: &str,
+    through: i64,
+    updated_at_ms: i64,
+) {
     for ep in 1..=through.max(0) {
-        watched.insert(format!("{id}:1:{ep}"), Value::Bool(true));
+        let key = format!("{id}:1:{ep}");
+        watched.insert(key.clone(), Value::Bool(true));
+        watched_at_ms.insert(key, json!(updated_at_ms));
     }
 }
 
@@ -1172,6 +1180,7 @@ pub(crate) fn anilist_entries_to_sync(entries: &[Value], now_ms: i64) -> Value {
     let mut dropped: Vec<Value> = Vec::new();
     let mut watching: Vec<Value> = Vec::new();
     let mut watched = Map::new();
+    let mut watched_at_ms = Map::new();
     let mut progress = Map::new();
 
     for raw in entries {
@@ -1192,12 +1201,12 @@ pub(crate) fn anilist_entries_to_sync(entries: &[Value], now_ms: i64) -> Value {
             .map(|p| p.floor().max(0.0) as i64)
             .unwrap_or(0);
         let updated_at = anilist_updated_at(entry.updated_at, now_ms);
+        let updated_at_ms = entry.updated_at.map(|s| s * 1000).unwrap_or(now_ms);
 
         match status.as_str() {
             "PLANNING" => {
                 let mut it = item.clone();
                 it.insert("inWatchlist".to_string(), Value::Bool(true));
-                let updated_at_ms = entry.updated_at.map(|s| s * 1000).unwrap_or(now_ms);
                 it.insert("updatedAtMs".to_string(), json!(updated_at_ms));
                 watchlist.push(Value::Object(it));
             }
@@ -1210,13 +1219,25 @@ pub(crate) fn anilist_entries_to_sync(entries: &[Value], now_ms: i64) -> Value {
                 } else {
                     media.episodes.unwrap_or(0)
                 };
-                mark_watched_through(&mut watched, &id, through);
+                mark_watched_through(
+                    &mut watched,
+                    &mut watched_at_ms,
+                    &id,
+                    through,
+                    updated_at_ms,
+                );
             }
             "DROPPED" | "PAUSED" => {
                 let mut it = item.clone();
                 it.insert("statusChangedAt".to_string(), json!(updated_at));
                 dropped.push(Value::Object(it));
-                mark_watched_through(&mut watched, &id, progress_episode);
+                mark_watched_through(
+                    &mut watched,
+                    &mut watched_at_ms,
+                    &id,
+                    progress_episode,
+                    updated_at_ms,
+                );
             }
             "CURRENT" | "REPEATING" if progress_episode > 0 => {
                 let last_video_id = format!("{id}:1:{progress_episode}");
@@ -1242,7 +1263,13 @@ pub(crate) fn anilist_entries_to_sync(entries: &[Value], now_ms: i64) -> Value {
                         "savedAt": updated_at,
                     }),
                 );
-                mark_watched_through(&mut watched, &id, progress_episode);
+                mark_watched_through(
+                    &mut watched,
+                    &mut watched_at_ms,
+                    &id,
+                    progress_episode,
+                    updated_at_ms,
+                );
             }
             _ => {}
         }
@@ -1254,6 +1281,7 @@ pub(crate) fn anilist_entries_to_sync(entries: &[Value], now_ms: i64) -> Value {
         "dropped": dropped,
         "watching": watching,
         "watched": Value::Object(watched),
+        "watchedUpdatedAtMs": Value::Object(watched_at_ms),
         "progress": Value::Object(progress),
     })
 }
@@ -1332,7 +1360,9 @@ mod tests {
             {"status":"PLANNING","updatedAt":1700000000,"media":{"id":9,"title":{"romaji":"Planned"}}}
         ]"#;
         let plan = anilist_entries_to_sync(
-            serde_json::from_str::<Vec<Value>>(entries).unwrap().as_slice(),
+            serde_json::from_str::<Vec<Value>>(entries)
+                .unwrap()
+                .as_slice(),
             0,
         );
         assert_eq!(plan["watchlist"][0]["updatedAtMs"], json!(1700000000000i64));
@@ -1496,7 +1526,8 @@ mod tests {
 
     #[test]
     fn anilist_save_media_list_entry_variables_parses_media_id() {
-        let json = anilist_save_media_list_entry_variables_json("anilist:5", "PLANNING", None).unwrap();
+        let json =
+            anilist_save_media_list_entry_variables_json("anilist:5", "PLANNING", None).unwrap();
         let value: Value = serde_json::from_str(&json).unwrap();
         assert_eq!(value["mediaId"], json!(5));
         assert_eq!(value["status"], json!("PLANNING"));
@@ -1505,7 +1536,8 @@ mod tests {
 
     #[test]
     fn anilist_save_media_list_entry_variables_includes_progress_when_given() {
-        let json = anilist_save_media_list_entry_variables_json("anilist:5", "COMPLETED", Some(12)).unwrap();
+        let json = anilist_save_media_list_entry_variables_json("anilist:5", "COMPLETED", Some(12))
+            .unwrap();
         let value: Value = serde_json::from_str(&json).unwrap();
         assert_eq!(value["progress"], json!(12));
     }
