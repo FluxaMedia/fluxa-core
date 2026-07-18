@@ -1,6 +1,9 @@
 use crate::stream_policy;
 #[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
-use crate::{cast_protocol, headless_engine, offline_download, player_policy, subtitle_sync};
+use crate::{
+    cast_protocol, desktop_playback, headless_engine, library_persistence, offline_download,
+    player_policy, subtitle_sync,
+};
 
 pub struct FluxaCore;
 
@@ -58,6 +61,45 @@ impl FluxaCore {
         guard(None, || {
             player_policy::player_buffer_targets_json(request_json)
         })
+    }
+
+    #[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
+    pub fn should_play_next_episode(has_next_episode: bool, auto_play: bool) -> bool {
+        guard(false, || {
+            desktop_playback::should_play_next_episode(has_next_episode, auto_play)
+        })
+    }
+
+    #[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
+    pub fn chapter_skip_segments_json(chapters_json: &str) -> String {
+        guard("[]".to_string(), || {
+            desktop_playback::chapter_skip_segments_json(chapters_json)
+        })
+    }
+
+    #[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
+    pub fn library_progress_entries_json(document_json: &str) -> String {
+        guard("[]".to_string(), || library_persistence::progress_entries_json(document_json))
+    }
+
+    #[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
+    pub fn library_items_json(document_json: &str) -> String {
+        guard("[]".to_string(), || library_persistence::library_items_json(document_json))
+    }
+
+    #[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
+    pub fn library_watched_video_ids_json(document_json: &str) -> String {
+        guard("[]".to_string(), || library_persistence::watched_video_ids_json(document_json))
+    }
+
+    #[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
+    pub fn library_last_watched_entries_json(document_json: &str) -> String {
+        guard("[]".to_string(), || library_persistence::last_watched_entries_json(document_json))
+    }
+
+    #[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
+    pub fn library_continue_watching_entries_json(document_json: &str) -> String {
+        guard("[]".to_string(), || library_persistence::continue_watching_entries_json(document_json))
     }
 
     #[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]

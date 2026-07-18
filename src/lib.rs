@@ -45,6 +45,8 @@ mod core_error;
 mod data_policy;
 #[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
 mod discovery_plan;
+#[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
+mod desktop_playback;
 #[cfg(feature = "native")]
 mod dolby_vision_rpu;
 #[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
@@ -59,6 +61,8 @@ mod home_ranking;
 mod intro_segments;
 #[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
 mod library_state;
+#[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
+mod library_persistence;
 pub mod log_sink;
 #[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
 mod nuvio_sync;
