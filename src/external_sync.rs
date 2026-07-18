@@ -1676,14 +1676,19 @@ pub(crate) fn anilist_save_media_list_entry_variables_json(
 
 fn extract_after_marker(text: &str, marker: &str) -> Option<i64> {
     let lower = text.to_ascii_lowercase();
-    let idx = lower.find(marker)?;
-    let rest = &text[idx + marker.len()..];
-    let digits: String = rest.chars().take_while(|c| c.is_ascii_digit()).collect();
-    if digits.is_empty() {
-        None
-    } else {
-        digits.parse().ok()
+    let mut search_from = 0;
+    while let Some(offset) = lower[search_from..].find(marker) {
+        let idx = search_from + offset;
+        let rest = &text[idx + marker.len()..];
+        let digits: String = rest.chars().take_while(|c| c.is_ascii_digit()).collect();
+        if !digits.is_empty() {
+            if let Ok(id) = digits.parse() {
+                return Some(id);
+            }
+        }
+        search_from = idx + marker.len();
     }
+    None
 }
 
 pub(crate) fn extract_anilist_id_from_links(meta: &Value) -> Option<i64> {
@@ -1951,6 +1956,15 @@ mod tests {
     fn extract_anilist_id_returns_none_without_matching_link() {
         let meta = json!({"links": [{"name": "IMDb", "category": "other", "url": "https://imdb.com/title/tt1"}]});
         assert_eq!(extract_anilist_id_from_links(&meta), None);
+    }
+
+    #[test]
+    fn extract_anilist_id_skips_malformed_link_and_uses_next_match() {
+        let meta = json!({"links": [
+            {"name": "Bad", "category": "other", "url": "https://anilist.co/anime/"},
+            {"name": "Good", "category": "other", "url": "https://anilist.co/anime/1535"},
+        ]});
+        assert_eq!(extract_anilist_id_from_links(&meta), Some(1535));
     }
 
     #[test]
