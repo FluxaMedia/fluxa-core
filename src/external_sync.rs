@@ -1197,6 +1197,8 @@ pub(crate) fn anilist_entries_to_sync(entries: &[Value], now_ms: i64) -> Value {
             "PLANNING" => {
                 let mut it = item.clone();
                 it.insert("inWatchlist".to_string(), Value::Bool(true));
+                let updated_at_ms = entry.updated_at.map(|s| s * 1000).unwrap_or(now_ms);
+                it.insert("updatedAtMs".to_string(), json!(updated_at_ms));
                 watchlist.push(Value::Object(it));
             }
             "COMPLETED" => {
@@ -1321,6 +1323,19 @@ mod tests {
         );
         assert_eq!(plan["watchlist"][0]["inWatchlist"], Value::Bool(true));
         assert_eq!(plan["watchlist"][0]["name"], "Other");
+        assert_eq!(plan["watchlist"][0]["updatedAtMs"], json!(0));
+    }
+
+    #[test]
+    fn anilist_planning_entry_carries_updated_at_ms_when_present() {
+        let entries = r#"[
+            {"status":"PLANNING","updatedAt":1700000000,"media":{"id":9,"title":{"romaji":"Planned"}}}
+        ]"#;
+        let plan = anilist_entries_to_sync(
+            serde_json::from_str::<Vec<Value>>(entries).unwrap().as_slice(),
+            0,
+        );
+        assert_eq!(plan["watchlist"][0]["updatedAtMs"], json!(1700000000000i64));
     }
 
     #[test]
