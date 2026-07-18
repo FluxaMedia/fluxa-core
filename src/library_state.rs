@@ -209,9 +209,18 @@ pub(crate) fn filter_home_continue_watching_json(
             }
             true
         })
-        .collect();
+        .collect::<Vec<_>>();
 
-    serde_json::to_string(&filtered).ok()
+    let mut ranked = filtered;
+    ranked.sort_by_key(|item| {
+        std::cmp::Reverse(
+            item.get("lastWatchedAt")
+                .and_then(Value::as_i64)
+                .unwrap_or(0),
+        )
+    });
+
+    serde_json::to_string(&ranked).ok()
 }
 
 pub(crate) fn watched_video_ids_json(items_json: &str, imdb_id: &str) -> Option<String> {

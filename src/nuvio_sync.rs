@@ -20,12 +20,6 @@ fn iso_from_ms(ms: i64) -> String {
         .unwrap_or_default()
 }
 
-fn ms_from_iso(value: &str) -> Option<i64> {
-    chrono::DateTime::parse_from_rfc3339(value)
-        .ok()
-        .map(|dt| dt.timestamp_millis())
-}
-
 fn safe_id_part(value: &str) -> String {
     let cleaned: String = value
         .trim()
@@ -349,7 +343,6 @@ pub(crate) fn import_merge_plan_json(args_json: &str) -> Option<String> {
         }
     }
 
-    let mut latest_watched_at: Map<String, Value> = Map::new();
     if let Some(watch_history) = args.get("watchHistory").and_then(Value::as_array) {
         for item in watch_history {
             let Some(content_id) = str_field(item, "content_id") else {
@@ -363,12 +356,6 @@ pub(crate) fn import_merge_plan_json(args_json: &str) -> Option<String> {
             ) {
                 watched.insert(format!("{content_id}:{s}:{e}"), Value::Bool(true));
             }
-            if let Some(at) = item.get("watched_at").and_then(Value::as_i64) {
-                let existing = latest_watched_at.get(content_id).and_then(Value::as_i64);
-                if existing.is_none_or(|prev| at > prev) {
-                    latest_watched_at.insert(content_id.to_string(), json!(at));
-                }
-            }
         }
         for id in &active_remote_ids {
             watched.remove(id);
@@ -379,7 +366,6 @@ pub(crate) fn import_merge_plan_json(args_json: &str) -> Option<String> {
         watched.get(key).and_then(Value::as_bool).unwrap_or(false)
     };
     let mut to_remove: Vec<String> = Vec::new();
-    let mut saved_at_bumps: Vec<(String, String)> = Vec::new();
     for (content_id, entry) in &progress {
         let video_watched = str_field(entry, "lastVideoId")
             .map(|id| is_watched(&watched, id))
@@ -393,29 +379,10 @@ pub(crate) fn import_merge_plan_json(args_json: &str) -> Option<String> {
         };
         if video_watched || episode_watched {
             to_remove.push(content_id.clone());
-            continue;
-        }
-        let resolved = entry
-            .get("continueWatchingEpisodeResolved")
-            .and_then(Value::as_bool)
-            .unwrap_or(false);
-        if resolved {
-            let history_latest = latest_watched_at.get(content_id).and_then(Value::as_i64);
-            let saved_at = str_field(entry, "savedAt").and_then(ms_from_iso);
-            if let (Some(latest), Some(current)) = (history_latest, saved_at) {
-                if latest > current {
-                    saved_at_bumps.push((content_id.clone(), iso_from_ms(latest)));
-                }
-            }
         }
     }
     for id in to_remove {
         progress.remove(&id);
-    }
-    for (id, saved_at) in saved_at_bumps {
-        if let Some(entry) = progress.get_mut(&id).and_then(Value::as_object_mut) {
-            entry.insert("savedAt".into(), Value::String(saved_at));
-        }
     }
 
     Some(
@@ -671,7 +638,7 @@ mod tests {
     }
 
     #[test]
-    fn resolved_up_next_saved_at_bumps_to_latest_history() {
+    fn resolved_up_next_saved_at_ignores_history_watched_at() {
         let result = merge(json!({
             "progress": {},
             "watched": {},
@@ -688,7 +655,7 @@ mod tests {
         }));
         let entry = &result["progress"]["tt1"];
         assert_eq!(entry["continueWatchingBadge"], json!("upNext"));
-        assert_eq!(entry["savedAt"], json!(iso_from_ms(1_700_000_500_000)));
+        assert_eq!(entry["savedAt"], json!(iso_from_ms(1_700_000_000_000)));
     }
 
     #[test]
