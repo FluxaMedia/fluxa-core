@@ -125,7 +125,7 @@ pub(crate) fn addon_streams_with_provider_json(streams_json: &str, addon_name: &
     Value::Array(streams).to_string()
 }
 
-fn normalize_stream(mut stream: Value, addon_name: &str) -> Value {
+pub(crate) fn normalize_stream(mut stream: Value, addon_name: &str) -> Value {
     let Some(stream_object) = stream.as_object_mut() else {
         return stream;
     };

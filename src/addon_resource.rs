@@ -1,4 +1,5 @@
 use crate::addon_protocol;
+use crate::repository_flow::normalize_stream;
 use serde_json::{json, Value};
 
 fn resource_payload(resource: &str, root: &Value) -> Option<Value> {
@@ -118,6 +119,36 @@ pub(crate) fn parse_addon_resource_result_json(
             "valueJson": payload.to_string()
         })
         .to_string(),
+    }
+}
+
+pub(crate) fn parse_addon_stream_result_json(
+    url: &str,
+    status_code: i32,
+    body: Option<&str>,
+    addon_name: &str,
+) -> String {
+    match parse_addon_body("stream", url, status_code, body) {
+        ParsedAddonBody::Error(json_str) => json_str,
+        ParsedAddonBody::Success { payload, root } => {
+            let streams = match payload {
+                Value::Array(items) => items
+                    .into_iter()
+                    .map(|stream| normalize_stream(stream, addon_name))
+                    .collect(),
+                other => vec![normalize_stream(other, addon_name)],
+            };
+            json!({
+                "kind": "success",
+                "url": url,
+                "statusCode": status_code,
+                "cacheMaxAge": cache_value(&root, "cacheMaxAge"),
+                "staleRevalidate": cache_value(&root, "staleRevalidate"),
+                "staleError": cache_value(&root, "staleError"),
+                "valueJson": Value::Array(streams).to_string()
+            })
+            .to_string()
+        }
     }
 }
 
