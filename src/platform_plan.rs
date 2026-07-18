@@ -521,6 +521,84 @@ pub(crate) fn detail_episode_plan_json(request_json: &str) -> Option<String> {
     .ok()
 }
 
+pub(crate) fn season_watched_plan_json(request_json: &str) -> Option<String> {
+    let request: Value = serde_json::from_str(request_json).ok()?;
+    let episodes = request.get("episodes")?.as_array()?;
+    let watched = request.get("watchedMap")?.as_object()?;
+    let seasons = request.get("seasonNumbers")?.as_array()?;
+    let mut result = serde_json::Map::new();
+    for season in seasons.iter().filter_map(Value::as_i64) {
+        let matching: Vec<&Value> = episodes
+            .iter()
+            .filter(|episode| episode.get("season").and_then(Value::as_i64).unwrap_or(1) == season)
+            .collect();
+        if !matching.is_empty() {
+            result.insert(
+                season.to_string(),
+                Value::Bool(matching.iter().all(|episode| {
+                    episode
+                        .get("id")
+                        .and_then(Value::as_str)
+                        .and_then(|id| watched.get(id))
+                        .and_then(Value::as_bool)
+                        == Some(true)
+                })),
+            );
+        }
+    }
+    serde_json::to_string(&result).ok()
+}
+
+pub(crate) fn mark_seasons_action_plan_json(request_json: &str) -> Option<String> {
+    let request: Value = serde_json::from_str(request_json).ok()?;
+    let selected: std::collections::HashSet<i64> = request
+        .get("seasons")?
+        .as_array()?
+        .iter()
+        .filter_map(Value::as_i64)
+        .collect();
+    let watched = request
+        .get("watched")
+        .and_then(Value::as_bool)
+        .unwrap_or(true);
+    let now_ms = request.get("nowMs").and_then(Value::as_i64).unwrap_or(0);
+    let episodes: Vec<&Value> = request
+        .get("episodes")?
+        .as_array()?
+        .iter()
+        .filter(|episode| {
+            selected.contains(&episode.get("season").and_then(Value::as_i64).unwrap_or(1))
+        })
+        .filter(|episode| {
+            !watched
+                || episode
+                    .get("released")
+                    .and_then(Value::as_str)
+                    .and_then(|value| chrono::DateTime::parse_from_rfc3339(value).ok())
+                    .is_none_or(|released| released.timestamp_millis() <= now_ms)
+        })
+        .collect();
+    if episodes.is_empty() {
+        return None;
+    }
+    let meta = request.get("meta")?;
+    serde_json::to_string(&json!({
+        "type": "markWatchedRequested",
+        "seriesId": meta.get("id"),
+        "videoIds": episodes.iter().filter_map(|episode| episode.get("id")).collect::<Vec<_>>(),
+        "watched": watched,
+        "meta": meta,
+        "episodes": episodes.iter().map(|episode| json!({
+            "id": episode.get("id"),
+            "name": episode.get("name").or_else(|| episode.get("title")),
+            "season": episode.get("season"),
+            "number": episode.get("episode").or_else(|| episode.get("number")),
+            "thumbnail": episode.get("thumbnail"),
+        })).collect::<Vec<_>>(),
+    }))
+    .ok()
+}
+
 fn extra_json(request: &ResourceFetchPlanRequest) -> Option<String> {
     let mut extra = request.extra.clone();
     if let Some(genre) = request.genre.as_ref().filter(|value| !value.is_empty()) {

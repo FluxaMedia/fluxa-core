@@ -854,6 +854,26 @@ pub(crate) fn resolve_next_after_watched_json(request_json: &str) -> Option<Stri
     )
 }
 
+pub(crate) fn next_progress_info_plan_json(request_json: &str) -> Option<String> {
+    let request: Value = serde_json::from_str(request_json).ok()?;
+    let next: Value = serde_json::from_str(&resolve_next_after_watched_json(request_json)?).ok()?;
+    let content_id = request.get("contentId")?.as_str()?.trim();
+    if content_id.is_empty() {
+        return None;
+    }
+    serde_json::to_string(&json!({
+        "contentId": content_id,
+        "contentType": request.get("contentType").and_then(Value::as_str).unwrap_or("series"),
+        "videoId": next.get("id")?,
+        "positionSeconds": UP_NEXT_POSITION_SECONDS,
+        "durationSeconds": UP_NEXT_DURATION_SECONDS,
+        "lastWatched": request.get("nowMs").and_then(Value::as_i64).unwrap_or(0),
+        "season": next.get("season"),
+        "episode": next.get("episode").or_else(|| next.get("number")),
+    }))
+    .ok()
+}
+
 /// Formats a "S1:E2 Episode Name" line from the episode progress fields.
 /// Falls back to parsing season/episode from lastVideoId when the explicit
 /// season/episode numbers are absent.

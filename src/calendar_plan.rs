@@ -1,6 +1,42 @@
 use serde::Deserialize;
 use serde_json::{json, Value};
 
+pub(crate) fn calendar_visibility_plan_json(request_json: &str) -> Option<String> {
+    let request: Value = serde_json::from_str(request_json).ok()?;
+    let items = request.get("items")?.as_array()?;
+    if request.get("showCompleted").and_then(Value::as_bool) == Some(true) {
+        return serde_json::to_string(items).ok();
+    }
+    let completed = request.get("completedItems")?.as_array()?;
+    let visible: Vec<&Value> = items
+        .iter()
+        .filter(|item| {
+            let ids: Vec<&str> = ["contentId", "seriesId", "id"]
+                .iter()
+                .filter_map(|key| item.get(*key).and_then(Value::as_str))
+                .collect();
+            let name = item
+                .get("title")
+                .or_else(|| item.get("name"))
+                .and_then(Value::as_str)
+                .unwrap_or("");
+            !completed.iter().any(|entry| {
+                let completed_id = entry.get("id").and_then(Value::as_str).unwrap_or("");
+                (!completed_id.is_empty()
+                    && ids.iter().any(|id| {
+                        *id == completed_id || id.starts_with(&format!("{completed_id}:"))
+                    }))
+                    || (!name.is_empty()
+                        && entry
+                            .get("name")
+                            .and_then(Value::as_str)
+                            .is_some_and(|value| value.eq_ignore_ascii_case(name)))
+            })
+        })
+        .collect();
+    serde_json::to_string(&visible).ok()
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct CalendarItemInput {

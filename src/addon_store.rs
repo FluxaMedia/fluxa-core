@@ -133,6 +133,75 @@ pub(crate) fn sanitize_profile_json(
     serde_json::to_string(&profile).ok()
 }
 
+pub(crate) fn addon_profile_mutation_plan_json(args_json: &str) -> Option<String> {
+    let args: Value = serde_json::from_str(args_json).ok()?;
+    let mut profile = args.get("profile")?.clone();
+    let command = args.get("command")?.as_str()?;
+    let addon_key = args.get("addonKey")?.as_str()?;
+    let settings = profile.get("addonSettings");
+    let mut local = settings
+        .and_then(|value| value.get("localAddons"))
+        .and_then(Value::as_array)
+        .or_else(|| profile.get("localAddons").and_then(Value::as_array))
+        .cloned()
+        .unwrap_or_default();
+    let mut disabled = settings
+        .and_then(|value| value.get("disabledLocalAddons"))
+        .and_then(Value::as_array)
+        .or_else(|| profile.get("disabledLocalAddons").and_then(Value::as_array))
+        .cloned()
+        .unwrap_or_default();
+    let target = crate::addon_protocol::identity(addon_key);
+    match command {
+        "install" => {
+            if !local.iter().any(|value| {
+                value
+                    .as_str()
+                    .is_some_and(|url| crate::addon_protocol::identity(url) == target)
+            }) {
+                local.push(Value::String(addon_key.to_string()));
+            }
+        }
+        "remove" => {
+            local.retain(|value| {
+                value
+                    .as_str()
+                    .is_none_or(|url| crate::addon_protocol::identity(url) != target)
+            });
+            disabled.retain(|value| {
+                value
+                    .as_str()
+                    .is_none_or(|url| crate::addon_protocol::identity(url) != target)
+            });
+        }
+        "toggle" => {
+            if disabled.iter().any(|value| {
+                value
+                    .as_str()
+                    .is_some_and(|url| crate::addon_protocol::identity(url) == target)
+            }) {
+                disabled.retain(|value| {
+                    value
+                        .as_str()
+                        .is_none_or(|url| crate::addon_protocol::identity(url) != target)
+                });
+            } else {
+                disabled.push(Value::String(addon_key.to_string()));
+            }
+        }
+        _ => return None,
+    }
+    let object = profile.as_object_mut()?;
+    object.insert("localAddons".to_string(), Value::Array(local.clone()));
+    let settings = object
+        .entry("addonSettings")
+        .or_insert_with(|| json!({}))
+        .as_object_mut()?;
+    settings.insert("localAddons".to_string(), Value::Array(local));
+    settings.insert("disabledLocalAddons".to_string(), Value::Array(disabled));
+    serde_json::to_string(&profile).ok()
+}
+
 fn normalize_distinct_addons(addons: Vec<String>) -> Vec<String> {
     let mut seen = std::collections::HashSet::new();
     addons
@@ -348,6 +417,38 @@ pub(crate) fn addon_store_search_policy_json(request_json: &str) -> Option<Strin
         "shouldFetch": !use_cache
     }))
     .ok()
+}
+
+fn addon_key(addon: &Value) -> String {
+    addon
+        .get("transportUrl")
+        .and_then(Value::as_str)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| {
+            addon
+                .get("manifest")
+                .and_then(|manifest| manifest.get("id"))
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string()
+        })
+}
+
+pub(crate) fn filter_enabled_addons_json(args_json: &str) -> Option<String> {
+    let args: Value = serde_json::from_str(args_json).ok()?;
+    let addons = args.get("addons")?.as_array()?.clone();
+    let disabled_keys: Vec<&str> = args
+        .get("disabledKeys")?
+        .as_array()?
+        .iter()
+        .filter_map(Value::as_str)
+        .collect();
+    let filtered: Vec<Value> = addons
+        .into_iter()
+        .filter(|addon| !disabled_keys.contains(&addon_key(addon).as_str()))
+        .collect();
+    serde_json::to_string(&filtered).ok()
 }
 
 fn manifest_url_regex() -> &'static Regex {

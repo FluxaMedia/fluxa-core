@@ -3,7 +3,428 @@ use crate::content_identity::{
 };
 use serde_json::{json, Map, Value};
 
+pub(crate) fn provider_calendar_items_json(args_json: &str) -> Option<String> {
+    let args: Value = serde_json::from_str(args_json).ok()?;
+    let provider = args.get("provider")?.as_str()?;
+    let shows = args.get("shows").and_then(Value::as_array);
+    let movies = args.get("movies").and_then(Value::as_array);
+    let entries = args.get("entries").and_then(Value::as_array);
+    let mut items = Vec::new();
+    if provider == "anilist" {
+        for entry in entries.into_iter().flatten() {
+            let Some(media) = entry.get("media") else {
+                continue;
+            };
+            let Some(next) = media.get("nextAiringEpisode") else {
+                continue;
+            };
+            let Some(media_id) = media.get("id").and_then(Value::as_i64) else {
+                continue;
+            };
+            let Some(episode) = next.get("episode").and_then(Value::as_i64) else {
+                continue;
+            };
+            let Some(airing_at) = next.get("airingAt").and_then(Value::as_i64) else {
+                continue;
+            };
+            let content_id = format!("anilist:{media_id}");
+            let title = media
+                .pointer("/title/english")
+                .or_else(|| media.pointer("/title/romaji"));
+            let Some(date_iso) =
+                chrono::DateTime::from_timestamp(airing_at, 0).map(|value| value.to_rfc3339())
+            else {
+                continue;
+            };
+            items.push(json!({
+                "id": format!("{content_id}:{episode}"),
+                "title": title,
+                "dateIso": date_iso,
+                "contentId": content_id,
+                "seriesId": content_id,
+            }));
+        }
+        return serde_json::to_string(&items).ok();
+    }
+    for entry in shows.into_iter().flatten() {
+        let Some(show) = entry.get("show") else {
+            continue;
+        };
+        let Some(episode) = entry.get("episode") else {
+            continue;
+        };
+        let Some(ids) = show.get("ids") else { continue };
+        let Some(series_id) = ids
+            .get("imdb")
+            .and_then(Value::as_str)
+            .map(str::to_string)
+            .or_else(|| {
+                ids.get("tmdb")
+                    .and_then(Value::as_i64)
+                    .map(|id| format!("tmdb:{id}"))
+            })
+        else {
+            continue;
+        };
+        let Some(date) = entry
+            .get(if provider == "trakt" {
+                "first_aired"
+            } else {
+                "date"
+            })
+            .and_then(Value::as_str)
+        else {
+            continue;
+        };
+        let season = episode.get("season").and_then(Value::as_i64);
+        let number = episode
+            .get(if provider == "trakt" {
+                "number"
+            } else {
+                "episode"
+            })
+            .and_then(Value::as_i64);
+        items.push(json!({
+            "id": format!("{series_id}:{}:{}", season.unwrap_or_default(), number.unwrap_or_default()),
+            "title": show.get("title"),
+            "episodeTitle": episode.get("title"),
+            "dateIso": date,
+            "contentId": series_id,
+            "seriesId": series_id,
+        }));
+    }
+    for entry in movies.into_iter().flatten() {
+        let Some(movie) = entry.get("movie") else {
+            continue;
+        };
+        let Some(ids) = movie.get("ids") else {
+            continue;
+        };
+        let Some(content_id) = ids
+            .get("imdb")
+            .and_then(Value::as_str)
+            .map(str::to_string)
+            .or_else(|| {
+                ids.get("tmdb")
+                    .and_then(Value::as_i64)
+                    .map(|id| format!("tmdb:{id}"))
+            })
+        else {
+            continue;
+        };
+        let Some(date) = entry
+            .get(if provider == "trakt" {
+                "released"
+            } else {
+                "date"
+            })
+            .and_then(Value::as_str)
+        else {
+            continue;
+        };
+        items.push(json!({"id": content_id, "title": movie.get("title"), "dateIso": date, "contentId": content_id}));
+    }
+    serde_json::to_string(&items).ok()
+}
+
+pub(crate) fn provider_pagination_plan_json(args_json: &str) -> Option<String> {
+    let args: Value = serde_json::from_str(args_json).ok()?;
+    let base_url = args.get("baseUrl")?.as_str()?;
+    let limit = args
+        .get("limit")
+        .and_then(Value::as_i64)
+        .filter(|value| *value > 0)?;
+    let page = args.get("page").and_then(Value::as_i64).unwrap_or(0);
+    let mut items = args
+        .get("items")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let page_items = args
+        .get("pageItems")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    items.extend(page_items.iter().cloned());
+    let page_count = args
+        .get("pageCount")
+        .and_then(Value::as_i64)
+        .filter(|value| *value > 0);
+    let response_ok = args
+        .get("responseOk")
+        .and_then(Value::as_bool)
+        .unwrap_or(true);
+    let done = !response_ok
+        || (page > 0 && page_items.is_empty())
+        || page >= 100
+        || page_count.is_some_and(|count| page >= count)
+        || (page > 0 && page_items.len() < limit as usize);
+    let next_page = if page <= 0 { 1 } else { page + 1 };
+    let separator = if base_url.contains('?') { '&' } else { '?' };
+    serde_json::to_string(&json!({
+        "items": items,
+        "done": done,
+        "page": next_page,
+        "requestUrl": (!done).then(|| format!("{base_url}{separator}page={next_page}&limit={limit}")),
+    })).ok()
+}
+
+pub(crate) fn stremio_library_mutation_plan_json(args_json: &str) -> Option<String> {
+    let args: Value = serde_json::from_str(args_json).ok()?;
+    let kind = args.get("kind")?.as_str()?;
+    let meta = args.get("meta").or_else(|| args.get("item"));
+    let now_ms = args
+        .get("nowMs")
+        .and_then(Value::as_i64)
+        .unwrap_or_default();
+    let watched_at =
+        chrono::DateTime::from_timestamp_millis(now_ms).map(|value| value.to_rfc3339());
+    let item_value = |source: &Value, state: Value, extra: Value| {
+        let id = source.get("id").and_then(Value::as_str).unwrap_or("");
+        if id.is_empty() {
+            return None;
+        }
+        let mut item = json!({
+            "_id": id,
+            "name": source.get("name").and_then(Value::as_str).unwrap_or(""),
+            "type": source.get("type").and_then(Value::as_str).unwrap_or("movie"),
+            "poster": source.get("poster"), "background": source.get("background"), "logo": source.get("logo"),
+            "state": state,
+        });
+        if let (Some(target), Some(fields)) = (item.as_object_mut(), extra.as_object()) {
+            target.extend(fields.clone());
+        }
+        Some(item)
+    };
+    let changes: Vec<Value> = match kind {
+        "watchlist" => {
+            let source = meta?;
+            let removed = args.get("command").and_then(Value::as_str) == Some("remove");
+            item_value(source, json!({"lastWatched": null, "timeOffset": 0, "duration": 0, "videoId": null, "timesWatched": 0, "flaggedWatched": 0}), json!({"removed": if removed { 1 } else { 0 }})).into_iter().collect()
+        }
+        "progress" => {
+            let source = meta?;
+            let progress = args.get("progress")?;
+            let last_watched = progress
+                .get("lastWatched")
+                .and_then(Value::as_i64)
+                .and_then(chrono::DateTime::from_timestamp_millis)
+                .map(|value| value.to_rfc3339());
+            item_value(source, json!({
+                "lastWatched": last_watched,
+                "timeOffset": progress.get("positionSeconds").and_then(Value::as_f64).unwrap_or_default().max(0.0).round() as i64,
+                "duration": progress.get("durationSeconds").and_then(Value::as_f64).unwrap_or_default().max(0.0).round() as i64,
+                "videoId": progress.get("videoId"),
+            }), json!({})).into_iter().collect()
+        }
+        "watched" => {
+            let watched = args
+                .get("watched")
+                .and_then(Value::as_bool)
+                .unwrap_or(false);
+            let timestamp = watched.then_some(watched_at).flatten();
+            let episodes = args
+                .get("episodes")
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default();
+            if episodes.is_empty() {
+                meta.and_then(|source| item_value(source, json!({"lastWatched": timestamp, "timeOffset": 0, "duration": 0, "videoId": null, "timesWatched": if watched { 1 } else { 0 }, "flaggedWatched": if watched { 1 } else { 0 }}), json!({"lastWatched": timestamp}))).into_iter().collect()
+            } else {
+                episodes.iter().filter_map(|episode| {
+                    let content_id = episode.get("contentId").and_then(Value::as_str).unwrap_or("");
+                    let video_id = episode.get("videoId").and_then(Value::as_str).filter(|value| !value.is_empty()).map(str::to_string)
+                        .unwrap_or_else(|| format!("{content_id}:{}:{}", episode.get("season").and_then(Value::as_i64).unwrap_or_default(), episode.get("episode").and_then(Value::as_i64).unwrap_or_default()));
+                    Some(json!({
+                        "_id": video_id, "name": episode.get("title").and_then(Value::as_str).or_else(|| meta.and_then(|value| value.get("name")).and_then(Value::as_str)).unwrap_or(""),
+                        "type": episode.get("contentType"), "poster": meta.and_then(|value| value.get("poster")), "background": meta.and_then(|value| value.get("background")), "logo": meta.and_then(|value| value.get("logo")),
+                        "state": {"lastWatched": timestamp, "timeOffset": 0, "duration": 0, "videoId": video_id, "timesWatched": if watched { 1 } else { 0 }, "flaggedWatched": if watched { 1 } else { 0 }},
+                        "lastWatched": timestamp,
+                    }))
+                }).collect()
+            }
+        }
+        _ => return None,
+    };
+    serde_json::to_string(&changes).ok()
+}
+
 const TRAKT_API_BASE_URL: &str = "https://api.trakt.tv";
+
+pub(crate) fn promote_external_progress_plan_json(args_json: &str) -> Option<String> {
+    let args: Value = serde_json::from_str(args_json).ok()?;
+    let source = args.get("source")?.as_str()?;
+    let mut progress = args.get("progress")?.as_object()?.clone();
+    let mut promotions = Vec::new();
+    for item in args.get("items")?.as_array()? {
+        let id = item.get("id").and_then(Value::as_str).unwrap_or("");
+        let video_id = item
+            .get("lastVideoId")
+            .and_then(Value::as_str)
+            .unwrap_or("");
+        let duration = item.get("duration").and_then(Value::as_f64).unwrap_or(0.0);
+        let offset = item
+            .get("timeOffset")
+            .and_then(Value::as_f64)
+            .unwrap_or(0.0);
+        let saved_at = item.get("savedAt").and_then(Value::as_str).unwrap_or("");
+        let Some(saved_ms) = chrono::DateTime::parse_from_rfc3339(saved_at)
+            .ok()
+            .map(|value| value.timestamp_millis())
+        else {
+            continue;
+        };
+        if id.is_empty() || video_id.is_empty() || duration <= 0.0 {
+            continue;
+        }
+        let existing_ms = progress
+            .get(id)
+            .and_then(|value| value.get("savedAt"))
+            .and_then(Value::as_str)
+            .and_then(|value| chrono::DateTime::parse_from_rfc3339(value).ok())
+            .map(|value| value.timestamp_millis())
+            .unwrap_or(0);
+        if existing_ms >= saved_ms {
+            continue;
+        }
+        let existing = progress
+            .get(id)
+            .and_then(Value::as_object)
+            .cloned()
+            .unwrap_or_default();
+        let existing_meta = existing
+            .get("meta")
+            .and_then(Value::as_object)
+            .cloned()
+            .unwrap_or_default();
+        let item_fields: Map<String, Value> = item
+            .as_object()?
+            .iter()
+            .filter(|(_, value)| !value.is_null())
+            .map(|(key, value)| (key.clone(), value.clone()))
+            .collect();
+        let mut next = existing;
+        next.extend(item_fields.clone());
+        let mut merged_meta = existing_meta;
+        merged_meta.extend(item_fields);
+        next.insert("meta".to_string(), Value::Object(merged_meta));
+        next.insert("source".to_string(), Value::String(source.to_string()));
+        next.insert("savedAt".to_string(), Value::String(saved_at.to_string()));
+        progress.insert(id.to_string(), Value::Object(next));
+        let content_type = item.get("type").and_then(Value::as_str).unwrap_or("movie");
+        let season = item.get("lastEpisodeSeason").and_then(Value::as_i64);
+        let episode_number = item.get("lastEpisodeNumber").and_then(Value::as_i64);
+        promotions.push(json!({
+            "item": item,
+            "externalProgress": {
+                "contentId": id,
+                "contentType": content_type,
+                "videoId": video_id,
+                "positionSeconds": offset,
+                "durationSeconds": duration,
+                "lastWatched": saved_ms,
+                "season": season,
+                "episode": episode_number,
+            },
+            "meta": {"id": id, "type": content_type, "name": item.get("name").and_then(Value::as_str).unwrap_or("")},
+            "episode": match (season, episode_number) {
+                (Some(season), Some(episode)) => json!({"id": video_id, "season": season, "episode": episode, "number": episode}),
+                _ => Value::Null,
+            },
+            "scrobbleTrakt": source != "trakt",
+            "scrobbleSimkl": source != "simkl",
+        }));
+    }
+    serde_json::to_string(&json!({"progress": progress, "promotions": promotions})).ok()
+}
+
+pub(crate) fn external_provider_action_plan_json(args_json: &str) -> Option<String> {
+    let args: Value = serde_json::from_str(args_json).ok()?;
+    let kind = args.get("kind")?.as_str()?;
+    if kind == "sync" {
+        let provider = args
+            .get("provider")
+            .and_then(Value::as_str)
+            .unwrap_or("trakt")
+            .to_ascii_lowercase();
+        let supported = matches!(
+            provider.as_str(),
+            "anilist" | "simkl" | "trakt" | "stremio" | "nuvio"
+        );
+        return Some(json!({
+            "provider": provider,
+            "supported": supported,
+            "error": (!supported).then(|| format!("Unsupported external sync provider: {provider}")),
+        }).to_string());
+    }
+    let profile = args.get("profile").filter(|value| !value.is_null())?;
+    let now_ms = args.get("nowMs").and_then(Value::as_i64).unwrap_or(0);
+    let has = |key: &str| {
+        profile
+            .get(key)
+            .and_then(Value::as_str)
+            .is_some_and(|value| !value.trim().is_empty())
+    };
+    let trakt = has("traktAccessToken")
+        && profile
+            .get("traktTokenExpiresAt")
+            .and_then(Value::as_i64)
+            .is_none_or(|expires| now_ms / 1000 <= expires);
+    let simkl = has("simklAccessToken");
+    let anilist = has("anilistAccessToken");
+    let stremio = has("stremioAuthKey");
+    let nuvio = has("nuvioAccessToken");
+    match kind {
+        "markWatched" => {
+            let watched = args.get("watched").and_then(Value::as_bool).unwrap_or(true);
+            let episode_infos: Vec<Value> = match args.get("episodeInfo") {
+                Some(Value::Array(values)) => values.clone(),
+                Some(value) if !value.is_null() => vec![value.clone()],
+                _ => Vec::new(),
+            }.into_iter().filter(|info| info.get("contentId").and_then(Value::as_str).is_some_and(|id| !id.is_empty())).collect();
+            let meta = args.get("meta").cloned().unwrap_or(Value::Null);
+            let video_ids = args.get("videoIds").and_then(Value::as_array).cloned().unwrap_or_default();
+            let fallback_id = meta.get("id").and_then(Value::as_str).or_else(|| video_ids.first().and_then(Value::as_str)).unwrap_or("");
+            let watched_keys: Vec<Value> = if episode_infos.is_empty() {
+                (!fallback_id.is_empty()).then(|| json!({"content_id": fallback_id, "season": Value::Null, "episode": Value::Null})).into_iter().collect()
+            } else {
+                episode_infos.iter().map(|info| json!({"content_id": info.get("contentId"), "season": info.get("season"), "episode": info.get("episode")})).collect()
+            };
+            let history_items: Vec<Value> = episode_infos.iter().map(|info| json!({
+                "content_id": info.get("contentId"), "content_type": info.get("contentType"), "title": info.get("title").and_then(Value::as_str).unwrap_or(""),
+                "season": info.get("season"), "episode": info.get("episode"), "watched_at": now_ms,
+            })).collect();
+            let progress_entry = args.get("progressInfo").filter(|value| value.get("contentId").is_some() && value.get("videoId").is_some() && value.get("durationSeconds").and_then(Value::as_f64).unwrap_or(0.0) > 0.0).map(progress_to_nuvio);
+            let anime_episode = episode_infos.last().cloned().unwrap_or(Value::Null);
+            Some(json!({
+                "trakt": trakt, "simkl": simkl, "anilist": anilist && watched, "stremio": stremio, "nuvio": nuvio,
+                "animeEpisode": anime_episode, "animeProgressEpisode": args.pointer("/progressInfo/episode").cloned().or_else(|| anime_episode.get("episode").cloned()),
+                "episodes": episode_infos, "watchedKeys": watched_keys, "historyItems": history_items, "progressEntry": progress_entry,
+            }).to_string())
+        }
+        "watchlist" => {
+            let command = args.get("command").and_then(Value::as_str).unwrap_or("add");
+            Some(json!({"trakt": trakt, "simkl": simkl && command == "add", "anilist": anilist, "stremio": stremio, "nuvio": nuvio}).to_string())
+        }
+        "progress" => {
+            let progress = args.get("progress")?;
+            let valid = progress.get("durationSeconds").and_then(Value::as_f64).unwrap_or(0.0) > 0.0;
+            Some(json!({"stremio": stremio && valid, "nuvio": nuvio && valid, "progressEntry": valid.then(|| progress_to_nuvio(progress))}).to_string())
+        }
+        "status" => Some(json!({"anilist": anilist}).to_string()),
+        "dropProgress" => Some(json!({"dropTrakt": args.pointer("/item/reason").and_then(Value::as_str).is_some_and(|value| value.eq_ignore_ascii_case("trakt"))}).to_string()),
+        _ => None,
+    }
+}
+
+fn progress_to_nuvio(progress: &Value) -> Value {
+    json!({
+        "content_id": progress.get("contentId"), "content_type": progress.get("contentType"), "video_id": progress.get("videoId"),
+        "position": (progress.get("positionSeconds").and_then(Value::as_f64).unwrap_or(0.0) * 1000.0).round() as i64,
+        "duration": (progress.get("durationSeconds").and_then(Value::as_f64).unwrap_or(0.0) * 1000.0).round() as i64,
+        "last_watched": progress.get("lastWatched"), "season": progress.get("season"), "episode": progress.get("episode")
+    })
+}
 
 pub(crate) fn trakt_has_client(api_key: &str) -> bool {
     !api_key.trim().is_empty()
@@ -934,6 +1355,85 @@ pub(crate) fn trakt_mark_watched_body_json(video_ids_json: &str) -> Option<Strin
         return None;
     }
     serde_json::to_string(&Value::Object(body)).ok()
+}
+
+pub(crate) fn simkl_mark_watched_body_json(args_json: &str) -> Option<String> {
+    let args: Value = serde_json::from_str(args_json).ok()?;
+    let video_ids = args.get("videoIds")?.as_array()?;
+    let meta_type = args
+        .pointer("/meta/type")
+        .and_then(Value::as_str)
+        .unwrap_or("movie");
+    let mut movies = Vec::new();
+    let mut shows: std::collections::HashMap<
+        String,
+        (Value, std::collections::BTreeMap<i64, Vec<i64>>),
+    > = std::collections::HashMap::new();
+    for video_id in video_ids.iter().filter_map(Value::as_str) {
+        let parsed: Value = serde_json::from_str(&parse_video_id_json(video_id)).ok()?;
+        let ids = parsed
+            .get("imdb")
+            .and_then(Value::as_str)
+            .map(|id| json!({"imdb": id}))
+            .or_else(|| {
+                parsed
+                    .get("tmdb")
+                    .and_then(Value::as_str)
+                    .and_then(|id| id.parse::<i64>().ok())
+                    .map(|id| json!({"tmdb": id}))
+            });
+        let Some(ids) = ids else { continue };
+        if parsed.get("isEpisode").and_then(Value::as_bool) == Some(true) {
+            let season = parsed.get("season").and_then(Value::as_i64).unwrap_or(1);
+            let episode = parsed.get("episode").and_then(Value::as_i64).unwrap_or(1);
+            let key = ids.to_string();
+            let entry = shows
+                .entry(key)
+                .or_insert_with(|| (ids, std::collections::BTreeMap::new()));
+            entry.1.entry(season).or_default().push(episode);
+        } else if meta_type == "series" {
+            shows
+                .entry(ids.to_string())
+                .or_insert_with(|| (ids, std::collections::BTreeMap::new()));
+        } else {
+            movies.push(json!({"ids": ids, "watched_at": "now"}));
+        }
+    }
+    let show_values = shows.into_values().map(|(ids, seasons)| {
+        if seasons.is_empty() { return json!({"ids": ids}); }
+        json!({"ids": ids, "seasons": seasons.into_iter().map(|(number, mut episodes)| {
+            episodes.sort_unstable(); episodes.dedup();
+            json!({"number": number, "episodes": episodes.into_iter().map(|number| json!({"number": number})).collect::<Vec<_>>()})
+        }).collect::<Vec<_>>()})
+    }).collect::<Vec<_>>();
+    if movies.is_empty() && show_values.is_empty() {
+        return None;
+    }
+    serde_json::to_string(&json!({"movies": movies, "shows": show_values})).ok()
+}
+
+pub(crate) fn simkl_watchlist_body_json(args_json: &str) -> Option<String> {
+    let args: Value = serde_json::from_str(args_json).ok()?;
+    let id = args.get("id")?.as_str()?;
+    let parsed: Value = serde_json::from_str(&parse_video_id_json(id)).ok()?;
+    let ids = parsed
+        .get("imdb")
+        .and_then(Value::as_str)
+        .map(|id| json!({"imdb": id}))
+        .or_else(|| {
+            parsed
+                .get("tmdb")
+                .and_then(Value::as_str)
+                .and_then(|id| id.parse::<i64>().ok())
+                .map(|id| json!({"tmdb": id}))
+        })?;
+    let entry = json!({"ids": ids, "to": "plantowatch"});
+    let body = if args.get("contentType").and_then(Value::as_str) == Some("series") {
+        json!({"shows": [entry]})
+    } else {
+        json!({"movies": [entry]})
+    };
+    serde_json::to_string(&body).ok()
 }
 
 pub(crate) fn simkl_match_episode_json(episodes_json: &str, target_json: &str) -> Option<String> {

@@ -393,12 +393,20 @@ pub(crate) fn playback_close_plan_json(input: &str) -> Option<String> {
         .get("duration")
         .and_then(Value::as_f64)
         .unwrap_or_default();
-    let threshold = value
+    let prefs = value.get("prefs").cloned().unwrap_or_else(|| json!({}));
+    let safe_prefs: Value = crate::profile_prefs::profile_safe_prefs_json(&prefs.to_string())
+        .and_then(|json| serde_json::from_str(&json).ok())
+        .unwrap_or_else(|| json!({"watchedThresholdPercent": 90.0}));
+    let threshold = safe_prefs
         .get("watchedThresholdPercent")
         .and_then(Value::as_f64)
         .filter(|value| *value > 0.0)
         .unwrap_or(90.0)
         / 100.0;
+    let scrobble_pause = value
+        .get("scrobbleTraktPause")
+        .and_then(Value::as_bool)
+        .unwrap_or(true);
     let meaningful = time_pos > 30.0 && duration > 0.0;
     let watched = meaningful && time_pos / duration >= threshold;
     let text_field = |source: Option<&Value>, names: &[&str]| {
@@ -460,7 +468,7 @@ pub(crate) fn playback_close_plan_json(input: &str) -> Option<String> {
         } else {
             0
         },
-        true,
+        scrobble_pause,
         true,
     );
     let mark_watched_action = watched.then(|| {
@@ -498,12 +506,105 @@ pub(crate) fn playback_close_plan_json(input: &str) -> Option<String> {
     serde_json::to_string(&json!({"shouldScrobble": meaningful, "progressAction": progress_action, "markWatchedAction": mark_watched_action, "upNextAction": up_next_action, "reloadHome": meaningful})).ok()
 }
 
+pub(crate) fn playback_preferences_plan_json(input: &str) -> Option<String> {
+    let prefs: Value = serde_json::from_str(input).ok()?;
+    let safe: Value = crate::profile_prefs::profile_safe_prefs_json(input)
+        .and_then(|json| serde_json::from_str(&json).ok())?;
+    serde_json::to_string(&json!({
+        "watchedThresholdPercent": safe.get("watchedThresholdPercent"),
+        "nextEpisodeThresholdPercent": safe.get("nextEpisodeThresholdPercent"),
+        "autoPlayNextEpisode": safe.get("autoPlayNextEpisode"),
+        "autoSkipIntro": safe.get("autoSkipIntro"),
+        "autoPlayCountdownSecs": prefs.get("autoPlayCountdownSecs").and_then(Value::as_i64).unwrap_or(7).clamp(1, 60),
+        "useIntroDb": safe.get("useIntroDb"),
+        "useAniSkip": safe.get("useAniSkip"),
+        "useAnimeSkip": prefs.get("useAnimeSkip").and_then(Value::as_bool).unwrap_or(true),
+        "animeSkipClientId": prefs.get("animeSkipClientId").and_then(Value::as_str).unwrap_or(""),
+    })).ok()
+}
+
 fn retry_stream_key(stream: &Value) -> String {
     ["url", "playableUrl", "infoHash", "fileIdx", "title", "name"]
         .iter()
         .map(|key| stream.get(key).map(value_key_part).unwrap_or_default())
         .collect::<Vec<_>>()
         .join("|")
+}
+
+pub(crate) fn stream_shell_plan_json(input: &str) -> Option<String> {
+    let stream: Value = serde_json::from_str(input).ok()?;
+    let hints = stream.get("behaviorHints");
+    let headers = hints
+        .and_then(|value| value.get("requestHeaders"))
+        .or_else(|| hints.and_then(|value| value.pointer("/proxyHeaders/request")))
+        .filter(|value| value.as_object().is_some_and(|map| !map.is_empty()))
+        .cloned();
+    let source_link = stream
+        .get("url")
+        .or_else(|| stream.get("infoHash"))
+        .and_then(Value::as_str)
+        .filter(|value| !value.is_empty());
+    let download_link = stream
+        .get("playableUrl")
+        .or_else(|| stream.get("url"))
+        .and_then(Value::as_str)
+        .filter(|value| !value.is_empty());
+    serde_json::to_string(&json!({
+        "identityKey": retry_stream_key(&stream),
+        "isTorrent": stream_is_p2p(&stream)
+            || stream.get("url").and_then(Value::as_str).is_some_and(|url| {
+                let lower = url.to_ascii_lowercase();
+                lower.starts_with("magnet:")
+                    || lower.starts_with("stremio://torrent/")
+                    || lower.starts_with("infohash:")
+            }),
+        "requestHeaders": headers,
+        "sourceLink": source_link,
+        "downloadLink": download_link,
+    }))
+    .ok()
+}
+
+pub(crate) fn order_streams_plan_json(request_json: &str) -> Option<String> {
+    let request: Value = serde_json::from_str(request_json).ok()?;
+    let streams = request.get("streams")?.as_array()?;
+    let prefs = request.get("prefs")?;
+    if prefs
+        .get("streamSourceSelectionMode")
+        .and_then(Value::as_str)
+        != Some("regex")
+    {
+        return serde_json::to_string(streams).ok();
+    }
+    let pattern = prefs
+        .get("streamSourceRegexPattern")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .trim();
+    if pattern.is_empty() {
+        return serde_json::to_string(streams).ok();
+    }
+    let regex = regex::RegexBuilder::new(pattern)
+        .case_insensitive(true)
+        .build()
+        .ok()?;
+    let mut ordered = streams.clone();
+    ordered.sort_by_key(|stream| {
+        let text = [
+            "name",
+            "title",
+            "description",
+            "url",
+            "playableUrl",
+            "infoHash",
+        ]
+        .iter()
+        .filter_map(|key| stream.get(*key).and_then(Value::as_str))
+        .collect::<Vec<_>>()
+        .join(" ");
+        std::cmp::Reverse(regex.is_match(&text))
+    });
+    serde_json::to_string(&ordered).ok()
 }
 
 fn value_key_part(value: &Value) -> String {

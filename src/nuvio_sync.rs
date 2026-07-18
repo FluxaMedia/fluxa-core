@@ -20,6 +20,118 @@ fn iso_from_ms(ms: i64) -> String {
         .unwrap_or_default()
 }
 
+pub(crate) fn sort_addons_by_priority_json(args_json: &str) -> Option<String> {
+    let args = parse(args_json)?;
+    let mut addons = args.get("addons")?.as_array()?.clone();
+    addons.sort_by_key(|a| a.get("sort_order").and_then(Value::as_i64).unwrap_or(0));
+    serde_json::to_string(&addons).ok()
+}
+
+pub(crate) fn export_push_plan_json(args_json: &str) -> Option<String> {
+    let args = parse(args_json)?;
+    let library = args.get("library")?;
+    let now_ms = args.get("nowMs").and_then(Value::as_i64).unwrap_or(0);
+    let progress_entries: Vec<Value> = library
+        .get("progress")
+        .and_then(Value::as_object)
+        .into_iter()
+        .flat_map(|entries| entries.iter())
+        .filter_map(|(content_id, entry)| {
+            let duration = entry.get("duration").and_then(Value::as_f64).unwrap_or(0.0);
+            if duration <= 0.0 {
+                return None;
+            }
+            Some(json!({
+                "content_id": content_id,
+                "content_type": entry.pointer("/meta/type").and_then(Value::as_str).unwrap_or("movie"),
+                "video_id": entry.get("lastVideoId").and_then(Value::as_str).unwrap_or(content_id),
+                "position": (entry.get("timeOffset").and_then(Value::as_f64).unwrap_or(0.0) * 1000.0).round() as i64,
+                "duration": (duration * 1000.0).round() as i64,
+                "last_watched": entry.get("savedAt").and_then(Value::as_str).and_then(|value| chrono::DateTime::parse_from_rfc3339(value).ok()).map(|value| value.timestamp_millis()).unwrap_or(now_ms),
+                "season": entry.get("lastEpisodeSeason"),
+                "episode": entry.get("lastEpisodeNumber"),
+            }))
+        })
+        .collect();
+    let library_items: Vec<Value> = library
+        .get("watchlist")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter(|item| {
+            item.get("id")
+                .and_then(Value::as_str)
+                .is_some_and(|id| !id.is_empty())
+        })
+        .map(|item| {
+            json!({
+                "content_id": item.get("id"),
+                "content_type": item.get("type").and_then(Value::as_str).unwrap_or("movie"),
+                "name": item.get("name").and_then(Value::as_str).unwrap_or(""),
+                "poster": item.get("poster"),
+                "background": item.get("background"),
+            })
+        })
+        .collect();
+    let history_items: Vec<Value> = library
+        .get("watched")
+        .and_then(Value::as_object)
+        .into_iter()
+        .flat_map(|entries| entries.iter())
+        .filter(|(_, watched)| watched.as_bool() == Some(true))
+        .map(|(video_id, _)| {
+            if let Some((content_id, season, episode)) = crate::content_identity::parse_episode_locator(video_id) {
+                json!({"content_id": content_id, "content_type": "series", "title": "", "season": season, "episode": episode, "watched_at": now_ms})
+            } else {
+                json!({"content_id": video_id, "content_type": "movie", "title": "", "watched_at": now_ms})
+            }
+        })
+        .collect();
+    serde_json::to_string(&json!({
+        "progressEntries": progress_entries,
+        "libraryItems": library_items,
+        "historyItems": history_items,
+    }))
+    .ok()
+}
+
+pub(crate) fn library_mutation_plan_json(args_json: &str) -> Option<String> {
+    let args = parse(args_json)?;
+    let mut remote = args.get("remote")?.as_array()?.clone();
+    let item = args.get("item")?;
+    let command = args.get("command")?.as_str()?;
+    let id = item.get("id").and_then(Value::as_str).unwrap_or("");
+    let content_type = item.get("type").and_then(Value::as_str).unwrap_or("movie");
+    if id.is_empty() {
+        return None;
+    }
+    let existing = remote.iter().position(|entry| {
+        entry.get("content_id").and_then(Value::as_str) == Some(id)
+            && entry.get("content_type").and_then(Value::as_str) == Some(content_type)
+    });
+    if command == "remove" {
+        if let Some(index) = existing {
+            remote.remove(index);
+        }
+    } else {
+        let entry = json!({
+            "content_id": id, "content_type": content_type, "name": item.get("name").and_then(Value::as_str).unwrap_or(""),
+            "poster": item.get("poster"), "poster_shape": "poster", "background": item.get("background"), "description": item.get("description"),
+            "release_info": item.get("releaseInfo"), "imdb_rating": item.get("imdbRating"),
+            "genres": item.get("genres").and_then(Value::as_array).map(|values| values.iter().filter_map(Value::as_str).collect::<Vec<_>>()).unwrap_or_default(),
+            "addon_base_url": Value::Null, "added_at": args.get("nowMs"),
+        });
+        if let Some(index) = existing {
+            let mut merged = remote[index].as_object().cloned().unwrap_or_default();
+            merged.extend(entry.as_object()?.clone());
+            remote[index] = Value::Object(merged);
+        } else {
+            remote.push(entry);
+        }
+    }
+    serde_json::to_string(&remote).ok()
+}
+
 fn safe_id_part(value: &str) -> String {
     let cleaned: String = value
         .trim()
@@ -44,7 +156,9 @@ fn avatar_url_for(profile: &Value, avatar_catalog: &[Value]) -> Option<String> {
         return Some(url.to_string());
     }
     let avatar_id = profile.get("avatar_id").filter(|v| !v.is_null())?;
-    let entry = avatar_catalog.iter().find(|a| a.get("id") == Some(avatar_id))?;
+    let entry = avatar_catalog
+        .iter()
+        .find(|a| a.get("id") == Some(avatar_id))?;
     let storage_path = str_field(entry, "storage_path").filter(|s| !s.is_empty())?;
     Some(format!("{AVATAR_STORAGE_BASE}{storage_path}"))
 }
@@ -83,8 +197,12 @@ pub(crate) fn build_local_profiles_json(args_json: &str) -> Option<String> {
 
     let mut by_nuvio_index: Map<String, Value> = Map::new();
     for p in &existing_profiles {
-        let matches_user = !session_user_id.is_null() && p.get("nuvioUserId") == Some(&session_user_id);
-        if let (true, Some(index)) = (matches_user, p.get("nuvioProfileIndex").and_then(Value::as_i64)) {
+        let matches_user =
+            !session_user_id.is_null() && p.get("nuvioUserId") == Some(&session_user_id);
+        if let (true, Some(index)) = (
+            matches_user,
+            p.get("nuvioProfileIndex").and_then(Value::as_i64),
+        ) {
             by_nuvio_index.insert(index.to_string(), p.clone());
         }
     }
@@ -97,7 +215,10 @@ pub(crate) fn build_local_profiles_json(args_json: &str) -> Option<String> {
     let mut imported_ids: Vec<Value> = Vec::new();
     let mut imported: Vec<Value> = Vec::new();
     for remote in &remote_profiles {
-        let index = remote.get("profile_index").and_then(Value::as_i64).unwrap_or(1);
+        let index = remote
+            .get("profile_index")
+            .and_then(Value::as_i64)
+            .unwrap_or(1);
         let existing = by_nuvio_index.get(&index.to_string());
         let mut out = existing
             .and_then(|e| e.as_object().cloned())
@@ -112,7 +233,11 @@ pub(crate) fn build_local_profiles_json(args_json: &str) -> Option<String> {
         let name = str_field(remote, "name")
             .filter(|s| !s.is_empty())
             .map(str::to_string)
-            .or_else(|| existing.and_then(|e| str_field(e, "name")).map(str::to_string))
+            .or_else(|| {
+                existing
+                    .and_then(|e| str_field(e, "name"))
+                    .map(str::to_string)
+            })
             .unwrap_or_else(|| format!("Profile {index}"));
         out.insert("name".into(), Value::String(name));
 
@@ -162,9 +287,18 @@ pub(crate) fn library_to_watchlist_json(args_json: &str) -> Option<String> {
         .iter()
         .map(|item| {
             let mut out = Map::new();
-            out.insert("id".into(), item.get("content_id").cloned().unwrap_or(Value::Null));
-            out.insert("name".into(), item.get("name").cloned().unwrap_or(Value::Null));
-            out.insert("type".into(), item.get("content_type").cloned().unwrap_or(Value::Null));
+            out.insert(
+                "id".into(),
+                item.get("content_id").cloned().unwrap_or(Value::Null),
+            );
+            out.insert(
+                "name".into(),
+                item.get("name").cloned().unwrap_or(Value::Null),
+            );
+            out.insert(
+                "type".into(),
+                item.get("content_type").cloned().unwrap_or(Value::Null),
+            );
             for (dst, src) in [
                 ("poster", "poster"),
                 ("background", "background"),
@@ -221,7 +355,11 @@ pub(crate) fn progress_meta_needs_json(args_json: &str) -> Option<String> {
 fn progress_entry(entry: &Value, lib_item: Option<&Value>, addon_meta: Option<&Value>) -> Value {
     let position = entry.get("position").and_then(Value::as_f64).unwrap_or(0.0);
     let duration = entry.get("duration").and_then(Value::as_f64).unwrap_or(0.0);
-    let ratio = if duration > 0.0 { position / duration } else { 0.0 };
+    let ratio = if duration > 0.0 {
+        position / duration
+    } else {
+        0.0
+    };
     let is_resolved_up_next = if duration <= 0.0 {
         position <= RESOLVED_MAX_POSITION_MS
     } else {
@@ -230,11 +368,20 @@ fn progress_entry(entry: &Value, lib_item: Option<&Value>, addon_meta: Option<&V
 
     let season = entry.get("season").filter(|v| !v.is_null());
     let episode = entry.get("episode").filter(|v| !v.is_null());
-    let num_eq = |a: Option<&Value>, b: Option<&Value>| match (a.and_then(Value::as_f64), b.and_then(Value::as_f64)) {
+    let num_eq = |a: Option<&Value>, b: Option<&Value>| match (
+        a.and_then(Value::as_f64),
+        b.and_then(Value::as_f64),
+    ) {
         (Some(a), Some(b)) => a == b,
         _ => false,
     };
-    let ep_meta = match (season, episode, addon_meta.and_then(|m| m.get("videos")).and_then(Value::as_array)) {
+    let ep_meta = match (
+        season,
+        episode,
+        addon_meta
+            .and_then(|m| m.get("videos"))
+            .and_then(Value::as_array),
+    ) {
         (Some(s), Some(e), Some(videos)) => videos
             .iter()
             .find(|v| num_eq(v.get("season"), Some(s)) && num_eq(v.get("episode"), Some(e))),
@@ -245,15 +392,25 @@ fn progress_entry(entry: &Value, lib_item: Option<&Value>, addon_meta: Option<&V
         lib_item
             .and_then(|i| i.get(field))
             .filter(|v| !v.is_null())
-            .or_else(|| addon_meta.and_then(|m| m.get(field)).filter(|v| !v.is_null()))
+            .or_else(|| {
+                addon_meta
+                    .and_then(|m| m.get(field))
+                    .filter(|v| !v.is_null())
+            })
             .cloned()
             .unwrap_or(Value::Null)
     };
 
     let mut out = Map::new();
     let mut meta = Map::new();
-    meta.insert("id".into(), entry.get("content_id").cloned().unwrap_or(Value::Null));
-    meta.insert("type".into(), entry.get("content_type").cloned().unwrap_or(Value::Null));
+    meta.insert(
+        "id".into(),
+        entry.get("content_id").cloned().unwrap_or(Value::Null),
+    );
+    meta.insert(
+        "type".into(),
+        entry.get("content_type").cloned().unwrap_or(Value::Null),
+    );
     meta.insert("name".into(), pick("name"));
     for field in ["poster", "background"] {
         let v = pick(field);
@@ -262,9 +419,15 @@ fn progress_entry(entry: &Value, lib_item: Option<&Value>, addon_meta: Option<&V
         }
     }
     out.insert("meta".into(), Value::Object(meta));
-    out.insert("timeOffset".into(), json!((position / 1000.0).round() as i64));
+    out.insert(
+        "timeOffset".into(),
+        json!((position / 1000.0).round() as i64),
+    );
     out.insert("duration".into(), json!((duration / 1000.0).round() as i64));
-    out.insert("lastVideoId".into(), entry.get("video_id").cloned().unwrap_or(Value::Null));
+    out.insert(
+        "lastVideoId".into(),
+        entry.get("video_id").cloned().unwrap_or(Value::Null),
+    );
     if let Some(s) = season {
         out.insert("lastEpisodeSeason".into(), s.clone());
     }
@@ -276,14 +439,23 @@ fn progress_entry(entry: &Value, lib_item: Option<&Value>, addon_meta: Option<&V
             out.insert("lastEpisodeName".into(), Value::String(title.to_string()));
         }
         if let Some(thumb) = str_field(ep, "thumbnail") {
-            out.insert("lastEpisodeThumbnail".into(), Value::String(thumb.to_string()));
+            out.insert(
+                "lastEpisodeThumbnail".into(),
+                Value::String(thumb.to_string()),
+            );
         }
     }
     if is_resolved_up_next {
-        out.insert("continueWatchingBadge".into(), Value::String("upNext".into()));
+        out.insert(
+            "continueWatchingBadge".into(),
+            Value::String("upNext".into()),
+        );
         out.insert("continueWatchingEpisodeResolved".into(), Value::Bool(true));
     }
-    let last_watched = entry.get("last_watched").and_then(Value::as_i64).unwrap_or(0);
+    let last_watched = entry
+        .get("last_watched")
+        .and_then(Value::as_i64)
+        .unwrap_or(0);
     out.insert("savedAt".into(), Value::String(iso_from_ms(last_watched)));
     out.insert("source".into(), Value::String("nuvio".into()));
     Value::Object(out)
@@ -329,7 +501,11 @@ pub(crate) fn import_merge_plan_json(args_json: &str) -> Option<String> {
             };
             progress.insert(
                 content_id.to_string(),
-                progress_entry(entry, lib_by_id.get(content_id), addon_metas.get(content_id)),
+                progress_entry(
+                    entry,
+                    lib_by_id.get(content_id),
+                    addon_metas.get(content_id),
+                ),
             );
             if let Some(video_id) = str_field(entry, "video_id") {
                 active_remote_ids.push(video_id.to_string());
@@ -405,7 +581,9 @@ fn map_catalog_source(source: &Value) -> Option<Value> {
 }
 
 fn map_folder_source(source: &Value) -> Option<Value> {
-    let provider = str_field(source, "provider").unwrap_or("addon").to_lowercase();
+    let provider = str_field(source, "provider")
+        .unwrap_or("addon")
+        .to_lowercase();
     let mut out = source.as_object().cloned().unwrap_or_default();
     match provider.as_str() {
         "trakt" => {
@@ -425,7 +603,11 @@ fn map_folder_source(source: &Value) -> Option<Value> {
                     out.remove(field);
                 }
             }
-            if !source.get("tmdbId").map(|v| v.is_i64() || v.is_u64()).unwrap_or(false) {
+            if !source
+                .get("tmdbId")
+                .map(|v| v.is_i64() || v.is_u64())
+                .unwrap_or(false)
+            {
                 out.remove("tmdbId");
             }
             let filters_ok = source
@@ -479,7 +661,14 @@ fn map_folder(folder: &Value) -> Value {
                 .unwrap_or_default(),
         ),
     );
-    for field in ["coverImageUrl", "coverEmoji", "focusGifUrl", "titleLogoUrl", "heroBackdropUrl", "heroVideoUrl"] {
+    for field in [
+        "coverImageUrl",
+        "coverEmoji",
+        "focusGifUrl",
+        "titleLogoUrl",
+        "heroBackdropUrl",
+        "heroVideoUrl",
+    ] {
         if !folder.get(field).map(Value::is_string).unwrap_or(false) {
             out.remove(field);
         }
@@ -494,7 +683,12 @@ fn map_folder(folder: &Value) -> Value {
     );
     out.insert(
         "hideTitle".into(),
-        Value::Bool(folder.get("hideTitle").and_then(Value::as_bool).unwrap_or(false)),
+        Value::Bool(
+            folder
+                .get("hideTitle")
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
+        ),
     );
 
     let sources = folder
@@ -544,7 +738,11 @@ pub(crate) fn map_collections_json(args_json: &str) -> Option<String> {
             );
             out.insert(
                 "title".into(),
-                Value::String(c.get("title").map(value_to_display_string).unwrap_or_default()),
+                Value::String(
+                    c.get("title")
+                        .map(value_to_display_string)
+                        .unwrap_or_default(),
+                ),
             );
             match c.get("backdropImageUrl").filter(|v| v.is_string()) {
                 Some(url) => {

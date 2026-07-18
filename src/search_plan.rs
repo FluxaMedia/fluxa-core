@@ -8,6 +8,168 @@ use std::collections::HashSet;
 // dedup/sort so a single discover fetch can't balloon into multi-megabyte responses.
 const DISCOVER_MAX_ITEMS: usize = 400;
 
+pub(crate) fn search_suggestions_plan_json(request_json: &str) -> Option<String> {
+    let request: Value = serde_json::from_str(request_json).ok()?;
+    let needle = request.get("needle")?.as_str()?.trim().to_ascii_lowercase();
+    if needle.len() < 2 {
+        return Some("[]".to_string());
+    }
+    let limit = request.get("limit").and_then(Value::as_u64).unwrap_or(8) as usize;
+    let mut seen_ids = HashSet::new();
+    let mut seen_names = HashSet::new();
+    let mut prefix = Vec::new();
+    let mut contains = Vec::new();
+    let values: Vec<&Value> =
+        if let Some(categories) = request.get("categories").and_then(Value::as_array) {
+            categories
+                .iter()
+                .flat_map(|category| {
+                    category
+                        .get("items")
+                        .and_then(Value::as_array)
+                        .into_iter()
+                        .flatten()
+                })
+                .collect()
+        } else {
+            request
+                .get("items")
+                .and_then(Value::as_array)?
+                .iter()
+                .collect()
+        };
+    for item in values {
+        let id = item.get("id").and_then(Value::as_str).unwrap_or("");
+        let name = item
+            .get("name")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_ascii_lowercase();
+        if !name.contains(&needle) || !seen_ids.insert(id) || !seen_names.insert(name.clone()) {
+            continue;
+        }
+        if name.starts_with(&needle) {
+            prefix.push(item.clone());
+        } else {
+            contains.push(item.clone());
+        }
+    }
+    prefix.extend(contains);
+    prefix.truncate(limit);
+    serde_json::to_string(&prefix).ok()
+}
+
+pub(crate) fn search_screen_plan_json(request_json: &str) -> Option<String> {
+    let request: Value = serde_json::from_str(request_json).ok()?;
+    let query = request
+        .get("query")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .trim();
+    let search_query = request
+        .get("searchQuery")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    let search_categories = request
+        .get("searchCategories")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let cached_categories = request
+        .get("cachedCategories")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let has_cache = request
+        .get("hasCache")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let search_loading = request
+        .get("searchLoading")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let matches = search_query == query;
+    let raw = if matches && !search_categories.is_empty() {
+        search_categories.clone()
+    } else {
+        cached_categories
+    };
+    let type_filter = request
+        .get("typeFilter")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    let categories = raw
+        .into_iter()
+        .filter_map(|mut category| {
+            let items = category.get("items")?.as_array()?;
+            let visible = items
+                .iter()
+                .filter(|item| {
+                    type_filter.is_empty()
+                        || item.get("type").and_then(Value::as_str) == Some(type_filter)
+                })
+                .cloned()
+                .collect::<Vec<_>>();
+            if visible.is_empty() {
+                return None;
+            }
+            category["items"] = Value::Array(visible);
+            Some(category)
+        })
+        .collect::<Vec<_>>();
+    let result_count = categories
+        .iter()
+        .filter_map(|category| category.get("items").and_then(Value::as_array))
+        .map(Vec::len)
+        .sum::<usize>();
+    serde_json::to_string(&json!({
+        "query": query,
+        "queryEligible": query.chars().count() >= 2,
+        "shouldDispatch": query.chars().count() >= 2 && !has_cache && !(matches && search_loading),
+        "shouldCache": matches && !search_categories.is_empty(),
+        "categories": categories,
+        "resultCount": result_count,
+        "categoryCount": categories.len(),
+        "isLoading": search_loading && !has_cache,
+    }))
+    .ok()
+}
+
+pub(crate) fn merge_discover_pages_json(request_json: &str) -> Option<String> {
+    let request: Value = serde_json::from_str(request_json).ok()?;
+    let base = request.get("baseItems")?.as_array()?;
+    let existing = request.get("existingItems")?.as_array()?;
+    let incoming = request.get("incomingItems")?.as_array()?;
+    let mut seen = HashSet::new();
+    let mut merged = Vec::new();
+    for item in base.iter().chain(existing).chain(incoming) {
+        let id = item.get("id").and_then(Value::as_str).unwrap_or("");
+        if !id.is_empty() && seen.insert(id) {
+            merged.push(item.clone());
+        }
+    }
+    let existing_ids: HashSet<&str> = base
+        .iter()
+        .chain(existing)
+        .filter_map(|item| item.get("id").and_then(Value::as_str))
+        .collect();
+    let mut appended_seen = existing_ids.clone();
+    let appended: Vec<&Value> = incoming
+        .iter()
+        .filter(|item| {
+            item.get("id")
+                .and_then(Value::as_str)
+                .is_some_and(|id| appended_seen.insert(id))
+        })
+        .collect();
+    serde_json::to_string(&json!({
+        "items": merged,
+        "appendedItems": appended,
+        "exhausted": incoming.is_empty() || appended.is_empty(),
+    }))
+    .ok()
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct SearchGroupingRequest {
@@ -317,6 +479,95 @@ pub(crate) fn discover_catalog_options_json(
         }
     }
     serde_json::to_string(&options).ok()
+}
+
+pub(crate) fn discover_content_types_json(addons_json: &str) -> Option<String> {
+    let options: Vec<Value> =
+        serde_json::from_str(&discover_catalog_options_json(addons_json, "all")?).ok()?;
+    let mut types = vec!["movie".to_string(), "series".to_string()];
+    for option in &options {
+        let extras = option
+            .get("extras")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        let search_required = extras.iter().any(|extra| {
+            extra.get("name").and_then(Value::as_str) == Some("search")
+                && extra.get("isRequired").and_then(Value::as_bool) == Some(true)
+        });
+        let has_browsable_extra = extras.iter().any(|extra| {
+            !matches!(
+                extra.get("name").and_then(Value::as_str),
+                Some("search" | "skip")
+            ) && extra
+                .get("options")
+                .and_then(Value::as_array)
+                .is_some_and(|options| !options.is_empty())
+        });
+        if search_required && !has_browsable_extra {
+            continue;
+        }
+        let Some(content_type) = option.get("type").and_then(Value::as_str) else {
+            continue;
+        };
+        if !types.iter().any(|value| value == content_type) {
+            types.push(content_type.to_string());
+        }
+    }
+    serde_json::to_string(&types).ok()
+}
+
+pub(crate) fn discover_selection_plan_json(request_json: &str) -> Option<String> {
+    let request: Value = serde_json::from_str(request_json).ok()?;
+    let content_type = request
+        .get("contentType")
+        .and_then(Value::as_str)
+        .unwrap_or("movie");
+    let catalogs = request
+        .get("catalogs")
+        .and_then(Value::as_array)?
+        .iter()
+        .filter(|catalog| catalog.get("type").and_then(Value::as_str) == Some(content_type))
+        .cloned()
+        .collect::<Vec<_>>();
+    let requested_key = request.get("selectedCatalogKey").and_then(Value::as_str);
+    let catalog = requested_key
+        .and_then(|key| {
+            catalogs
+                .iter()
+                .find(|catalog| catalog.get("key").and_then(Value::as_str) == Some(key))
+        })
+        .or_else(|| catalogs.first())
+        .cloned();
+    let selected_key = catalog
+        .as_ref()
+        .and_then(|value| value.get("key"))
+        .and_then(Value::as_str);
+    let extra = catalog
+        .as_ref()
+        .and_then(|value| value.get("extras"))
+        .and_then(Value::as_array)
+        .and_then(|values| values.first())
+        .cloned();
+    let requested_extra = request.get("extraValue").and_then(Value::as_str);
+    let extra_value = requested_extra.filter(|value| {
+        extra
+            .as_ref()
+            .and_then(|extra| extra.get("options"))
+            .and_then(Value::as_array)
+            .is_some_and(|options| options.iter().any(|option| option.as_str() == Some(*value)))
+    });
+    let extra_name = extra
+        .as_ref()
+        .and_then(|value| value.get("name"))
+        .and_then(Value::as_str);
+    let key = format!(
+        "{}|{}|{}",
+        selected_key.unwrap_or(""),
+        extra_name.unwrap_or(""),
+        extra_value.unwrap_or("")
+    );
+    serde_json::to_string(&json!({"catalogs": catalogs, "selectedCatalogKey": selected_key, "selectedCatalog": catalog, "selectedExtra": extra, "extraValue": extra_value, "key": key})).ok()
 }
 
 pub(crate) fn search_result_grouping_json(request_json: &str) -> Option<String> {

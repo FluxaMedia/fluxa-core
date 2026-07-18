@@ -94,6 +94,46 @@ fn has_token(token: Option<&str>) -> bool {
     token.is_some_and(|value| !value.trim().is_empty())
 }
 
+pub(crate) fn scrobble_media_context_json(args_json: &str) -> Option<String> {
+    let args: serde_json::Value = serde_json::from_str(args_json).ok()?;
+    let meta = args.get("meta")?;
+    let episode = args.get("episode").filter(|value| !value.is_null());
+    let profile = args.get("profile");
+    let now_seconds = args
+        .get("nowSeconds")
+        .and_then(serde_json::Value::as_i64)
+        .unwrap_or(0);
+    let trakt_enabled = profile
+        .and_then(|value| value.get("traktAccessToken"))
+        .and_then(serde_json::Value::as_str)
+        .is_some_and(|value| !value.trim().is_empty())
+        && profile
+            .and_then(|value| value.get("traktTokenExpiresAt"))
+            .and_then(serde_json::Value::as_i64)
+            .is_none_or(|expires| now_seconds <= expires);
+    let is_episode =
+        meta.get("type").and_then(serde_json::Value::as_str) == Some("series") && episode.is_some();
+    let season = episode
+        .and_then(|value| value.get("season"))
+        .and_then(serde_json::Value::as_i64)
+        .unwrap_or(1);
+    let number = episode
+        .and_then(|value| value.get("episode").or_else(|| value.get("number")))
+        .and_then(serde_json::Value::as_i64)
+        .unwrap_or(1);
+    serde_json::to_string(&serde_json::json!({
+        "videoId": meta.get("id"),
+        "isEpisode": is_episode,
+        "simklType": if is_episode { "tv" } else { "movie" },
+        "season": season,
+        "episode": number,
+        "releaseDate": episode.and_then(|value| value.get("released")).and_then(serde_json::Value::as_str).map(|value| value.chars().take(10).collect::<String>()),
+        "episodeTitle": episode.and_then(|value| value.get("name").or_else(|| value.get("title"))).and_then(serde_json::Value::as_str).unwrap_or(""),
+        "traktEnabled": trakt_enabled,
+    }))
+    .ok()
+}
+
 pub(crate) fn trakt_scrobble_plan_json(
     ids_json: &str,
     is_episode: bool,

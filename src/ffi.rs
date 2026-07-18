@@ -394,6 +394,10 @@ fn route_resource_plan(method: &str, args_json: &str) -> Outcome {
             platform_plan::addon_collection_mutation_plan_json(args_json),
         ),
         "detailEpisodePlan" => opt_json(platform_plan::detail_episode_plan_json(args_json)),
+        "seasonWatchedPlan" => opt_json(platform_plan::season_watched_plan_json(args_json)),
+        "markSeasonsActionPlan" => {
+            opt_json(platform_plan::mark_seasons_action_plan_json(args_json))
+        }
         "resourceKindToResource" => {
             let args = object(args_json)?;
             Ok(Value::String(platform_plan::resource_kind_to_resource(
@@ -520,6 +524,9 @@ fn route_search_plan(method: &str, args_json: &str) -> Outcome {
     match method {
         // args_json IS the request object for single-arg methods
         "searchResultGrouping" => opt_json(search_plan::search_result_grouping_json(args_json)),
+        "searchSuggestionsPlan" => opt_json(search_plan::search_suggestions_plan_json(args_json)),
+        "searchScreenPlan" => opt_json(search_plan::search_screen_plan_json(args_json)),
+        "mergeDiscoverPages" => opt_json(search_plan::merge_discover_pages_json(args_json)),
         "recentSearchesPlan" => opt_json(search_plan::recent_searches_plan_json(args_json)),
         // args_json IS the sources array
         "mergeSearchSources" => opt_json(search_plan::merge_search_sources_json(args_json)),
@@ -533,6 +540,8 @@ fn route_search_plan(method: &str, args_json: &str) -> Outcome {
                 field_str(&args, "selectedType")?,
             ))
         }
+        "discoverContentTypes" => opt_json(search_plan::discover_content_types_json(args_json)),
+        "discoverSelectionPlan" => opt_json(search_plan::discover_selection_plan_json(args_json)),
         "librarySortPlan" => opt_json(search_plan::library_sort_plan_json(args_json)),
         "discoverSortPlan" => opt_json(search_plan::discover_sort_plan_json(args_json)),
         "detailSeriesLookupId" => Ok(Value::String(search_plan::detail_series_lookup_id(
@@ -575,6 +584,11 @@ fn route_player_policy(method: &str, args_json: &str) -> Outcome {
         "playerRetryPolicy" => opt_json(player_policy::player_retry_policy_json(args_json)),
         "nextRetrySourcePlan" => opt_json(player_policy::next_retry_source_plan_json(args_json)),
         "playbackClosePlan" => opt_json(player_policy::playback_close_plan_json(args_json)),
+        "playbackPreferencesPlan" => {
+            opt_json(player_policy::playback_preferences_plan_json(args_json))
+        }
+        "streamShellPlan" => opt_json(player_policy::stream_shell_plan_json(args_json)),
+        "orderStreamsPlan" => opt_json(player_policy::order_streams_plan_json(args_json)),
         "playerSourceSidebarPlan" => {
             opt_json(player_policy::player_source_sidebar_plan_json(args_json))
         }
@@ -604,6 +618,12 @@ fn route_player_policy(method: &str, args_json: &str) -> Outcome {
 
 fn route_watchlist(method: &str, args_json: &str) -> Outcome {
     match method {
+        "remoteCollectionRequestPlan" => opt_json(
+            watchlist_plan::remote_collection_request_plan_json(args_json),
+        ),
+        "remoteCollectionResponsePlan" => opt_json(
+            watchlist_plan::remote_collection_response_plan_json(args_json),
+        ),
         // args_json IS the request object
         "watchlistTogglePlan" => opt_json(watchlist_plan::watchlist_toggle_plan_json(args_json)),
         "libraryCommandPlan" => opt_json(watchlist_plan::library_command_plan_json(args_json)),
@@ -629,6 +649,13 @@ fn route_watchlist(method: &str, args_json: &str) -> Outcome {
         }
         "airDateRefreshCandidates" => {
             opt_json(watchlist_plan::air_date_refresh_candidates_json(args_json))
+        }
+        "airDateRefreshPlan" => opt_json(watchlist_plan::air_date_refresh_plan_json(args_json)),
+        "applyAirDateUpdates" => opt_json(watchlist_plan::apply_air_date_updates_json(args_json)),
+        "libraryViewPlan" => opt_json(watchlist_plan::library_view_plan_json(args_json)),
+        "collectionMergePlan" => opt_json(watchlist_plan::collection_merge_plan_json(args_json)),
+        "collectionFolderItemsPlan" => {
+            opt_json(watchlist_plan::collection_folder_items_plan_json(args_json))
         }
         "importCollections" => opt_json(watchlist_plan::import_collections_json(args_json)),
         "exportCollections" => opt_json(watchlist_plan::export_collections_json(args_json)),
@@ -894,6 +921,9 @@ fn route_content_identity(method: &str, args_json: &str) -> Outcome {
 fn route_calendar(method: &str, args_json: &str) -> Outcome {
     match method {
         "calendarCandidatePlan" => opt_json(calendar_plan::calendar_candidate_plan_json(args_json)),
+        "calendarVisibilityPlan" => {
+            opt_json(calendar_plan::calendar_visibility_plan_json(args_json))
+        }
         "calendarReleaseRows" => opt_json(calendar_plan::calendar_release_rows_json(args_json)),
         "calendarContentPlan" => opt_json(calendar_plan::calendar_content_plan_json(args_json)),
         "desktopCalendarReadPlan" => {
@@ -957,6 +987,13 @@ fn route_calendar(method: &str, args_json: &str) -> Outcome {
 
 fn route_external_sync_trakt(method: &str, args_json: &str) -> Outcome {
     match method {
+        "providerCalendarItems" => opt_json(external_sync::provider_calendar_items_json(args_json)),
+        "providerPaginationPlan" => {
+            opt_json(external_sync::provider_pagination_plan_json(args_json))
+        }
+        "stremioLibraryMutationPlan" => {
+            opt_json(external_sync::stremio_library_mutation_plan_json(args_json))
+        }
         "traktHasClient" => Ok(json!(external_sync::trakt_has_client(&arg_str(
             args_json, "apiKey",
         )?))),
@@ -1111,6 +1148,12 @@ fn route_external_sync_trakt(method: &str, args_json: &str) -> Outcome {
                 args.get("rankingMode").and_then(Value::as_str),
             ))
         }
+        "promoteExternalProgressPlan" => opt_json(
+            external_sync::promote_external_progress_plan_json(args_json),
+        ),
+        "externalProviderActionPlan" => {
+            opt_json(external_sync::external_provider_action_plan_json(args_json))
+        }
         "traktPlaybackItemsDedup" => {
             opt_json(external_sync::trakt_playback_items_dedup_json(args_json))
         }
@@ -1139,6 +1182,8 @@ fn route_external_sync_trakt(method: &str, args_json: &str) -> Outcome {
 
 fn route_external_sync_simkl(method: &str, args_json: &str) -> Outcome {
     match method {
+        "simklMarkWatchedBody" => opt_json(external_sync::simkl_mark_watched_body_json(args_json)),
+        "simklWatchlistBody" => opt_json(external_sync::simkl_watchlist_body_json(args_json)),
         "simklWatchingToItems" => {
             let args = object(args_json)?;
             opt_json(external_sync::simkl_watching_to_items_json(
@@ -1451,6 +1496,7 @@ fn route_library_state(method: &str, args_json: &str) -> Outcome {
         "resolveNextAfterWatched" => {
             opt_json(library_state::resolve_next_after_watched_json(args_json))
         }
+        "nextProgressInfoPlan" => opt_json(library_state::next_progress_info_plan_json(args_json)),
         "formatEpisodeLine" => {
             let args = object(args_json)?;
             Ok(Value::String(library_state::format_episode_line_json(
@@ -1487,6 +1533,10 @@ fn route_library_state(method: &str, args_json: &str) -> Outcome {
                 field_str(&args, "addonsJson")?,
             ))
         }
+        "folderPageState" => opt_json(home_ranking::folder_page_state_json(args_json)),
+        "folderSourcePagePlan" => opt_json(home_ranking::folder_source_page_plan_json(args_json)),
+        "homeHeroPlan" => opt_json(home_ranking::home_hero_plan_json(args_json)),
+        "mergeFolderSources" => opt_json(home_ranking::merge_folder_sources_json(args_json)),
         "watchedMapDiff" => {
             let args = object(args_json)?;
             opt_json(library_state::watched_map_diff_json(
@@ -1530,7 +1580,12 @@ fn route_nuvio_sync(method: &str, args_json: &str) -> Outcome {
         "nuvioLibraryToWatchlist" => opt_json(nuvio_sync::library_to_watchlist_json(args_json)),
         "nuvioProgressMetaNeeds" => opt_json(nuvio_sync::progress_meta_needs_json(args_json)),
         "nuvioImportMergePlan" => opt_json(nuvio_sync::import_merge_plan_json(args_json)),
+        "nuvioExportPushPlan" => opt_json(nuvio_sync::export_push_plan_json(args_json)),
+        "nuvioLibraryMutationPlan" => opt_json(nuvio_sync::library_mutation_plan_json(args_json)),
         "nuvioMapCollections" => opt_json(nuvio_sync::map_collections_json(args_json)),
+        "nuvioSortAddonsByPriority" => {
+            opt_json(nuvio_sync::sort_addons_by_priority_json(args_json))
+        }
 
         _ => Err(fail(
             ErrorKind::UnknownMethod,
@@ -1747,6 +1802,9 @@ fn route_addon_store(method: &str, args_json: &str) -> Outcome {
         }
         // args_json IS the profile object
         "profileLocalAddonsKey" => opt_str(addon_store::profile_local_addons_key_json(args_json)),
+        "addonProfileMutationPlan" => {
+            opt_json(addon_store::addon_profile_mutation_plan_json(args_json))
+        }
         "sanitizeProfile" => {
             let args = object(args_json)?;
             let merge_mirrored_addons = field(&args, "mergeMirroredAddons")?
@@ -1765,6 +1823,7 @@ fn route_addon_store(method: &str, args_json: &str) -> Outcome {
         "extractAddonManifestUrl" => opt_json(addon_store::extract_addon_manifest_url(&arg_str(
             args_json, "text",
         )?)),
+        "filterEnabledAddons" => opt_json(addon_store::filter_enabled_addons_json(args_json)),
 
         _ => Err(fail(
             ErrorKind::UnknownMethod,
@@ -1946,6 +2005,7 @@ fn route_player_flow(method: &str, args_json: &str) -> Outcome {
 
 fn route_player_scrobble(method: &str, args_json: &str) -> Outcome {
     match method {
+        "scrobbleMediaContext" => opt_json(player_scrobble::scrobble_media_context_json(args_json)),
         "playerProgressPercent" => {
             let args = object(args_json)?;
             let position_ms = field(&args, "positionMs")?
