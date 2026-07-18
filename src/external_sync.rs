@@ -1240,7 +1240,8 @@ pub(crate) fn replace_external_continue_watching_json(
         }
     }
 
-    let result: Vec<Value> = by_id.into_values().collect();
+    let mut result: Vec<Value> = by_id.into_values().collect();
+    result.sort_by(|a, b| saved_at_ms(b).cmp(&saved_at_ms(a)));
     serde_json::to_string(&result).unwrap_or_else(|_| "[]".to_string())
 }
 
@@ -1945,6 +1946,19 @@ pub(crate) fn merge_library_items_by_id(local: &[Value], incoming: &[Value]) -> 
 mod tests {
     use super::*;
     use serde_json::Value;
+
+    #[test]
+    fn replace_external_continue_watching_sorts_by_saved_at_descending() {
+        let items = json!([
+            {"id": "tt1", "reason": "Nuvio", "timeOffset": 100, "duration": 1000, "savedAt": "2026-07-16T16:18:15Z"},
+            {"id": "tt2", "reason": "Nuvio", "timeOffset": 100, "duration": 1000, "savedAt": "2026-07-18T22:15:23Z"},
+            {"id": "tt3", "reason": "Nuvio", "timeOffset": 100, "duration": 1000, "savedAt": "2026-07-17T19:11:51Z"},
+        ]);
+        let result = replace_external_continue_watching_json("[]", Some("Nuvio"), &items.to_string(), None, None);
+        let parsed: Vec<Value> = serde_json::from_str(&result).unwrap();
+        let ids: Vec<&str> = parsed.iter().map(|v| v["id"].as_str().unwrap()).collect();
+        assert_eq!(ids, vec!["tt2", "tt3", "tt1"]);
+    }
 
     #[test]
     fn extracts_anilist_id_from_link_url() {
