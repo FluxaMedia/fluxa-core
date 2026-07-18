@@ -1,4 +1,9 @@
+use crate::action_contract::{
+    mark_watched_action_value, save_playback_progress_action_value, MarkWatchedAction,
+    SavePlaybackProgressAction,
+};
 use crate::core_error::{CoreError, LogAndDiscard};
+use crate::library_state::{UP_NEXT_DURATION_SECONDS, UP_NEXT_POSITION_SECONDS};
 use serde::Deserialize;
 use serde_json::{json, Value};
 
@@ -396,23 +401,51 @@ pub(crate) fn playback_close_plan_json(input: &str) -> Option<String> {
         / 100.0;
     let meaningful = time_pos > 30.0 && duration > 0.0;
     let watched = meaningful && time_pos / duration >= threshold;
-    let field = |source: Option<&Value>, names: &[&str]| {
+    let text_field = |source: Option<&Value>, names: &[&str]| {
         names
             .iter()
             .find_map(|name| source.and_then(|source| source.get(*name)))
-            .cloned()
-            .unwrap_or(Value::Null)
+            .and_then(Value::as_str)
+            .map(str::to_string)
     };
-    let progress = |target: Option<&Value>, position: i64, target_duration: i64, scrobble: bool| {
-        json!({
-            "type": "savePlaybackProgressRequested", "meta": meta, "timeOffset": position, "duration": target_duration,
-            "lastVideoId": field(target, &["id"]),
-            "lastStreamIndex": if target.is_some() { value.get("streamIndex").cloned().unwrap_or(Value::Null) } else { Value::Null },
-            "lastEpisodeName": field(target, &["name", "title"]), "lastEpisodeSeason": field(target, &["season"]),
-            "lastEpisodeNumber": field(target, &["episode", "number"]), "lastEpisodeThumbnail": field(target, &["thumbnail"]),
-            "lastStreamUrl": if target.is_some() { field(stream, &["playableUrl", "url"]) } else { Value::Null },
-            "lastStreamTitle": if target.is_some() { field(stream, &["title", "name"]) } else { Value::Null },
-            "lastAudioLanguage": Value::Null, "lastSubtitleLanguage": Value::Null, "scrobbleTraktPause": scrobble,
+    let number_field = |source: Option<&Value>, names: &[&str]| {
+        names
+            .iter()
+            .find_map(|name| source.and_then(|source| source.get(*name)))
+            .and_then(Value::as_i64)
+    };
+    let progress = |target: Option<&Value>,
+                    position: i64,
+                    target_duration: i64,
+                    scrobble: bool,
+                    include_stream: bool| {
+        save_playback_progress_action_value(&SavePlaybackProgressAction {
+            profile: None,
+            meta: meta.clone(),
+            time_offset: position,
+            duration: target_duration,
+            last_video_id: text_field(target, &["id"]),
+            last_stream_index: include_stream
+                .then(|| {
+                    value
+                        .get("streamIndex")
+                        .and_then(Value::as_i64)
+                        .and_then(|index| i32::try_from(index).ok())
+                })
+                .flatten(),
+            last_episode_name: text_field(target, &["name", "title"]),
+            last_episode_season: number_field(target, &["season"]),
+            last_episode_number: number_field(target, &["episode", "number"]),
+            last_episode_thumbnail: text_field(target, &["thumbnail"]),
+            last_stream_url: include_stream
+                .then(|| text_field(stream, &["playableUrl", "url"]))
+                .flatten(),
+            last_stream_title: include_stream
+                .then(|| text_field(stream, &["title", "name"]))
+                .flatten(),
+            last_audio_language: None,
+            last_subtitle_language: None,
+            scrobble_trakt_pause: Some(scrobble),
         })
     };
     let progress_action = progress(
@@ -425,19 +458,43 @@ pub(crate) fn playback_close_plan_json(input: &str) -> Option<String> {
         if duration > 0.0 {
             duration.floor() as i64
         } else {
-            99_999
+            0
         },
         true,
+        true,
     );
-    let mark_watched_action = watched.then(|| json!({
-        "type": "markWatchedRequested", "seriesId": meta.get("id").cloned().unwrap_or(Value::Null),
-        "videoIds": [field(episode.or(Some(meta)), &["id"])], "watched": true, "meta": meta,
-        "episodes": episode.map(|episode| vec![json!({"id": episode.get("id").cloned().unwrap_or(Value::Null), "name": field(Some(episode), &["name", "title"]), "season": episode.get("season").cloned().unwrap_or(Value::Null), "number": field(Some(episode), &["episode", "number"]), "thumbnail": episode.get("thumbnail").cloned().unwrap_or(Value::Null)})]).unwrap_or_default(),
-    }));
+    let mark_watched_action = watched.then(|| {
+        mark_watched_action_value(&MarkWatchedAction {
+            series_id: text_field(Some(meta), &["id"]).unwrap_or_default(),
+            video_ids: text_field(episode.or(Some(meta)), &["id"])
+                .into_iter()
+                .collect(),
+            watched: Some(true),
+            meta: Some(meta.clone()),
+            episodes: episode.map(|episode| {
+                vec![json!({
+                    "id": text_field(Some(episode), &["id"]),
+                    "name": text_field(Some(episode), &["name", "title"]),
+                    "season": number_field(Some(episode), &["season"]),
+                    "number": number_field(Some(episode), &["episode", "number"]),
+                    "thumbnail": text_field(Some(episode), &["thumbnail"]),
+                })]
+            }),
+            profile: None,
+        })
+    });
     let up_next_action = (watched
         && meta.get("type").and_then(Value::as_str) == Some("series")
         && next_episode.is_some())
-    .then(|| progress(next_episode, 1, 99_999, false));
+    .then(|| {
+        progress(
+            next_episode,
+            UP_NEXT_POSITION_SECONDS,
+            UP_NEXT_DURATION_SECONDS,
+            false,
+            false,
+        )
+    });
     serde_json::to_string(&json!({"shouldScrobble": meaningful, "progressAction": progress_action, "markWatchedAction": mark_watched_action, "upNextAction": up_next_action, "reloadHome": meaningful})).ok()
 }
 

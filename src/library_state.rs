@@ -1,5 +1,8 @@
 use serde_json::{json, Value};
 
+pub(crate) const UP_NEXT_POSITION_SECONDS: i64 = 0;
+pub(crate) const UP_NEXT_DURATION_SECONDS: i64 = 0;
+
 fn text<'a>(value: &'a Value, key: &str) -> Option<&'a str> {
     value.get(key).and_then(Value::as_str)
 }
@@ -486,8 +489,8 @@ fn seed_candidates_from_last_watched(
             "lastEpisodeSeason": record.get("lastEpisodeSeason").cloned().unwrap_or(Value::Null),
             "lastEpisodeNumber": record.get("lastEpisodeNumber").cloned().unwrap_or(Value::Null),
             "lastEpisodeThumbnail": record.get("lastEpisodeThumbnail").cloned().unwrap_or(Value::Null),
-            "timeOffset": 1,
-            "duration": 99999,
+            "timeOffset": UP_NEXT_POSITION_SECONDS,
+            "duration": UP_NEXT_DURATION_SECONDS,
             "savedAt": record.get("watchedAt").cloned().unwrap_or(Value::Null),
         }));
     }
@@ -668,8 +671,8 @@ fn apply_next_episode_badge(
         "poster": candidate.get("poster").cloned().unwrap_or(Value::Null),
         "background": candidate.get("background").cloned().unwrap_or(Value::Null),
         "logo": candidate.get("logo").cloned().unwrap_or(Value::Null),
-        "timeOffset": 1,
-        "duration": 99999,
+        "timeOffset": UP_NEXT_POSITION_SECONDS,
+        "duration": UP_NEXT_DURATION_SECONDS,
         "lastVideoId": next_id,
         "lastEpisodeName": next.get("name").or_else(|| next.get("title")).cloned().unwrap_or(Value::Null),
         "lastEpisodeSeason": next.get("season").cloned().unwrap_or(Value::Null),

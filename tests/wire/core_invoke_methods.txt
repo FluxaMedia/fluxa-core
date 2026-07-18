@@ -23,7 +23,6 @@ cacheTrimPolicy
 calendarCandidatePlan
 calendarContentPlan
 desktopCalendarReadPlan
-desktopCalendarNotificationPlan
 calendarItemMatchesMonth
 calendarItemsFromMeta
 calendarNotificationContent

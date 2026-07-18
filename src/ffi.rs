@@ -899,9 +899,6 @@ fn route_calendar(method: &str, args_json: &str) -> Outcome {
         "desktopCalendarReadPlan" => {
             opt_json(calendar_plan::desktop_calendar_read_plan_json(args_json))
         }
-        "desktopCalendarNotificationPlan" => opt_json(
-            calendar_plan::desktop_calendar_notification_plan_json(args_json),
-        ),
         "calendarSeasonCandidates" => {
             opt_json(calendar_plan::calendar_season_candidates_json(args_json))
         }

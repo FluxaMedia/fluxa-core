@@ -1,3 +1,4 @@
+use crate::action_contract::{MarkWatchedAction, SavePlaybackProgressAction};
 use crate::runtime::EffectEnvelope;
 use crate::types::Profile;
 use serde::{Deserialize, Serialize};
@@ -159,10 +160,7 @@ pub(super) enum AppAction {
     #[serde(rename = "libraryHydrateRequested")]
     LibraryHydrateRequested { profile_id: Option<String> },
     #[serde(rename = "toggleWatchlistRequested")]
-    ToggleWatchlistRequested {
-        item: Value,
-        profile: Option<Value>,
-    },
+    ToggleWatchlistRequested { item: Value, profile: Option<Value> },
     #[serde(rename = "toggleLibraryStatusRequested")]
     ToggleLibraryStatusRequested { list: String, item: Value },
     #[serde(rename = "setFeedbackRequested")]
@@ -175,30 +173,13 @@ pub(super) enum AppAction {
     ClearPlaybackProgressRequested { profile: Option<Value>, meta: Value },
     #[serde(rename = "savePlaybackProgressRequested")]
     SavePlaybackProgressRequested {
-        profile: Option<Value>,
-        meta: Value,
-        time_offset: i64,
-        duration: i64,
-        last_video_id: Option<String>,
-        last_stream_index: Option<i32>,
-        last_episode_name: Option<String>,
-        last_episode_season: Option<i64>,
-        last_episode_number: Option<i64>,
-        last_episode_thumbnail: Option<String>,
-        last_stream_url: Option<String>,
-        last_stream_title: Option<String>,
-        last_audio_language: Option<String>,
-        last_subtitle_language: Option<String>,
-        scrobble_trakt_pause: Option<bool>,
+        #[serde(flatten)]
+        action: SavePlaybackProgressAction,
     },
     #[serde(rename = "markWatchedRequested")]
     MarkWatchedRequested {
-        series_id: String,
-        video_ids: Vec<String>,
-        watched: Option<bool>,
-        meta: Option<Value>,
-        episodes: Option<Vec<Value>>,
-        profile: Option<Value>,
+        #[serde(flatten)]
+        action: MarkWatchedAction,
     },
     #[serde(rename = "addonInstallRequested")]
     AddonInstallRequested {

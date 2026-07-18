@@ -1,5 +1,7 @@
+use regex::Regex;
 use serde::Deserialize;
 use serde_json::json;
+use std::sync::OnceLock;
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -29,10 +31,10 @@ struct SubtitleCueRequest {
 }
 
 #[derive(Clone)]
-struct SubtitleCue {
-    start: f64,
-    end: f64,
-    text: String,
+pub(crate) struct SubtitleCue {
+    pub(crate) start: f64,
+    pub(crate) end: f64,
+    pub(crate) text: String,
 }
 
 fn default_cue_window() -> f64 {
@@ -123,7 +125,68 @@ fn parse_subtitle_cues(text: &str) -> Vec<Interval> {
         .collect()
 }
 
-fn parse_subtitle_cues_with_text(text: &str) -> Vec<SubtitleCue> {
+fn subtitle_tag_regex() -> &'static Regex {
+    static VALUE: OnceLock<Regex> = OnceLock::new();
+    VALUE.get_or_init(|| Regex::new(r"<[^>]+>").expect("valid subtitle tag regex"))
+}
+
+fn timed_text_regex() -> &'static Regex {
+    static VALUE: OnceLock<Regex> = OnceLock::new();
+    VALUE
+        .get_or_init(|| Regex::new(r#"(?s)<p\b([^>]*)>(.*?)</p>"#).expect("valid timed text regex"))
+}
+
+fn timed_text_attribute_regex() -> &'static Regex {
+    static VALUE: OnceLock<Regex> = OnceLock::new();
+    VALUE.get_or_init(|| {
+        Regex::new(r#"\b([td])=['\"](\d+)['\"]"#).expect("valid timed text attribute regex")
+    })
+}
+
+fn decode_subtitle_text(value: &str) -> String {
+    subtitle_tag_regex()
+        .replace_all(value, "")
+        .replace("&amp;", "&")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", "\"")
+        .replace("&#39;", "'")
+        .replace("&apos;", "'")
+        .trim()
+        .to_string()
+}
+
+fn parse_timed_text_cues(text: &str) -> Vec<SubtitleCue> {
+    timed_text_regex()
+        .captures_iter(text)
+        .filter_map(|capture| {
+            let attributes = capture.get(1)?.as_str();
+            let attribute = |name: &str| {
+                timed_text_attribute_regex()
+                    .captures_iter(attributes)
+                    .find_map(|item| {
+                        (item.get(1)?.as_str() == name)
+                            .then(|| item.get(2)?.as_str().parse::<f64>().ok())
+                            .flatten()
+                    })
+            };
+            let start = attribute("t")? / 1000.0;
+            let duration = attribute("d")? / 1000.0;
+            let cue_text = decode_subtitle_text(capture.get(2)?.as_str());
+            (!cue_text.is_empty()).then(|| SubtitleCue {
+                start,
+                end: start + duration,
+                text: cue_text,
+            })
+        })
+        .collect()
+}
+
+pub(crate) fn parse_subtitle_cues_with_text(text: &str) -> Vec<SubtitleCue> {
+    let trimmed = text.trim_start();
+    if trimmed.starts_with("<?xml") || trimmed.starts_with("<timedtext") {
+        return parse_timed_text_cues(text);
+    }
     let mut cues = Vec::new();
     let lines = text.lines().collect::<Vec<_>>();
     let mut index = 0;
@@ -170,7 +233,7 @@ fn parse_subtitle_cues_with_text(text: &str) -> Vec<SubtitleCue> {
                     cues.push(SubtitleCue {
                         start,
                         end,
-                        text: cue_text.join(" "),
+                        text: decode_subtitle_text(&cue_text.join("\n")),
                     });
                 }
             }
@@ -186,14 +249,21 @@ fn parse_timestamp(value: &str) -> Option<f64> {
     let segments = normalized.split(':').collect::<Vec<_>>();
     let seconds = segments.last()?.parse::<f64>().ok()?;
     let minutes = segments
-        .get(segments.len().checked_sub(2)?)?
-        .parse::<f64>()
-        .ok()?;
-    let hours = if segments.len() == 3 {
-        segments.first()?.parse::<f64>().ok()?
-    } else {
-        0.0
-    };
+        .iter()
+        .rev()
+        .nth(1)
+        .map(|value| value.parse::<f64>())
+        .transpose()
+        .ok()?
+        .unwrap_or_default();
+    let hours = segments
+        .iter()
+        .rev()
+        .nth(2)
+        .map(|value| value.parse::<f64>())
+        .transpose()
+        .ok()?
+        .unwrap_or_default();
     Some(hours * 3600.0 + minutes * 60.0 + seconds)
 }
 
@@ -239,7 +309,7 @@ fn overlap_score(subtitles: &[Interval], speech: &[Interval], delay: f64) -> f64
 
 #[cfg(test)]
 mod tests {
-    use super::estimate_subtitle_delay_json;
+    use super::{estimate_subtitle_delay_json, parse_subtitle_cues_with_text};
     use serde_json::Value;
 
     #[test]
@@ -260,5 +330,14 @@ mod tests {
         }"#).expect("sync estimate");
         let value: Value = serde_json::from_str(&result).expect("valid result");
         assert!((value["delaySeconds"].as_f64().expect("delay") - 2.0).abs() <= 0.1);
+    }
+
+    #[test]
+    fn shared_parser_handles_short_vtt_and_timed_text() {
+        let vtt = parse_subtitle_cues_with_text("WEBVTT\n\n01.000 --> 02.500\n<b>Hello</b> &amp; world");
+        assert_eq!(vtt[0].start, 1.0);
+        assert_eq!(vtt[0].text, "Hello & world");
+        let timed = parse_subtitle_cues_with_text("<timedtext><p d='500' t='1000'>Hi</p></timedtext>");
+        assert_eq!(timed[0].end, 1.5);
     }
 }

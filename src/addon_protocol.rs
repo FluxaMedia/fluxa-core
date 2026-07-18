@@ -520,6 +520,7 @@ pub fn parse_manifest(body: &str, transport_url: &str, unknown_name: &str) -> Op
         Value::String(
             json.get("name")
                 .and_then(Value::as_str)
+                .map(str::trim)
                 .filter(|text| !text.is_empty())
                 .unwrap_or(unknown_name)
                 .to_string(),
@@ -708,19 +709,12 @@ pub(crate) fn normalize_addon_descriptor_json(addon_json: &str) -> Option<String
             .or_insert_with(|| Value::String(String::new()));
         return serde_json::to_string(&normalized).ok();
     }
-    let manifest = json!({
-        "id": addon.get("id").and_then(Value::as_str).unwrap_or(""),
-        "name": addon.get("name").and_then(Value::as_str).map(str::trim).filter(|value| !value.is_empty()).unwrap_or("Unknown Addon"),
-        "description": addon.get("description").cloned().unwrap_or(Value::Null),
-        "version": addon.get("version").cloned().unwrap_or(Value::Null),
-        "resources": addon.get("resources").cloned().unwrap_or_else(|| json!([])),
-        "types": addon.get("types").cloned().unwrap_or_else(|| json!([])),
-        "catalogs": addon.get("catalogs").cloned().unwrap_or_else(|| json!([])),
-        "logo": addon.get("logo").cloned().unwrap_or(Value::Null),
-        "background": addon.get("background").cloned().unwrap_or(Value::Null),
-        "configurable": addon.get("behaviorHints").and_then(|value| value.get("configurable")).cloned().unwrap_or(Value::Null),
-    });
-    Some(json!({"transportUrl": addon.get("transportUrl").or_else(|| addon.get("id")).and_then(Value::as_str).unwrap_or(""), "manifest": manifest}).to_string())
+    let transport_url = addon
+        .get("transportUrl")
+        .or_else(|| addon.get("id"))
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    parse_manifest(addon_json, transport_url, "Unknown Addon")
 }
 
 pub(crate) fn catalog_requires_extra(catalog_json: &str, extra_name: &str) -> bool {
@@ -798,8 +792,8 @@ pub(crate) fn classify_meta_links_json(links_json: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::{
-        build_resource_url, merge_live_manifest_json, parse_manifest, resolve_manifest_assets_json,
-        supports_resource,
+        build_resource_url, merge_live_manifest_json, normalize_addon_descriptor_json,
+        parse_manifest, resolve_manifest_assets_json, supports_resource,
     };
     use serde_json::{json, Value};
 
@@ -1091,5 +1085,18 @@ mod tests {
         ));
 
         assert!(!supports_resource("not json", "stream", None, None));
+    }
+
+    #[test]
+    fn legacy_descriptor_normalization_reuses_manifest_parser() {
+        let normalized: Value = serde_json::from_str(
+            &normalize_addon_descriptor_json(
+                r#"{"id":"legacy","name":"Legacy","resources":["stream"],"customField":"kept"}"#,
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(normalized["transportUrl"], "legacy");
+        assert_eq!(normalized["manifest"]["customField"], "kept");
     }
 }

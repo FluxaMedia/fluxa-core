@@ -752,7 +752,11 @@ pub(crate) fn library_command_plan_json(request_json: &str) -> Option<String> {
         let exists = list
             .iter()
             .any(|entry| entry.get("id").and_then(Value::as_str) == Some(id));
-        if exists {
+        let toggle_plan: Value = watchlist_toggle_plan_json(
+            &json!({"item": item.clone(), "isCurrentlyInWatchlist": exists}).to_string(),
+        )
+        .and_then(|value| serde_json::from_str(&value).ok())?;
+        if toggle_plan.get("command").and_then(Value::as_str) == Some("remove") {
             library.insert(
                 "watchlist".into(),
                 Value::Array(

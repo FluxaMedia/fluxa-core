@@ -66,7 +66,6 @@ chrono = { version = "0.4.45", features = ["serde"] }
 dolby_vision = { workspace = true, optional = true }
 jni = { workspace = true, optional = true }
 regex = "1"
-url = "2"
 sha2 = "0.10"
 serde = { workspace = true }
 serde_json = { workspace = true }

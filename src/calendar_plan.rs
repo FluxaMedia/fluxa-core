@@ -90,6 +90,12 @@ struct NotificationContentRequest {
     profile_id: Option<String>,
     notifications_enabled: Option<bool>,
     alert_new_episodes: Option<bool>,
+    #[serde(default = "default_notification_key_limit")]
+    max_stored_keys: usize,
+}
+
+fn default_notification_key_limit() -> usize {
+    500
 }
 
 #[derive(Debug, Deserialize)]
@@ -203,47 +209,6 @@ pub(crate) fn desktop_calendar_read_plan_json(request_json: &str) -> Option<Stri
         })
         .collect();
     serde_json::to_string(&json!({"items": request.get("plannedItems").and_then(Value::as_array).cloned().unwrap_or_default(), "localItems": local_items, "externalItems": external_items})).ok()
-}
-
-pub(crate) fn desktop_calendar_notification_plan_json(request_json: &str) -> Option<String> {
-    let request: Value = serde_json::from_str(request_json).ok()?;
-    let today = request
-        .get("todayIso")
-        .and_then(Value::as_str)
-        .unwrap_or("");
-    let limit = request.get("limit").and_then(Value::as_u64).unwrap_or(500) as usize;
-    let mut notified: Vec<String> = request
-        .get("notifiedIds")
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-        .filter_map(Value::as_str)
-        .map(str::to_string)
-        .collect();
-    let notified_set: std::collections::HashSet<String> = notified.iter().cloned().collect();
-    let fresh: Vec<&Value> = request
-        .get("items")
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-        .filter(|item| {
-            item.get("dateIso")
-                .and_then(Value::as_str)
-                .is_some_and(|date| date.get(..10) == Some(today))
-                && item
-                    .get("id")
-                    .and_then(Value::as_str)
-                    .is_some_and(|id| !notified_set.contains(id))
-        })
-        .collect();
-    notified.extend(
-        fresh
-            .iter()
-            .filter_map(|item| item.get("id").and_then(Value::as_str))
-            .map(str::to_string),
-    );
-    let start = notified.len().saturating_sub(limit);
-    serde_json::to_string(&json!({"items": fresh, "notifiedIds": &notified[start..]})).ok()
 }
 
 pub(crate) fn calendar_candidate_plan_json(request_json: &str) -> Option<String> {
@@ -482,11 +447,20 @@ pub(crate) fn calendar_notification_content_json(request_json: &str) -> Option<S
             "dateIso": item.date_iso,
             "artworkUrl": item.artwork_url,
             "seasonNumber": item.season_number,
-            "episodeNumber": item.episode_number
+            "episodeNumber": item.episode_number,
+            "title": item.title,
+            "subtitle": item.subtitle,
+            "episodeTitle": item.episode_title
         }));
         keys_out.push(key);
     }
-    serde_json::to_string(&json!({"items": items_out, "keys": keys_out})).ok()
+    let mut stored_keys = request.already_notified_keys;
+    stored_keys.extend(keys_out.iter().cloned());
+    let start = stored_keys.len().saturating_sub(request.max_stored_keys);
+    serde_json::to_string(
+        &json!({"items": items_out, "keys": keys_out, "storedKeys": &stored_keys[start..]}),
+    )
+    .ok()
 }
 
 pub(crate) fn calendar_release_detection_json(request_json: &str) -> Option<String> {
@@ -780,6 +754,23 @@ mod tests {
         )
         .unwrap();
         assert_eq!(result["items"].as_array().unwrap().len(), 0);
+    }
+
+    #[test]
+    fn notification_content_returns_render_fields_and_bounded_stored_keys() {
+        let request = json!({
+            "items": [{"dateIso":"2026-06-10","metaId":"tt2","metaType":"series","title":"Show","subtitle":"Episode","episodeTitle":"Pilot"}],
+            "todayIso": "2026-06-10",
+            "alreadyNotifiedKeys": ["old-1", "old-2"],
+            "maxStoredKeys": 2
+        });
+        let result: Value = serde_json::from_str(
+            &calendar_notification_content_json(&request.to_string()).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(result["items"][0]["episodeTitle"], "Pilot");
+        assert_eq!(result["storedKeys"].as_array().unwrap().len(), 2);
+        assert_eq!(result["storedKeys"][0], "old-2");
     }
 
     #[test]

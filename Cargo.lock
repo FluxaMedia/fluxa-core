@@ -865,7 +865,6 @@ dependencies = [
  "serde_json",
  "sha2",
  "uniffi",
- "url",
  "wasm-bindgen",
  "web-time",
 ]
