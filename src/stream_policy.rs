@@ -60,14 +60,15 @@ pub(crate) fn stream_playable_url(stream: &Value) -> Option<String> {
     if let Some(yt_id) = stream_text(stream, "yt_ID") {
         return Some(format!("https://www.youtube.com/watch?v={yt_id}"));
     }
-    if let Some(external_url) = stream_text(stream, "externalUrl") {
-        return Some(external_url.to_string());
-    }
     let info_hash = stream_text(stream, "infoHash")?;
     match stream.get("fileIdx").and_then(Value::as_i64) {
         Some(file_idx) => Some(format!("stremio://torrent/{info_hash}/{file_idx}")),
         None => Some(format!("stremio://torrent/{info_hash}")),
     }
+}
+
+pub(crate) fn stream_external_url(stream: &Value) -> Option<String> {
+    stream_text(stream, "externalUrl").map(str::to_string)
 }
 
 pub(crate) fn percent_decode_component(value: &str) -> String {
@@ -193,6 +194,7 @@ pub(crate) fn stream_playback_info_json(stream_json: &str) -> Option<String> {
     );
     serde_json::to_string(&json!({
         "playableUrl": playable_url,
+        "externalUrl": stream_external_url(&stream),
         "effectiveVideoHash": effective_video_hash,
         "effectiveVideoSize": effective_video_size,
         "effectiveFilename": effective_filename,

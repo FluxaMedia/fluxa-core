@@ -357,7 +357,14 @@ pub(crate) fn playback_prepare_plan_json(request_json: &str) -> Option<String> {
         .get("isLikelyPlayerCompatible")
         .and_then(Value::as_bool)
         .unwrap_or(true);
-    let mode = if playable_url.is_empty() || !compatible {
+    let external_url = info
+        .get("externalUrl")
+        .and_then(Value::as_str)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
+    let mode = if playable_url.is_empty() && external_url.is_some() {
+        "external"
+    } else if playable_url.is_empty() || !compatible {
         "reject"
     } else if is_torrent {
         "torrent"
@@ -366,9 +373,9 @@ pub(crate) fn playback_prepare_plan_json(request_json: &str) -> Option<String> {
     };
     serde_json::to_string(&json!({
         "mode": mode,
-        "url": playable_url,
+        "url": if mode == "external" { external_url.clone().unwrap_or_default() } else { playable_url.clone() },
         "isTorrent": is_torrent,
-        "rejectReason": if playable_url.is_empty() { "missing_playable_url" } else if !compatible { "incompatible_stream" } else { "" },
+        "rejectReason": if playable_url.is_empty() && external_url.is_none() { "missing_playable_url" } else if !compatible { "incompatible_stream" } else { "" },
         "subtitleExtraArgs": info.get("subtitleExtraArgs").cloned().unwrap_or(Value::Null),
         "title": playback_title(request.meta.as_ref(), request.episode.as_ref(), &request.stream),
         "artwork": playback_artwork(request.meta.as_ref(), request.episode.as_ref()),
