@@ -214,37 +214,33 @@ pub(super) fn dispatch_discover_page(
     )]
 }
 
-fn dispatch_next_initial_page(engine: &mut HeadlessEngine) -> Vec<EffectEnvelope> {
-    let initial_paging = &mut engine.state.discover.initial_paging;
+fn dispatch_initial_pages(engine: &mut HeadlessEngine) -> Vec<EffectEnvelope> {
+    let initial_paging = std::mem::take(&mut engine.state.discover.initial_paging);
     if initial_paging.remaining_pages == 0 {
-        *initial_paging = InitialDiscoverPaging::default();
         return vec![];
     }
-    let transport_url = initial_paging.transport_url.clone();
-    let content_type = initial_paging.content_type.clone();
-    let catalog_id = initial_paging.catalog_id.clone();
-    let genre = initial_paging.genre.clone();
-    let skip = initial_paging.next_skip;
-    initial_paging.next_skip += 20;
-    initial_paging.remaining_pages -= 1;
-
     let generation = engine.bump_generation(GenerationKey::DiscoverPaging);
     engine.state.discover.paging = DiscoverPaging {
         is_loading: true,
         items: Value::Null,
         error: Value::Null,
     };
-    vec![engine.effect(
-        EffectKind::FetchDiscoverPage,
-        generation,
-        FetchDiscoverPagePayload {
-            transport_url: Some(transport_url),
-            content_type,
-            catalog_id,
-            skip,
-            genre,
-        },
-    )]
+    let mut effects = Vec::new();
+    for page in 0..initial_paging.remaining_pages {
+        let skip = initial_paging.next_skip + page as i32 * 20;
+        effects.push(engine.effect(
+            EffectKind::FetchDiscoverPage,
+            generation,
+            FetchDiscoverPagePayload {
+                transport_url: Some(initial_paging.transport_url.clone()),
+                content_type: initial_paging.content_type.clone(),
+                catalog_id: initial_paging.catalog_id.clone(),
+                skip,
+                genre: initial_paging.genre.clone(),
+            },
+        ));
+    }
+    effects
 }
 
 pub(super) fn complete(
@@ -269,7 +265,7 @@ pub(super) fn complete(
                         .cloned()
                         .unwrap_or_else(|| serde_json::json!({}));
                     engine.state.discover.error = Value::Null;
-                    return dispatch_next_initial_page(engine);
+                    return dispatch_initial_pages(engine);
                 } else {
                     engine.state.discover.error = normalize_error(result.error.clone());
                 }
@@ -314,18 +310,8 @@ pub(super) fn complete(
                     if let Some(results) = engine.state.discover.results.as_array_mut() {
                         results.extend(items.as_array().into_iter().flatten().cloned());
                     }
-                    if !engine
-                        .state
-                        .discover
-                        .initial_paging
-                        .transport_url
-                        .is_empty()
-                    {
-                        return dispatch_next_initial_page(engine);
-                    }
                 } else {
                     engine.state.discover.paging.error = normalize_error(result.error.clone());
-                    engine.state.discover.initial_paging = InitialDiscoverPaging::default();
                 }
             }
         }

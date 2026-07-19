@@ -1525,7 +1525,7 @@ mod tests {
     }
 
     #[test]
-    fn discover_prefetches_two_pages_without_blocking_the_initial_results() {
+    fn discover_prefetches_two_pages_in_one_round_trip() {
         let handle = create_headless_engine(
             r#"{"discover":{"catalogs":[{"key":"top","transportUrl":"https://addon.example/manifest.json","id":"top","type":"movie"}]}}"#,
         );
@@ -1557,14 +1557,18 @@ mod tests {
                 .len(),
             1
         );
-        assert_eq!(first_page["effects"][0]["type"], "fetchDiscoverPage");
-        assert_eq!(first_page["effects"][0]["payload"]["skip"], 20);
+        let effects = first_page["effects"].as_array().unwrap();
+        assert_eq!(effects.len(), 2);
+        assert_eq!(effects[0]["type"], "fetchDiscoverPage");
+        assert_eq!(effects[0]["payload"]["skip"], 20);
+        assert_eq!(effects[1]["type"], "fetchDiscoverPage");
+        assert_eq!(effects[1]["payload"]["skip"], 40);
 
         let second_page: Value = serde_json::from_str(
             &headless_engine_complete_effect_json(
                 handle,
                 &json!({
-                    "effectId": first_page["effects"][0]["id"].as_str().unwrap(),
+                    "effectId": effects[0]["id"].as_str().unwrap(),
                     "status": "ok",
                     "value": { "items": [{ "id": "tt2" }] }
                 })
@@ -1580,7 +1584,27 @@ mod tests {
                 .len(),
             2
         );
-        assert_eq!(second_page["effects"][0]["payload"]["skip"], 40);
+
+        let third_page: Value = serde_json::from_str(
+            &headless_engine_complete_effect_json(
+                handle,
+                &json!({
+                    "effectId": effects[1]["id"].as_str().unwrap(),
+                    "status": "ok",
+                    "value": { "items": [{ "id": "tt3" }] }
+                })
+                .to_string(),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            third_page["state"]["discover"]["results"]
+                .as_array()
+                .unwrap()
+                .len(),
+            3
+        );
         assert!(destroy_headless_engine(handle));
     }
 
