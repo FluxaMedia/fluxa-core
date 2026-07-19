@@ -96,7 +96,7 @@ p256 = { version = "0.14.0", optional = true }
 pbkdf2 = { version = "0.13.0", optional = true }
 rand = { version = "0.10.2", optional = true }
 regex = "1"
-rquickjs = { version = "0.12.1", features = ["full-async"], optional = true }
+rquickjs = { version = "0.12.1", default-features = false, features = ["std", "chrono", "loader", "dyn-load", "either", "indexmap", "futures", "bindgen"], optional = true }
 rsa = { version = "0.9.10", features = ["sha2"], optional = true }
 scraper = { version = "0.27.0", optional = true }
 sha1 = { version = "0.11.0", optional = true }
