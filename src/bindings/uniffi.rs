@@ -1,4 +1,6 @@
 use crate::{app_state, core_contract, headless_engine};
+#[cfg(feature = "plugin-js-engine")]
+use std::sync::Arc;
 
 // A panic anywhere below must not unwind across the UniFFI boundary into
 // Swift/Kotlin — that's undefined behavior, not a catchable exception there.
@@ -103,5 +105,28 @@ pub fn app_core_dispatch_json(handle: i64, action_json: String) -> String {
     }
     guard(String::new(), || {
         app_state::app_core_dispatch_json(handle as u64, &action_json).unwrap_or_default()
+    })
+}
+
+#[cfg(feature = "plugin-js-engine")]
+#[uniffi::export]
+pub fn execute_plugin_scraper(
+    client: Box<dyn crate::plugin_runtime::PluginHttpClient>,
+    code: String,
+    tmdb_id: String,
+    media_type: String,
+    season: Option<i32>,
+    episode: Option<i32>,
+) -> String {
+    guard("[]".to_string(), || {
+        crate::plugin_runtime::execute_scraper(
+            Arc::from(client),
+            code,
+            tmdb_id,
+            media_type,
+            season,
+            episode,
+        )
+        .unwrap_or_else(|_| "[]".to_string())
     })
 }
