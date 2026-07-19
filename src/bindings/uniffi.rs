@@ -113,6 +113,8 @@ pub fn app_core_dispatch_json(handle: i64, action_json: String) -> String {
 pub fn execute_plugin_scraper(
     client: Box<dyn crate::plugin_runtime::PluginHttpClient>,
     code: String,
+    scraper_id: String,
+    scraper_settings_json: String,
     tmdb_id: String,
     media_type: String,
     season: Option<i32>,
@@ -122,11 +124,21 @@ pub fn execute_plugin_scraper(
         crate::plugin_runtime::execute_scraper(
             Arc::from(client),
             code,
+            scraper_id,
+            scraper_settings_json,
             tmdb_id,
             media_type,
             season,
             episode,
         )
         .unwrap_or_else(|_| "[]".to_string())
+    })
+}
+
+#[cfg(feature = "plugin-js-engine")]
+#[uniffi::export]
+pub fn get_plugin_scraper_settings_layout(code: String, scraper_id: String) -> String {
+    guard("[]".to_string(), || {
+        crate::plugin_runtime::get_settings_layout(code, scraper_id)
     })
 }

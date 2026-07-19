@@ -42,6 +42,8 @@ pub trait PluginHttpClient: Send + Sync {
 pub fn execute_scraper(
     client: Arc<dyn PluginHttpClient>,
     code: String,
+    scraper_id: String,
+    scraper_settings_json: String,
     tmdb_id: String,
     media_type: String,
     season: Option<i32>,
@@ -55,16 +57,176 @@ pub fn execute_scraper(
     local.block_on(&rt, async move {
         tokio::time::timeout(
             Duration::from_secs(PLUGIN_TIMEOUT_SECS),
-            run(client, code, tmdb_id, media_type, season, episode),
+            run(
+                client,
+                code,
+                scraper_id,
+                scraper_settings_json,
+                tmdb_id,
+                media_type,
+                season,
+                episode,
+            ),
         )
         .await
         .unwrap_or_else(|_| Err("plugin timed out".to_string()))
     })
 }
 
+pub fn get_settings_layout(code: String, scraper_id: String) -> String {
+    let rt = match tokio::runtime::Builder::new_current_thread().enable_all().build() {
+        Ok(rt) => rt,
+        Err(_) => return "[]".to_string(),
+    };
+    let local = tokio::task::LocalSet::new();
+    local.block_on(&rt, async move {
+        tokio::time::timeout(
+            Duration::from_secs(PLUGIN_TIMEOUT_SECS),
+            run_settings_layout(code, scraper_id),
+        )
+        .await
+        .unwrap_or_else(|_| "[]".to_string())
+    })
+}
+
+async fn run_settings_layout(code: String, scraper_id: String) -> String {
+    let qjs_rt = match AsyncRuntime::new() {
+        Ok(rt) => rt,
+        Err(_) => return "[]".to_string(),
+    };
+    qjs_rt.set_memory_limit(PLUGIN_MEMORY_LIMIT).await;
+    let deadline = std::time::Instant::now() + Duration::from_secs(PLUGIN_TIMEOUT_SECS);
+    qjs_rt
+        .set_interrupt_handler(Some(Box::new(move || std::time::Instant::now() > deadline)))
+        .await;
+    tokio::task::spawn_local(qjs_rt.drive());
+    let ctx = match AsyncContext::full(&qjs_rt).await {
+        Ok(ctx) => ctx,
+        Err(_) => return "[]".to_string(),
+    };
+
+    let captured: Arc<Mutex<Option<String>>> = Default::default();
+    let captured_clone = captured.clone();
+    let dom = DomBridge::new();
+    let client: Arc<dyn PluginHttpClient> = Arc::new(NoopHttpClient);
+
+    let eval_result: rquickjs::Result<()> = ctx
+        .async_with(async |ctx| {
+            register_host_functions(&ctx, &dom, client)?;
+
+            let scraper_id_arg = serde_json::to_string(&scraper_id).unwrap_or_else(|_| "\"\"".into());
+
+            let script = format!(
+                r#"
+                globalThis.global = globalThis;
+                globalThis.window = globalThis;
+                globalThis.SCRAPER_ID = {scraper_id_arg};
+                globalThis.SCRAPER_SETTINGS = {{}};
+
+                function fetch(url, options) {{
+                    options = options || {{}};
+                    var method = options.method || 'GET';
+                    var headersJson = JSON.stringify(options.headers || {{}});
+                    var body = options.body === undefined || options.body === null ? null : String(options.body);
+                    var followRedirects = options.redirect !== 'manual';
+                    var raw = __native_fetch(url, method, headersJson, body, followRedirects);
+                    var parsed = JSON.parse(raw);
+                    return Promise.resolve({{
+                        ok: parsed.ok,
+                        status: parsed.status,
+                        text: function() {{ return Promise.resolve(parsed.body); }},
+                        json: function() {{
+                            try {{ return Promise.resolve(JSON.parse(parsed.body)); }}
+                            catch (e) {{ return Promise.resolve(null); }}
+                        }}
+                    }});
+                }}
+
+                {base64_polyfill}
+                {text_encoder_polyfill}
+                {crypto_polyfill}
+                {cheerio_polyfill}
+
+                var require = function(name) {{
+                    if (name.indexOf('cheerio') !== -1) return cheerio;
+                    if (name === 'crypto-js') return CryptoJS;
+                    throw new Error('module not available: ' + name);
+                }};
+
+                var module = {{ exports: {{}} }};
+                var exports = module.exports;
+                (function() {{
+                    {code}
+                }})();
+
+                (async function() {{
+                    try {{
+                        var onSettings = module.exports.onSettings || globalThis.onSettings;
+                        if (!onSettings) {{
+                            __capture_result(JSON.stringify([]));
+                            return;
+                        }}
+                        var layout = await onSettings();
+                        __capture_result(JSON.stringify(layout || []));
+                    }} catch (e) {{
+                        __capture_result(JSON.stringify([]));
+                    }}
+                }})();
+                "#,
+                base64_polyfill = BASE64_POLYFILL,
+                text_encoder_polyfill = TEXT_ENCODER_POLYFILL,
+                crypto_polyfill = CRYPTO_POLYFILL,
+                cheerio_polyfill = CHEERIO_POLYFILL,
+                code = code,
+            );
+
+            ctx.globals().set(
+                "__capture_result",
+                Function::new(ctx.clone(), move |s: String| {
+                    *captured_clone.lock().expect("capture lock poisoned") = Some(s);
+                })?,
+            )?;
+
+            ctx.eval::<(), _>(script).catch(&ctx).map_err(|e| {
+                rquickjs::Error::new_from_js_message("plugin", "js", e.to_string())
+            })?;
+
+            Ok(())
+        })
+        .await;
+
+    if eval_result.is_err() {
+        return "[]".to_string();
+    }
+    qjs_rt.idle().await;
+
+    let result = captured
+        .lock()
+        .expect("capture lock poisoned")
+        .take()
+        .unwrap_or_else(|| "[]".to_string());
+    result
+}
+
+struct NoopHttpClient;
+
+impl PluginHttpClient for NoopHttpClient {
+    fn fetch(&self, _request: PluginHttpRequest) -> PluginHttpResponse {
+        PluginHttpResponse {
+            status: 0,
+            headers: HashMap::new(),
+            body: String::new(),
+            ok: false,
+            error: Some("network disabled in settings-layout evaluation".to_string()),
+        }
+    }
+}
+
 async fn run(
     client: Arc<dyn PluginHttpClient>,
     code: String,
+    scraper_id: String,
+    scraper_settings_json: String,
     tmdb_id: String,
     media_type: String,
     season: Option<i32>,
@@ -87,6 +249,12 @@ async fn run(
         .async_with(async |ctx| {
             register_host_functions(&ctx, &dom, client)?;
 
+            let scraper_id_arg = serde_json::to_string(&scraper_id).unwrap_or_else(|_| "\"\"".into());
+            let scraper_settings_arg = if scraper_settings_json.trim().is_empty() {
+                "{}".to_string()
+            } else {
+                scraper_settings_json.clone()
+            };
             let tmdb_id_arg = serde_json::to_string(&tmdb_id).unwrap_or_else(|_| "\"\"".into());
             let media_type_arg =
                 serde_json::to_string(&media_type).unwrap_or_else(|_| "\"movie\"".into());
@@ -97,6 +265,8 @@ async fn run(
                 r#"
                 globalThis.global = globalThis;
                 globalThis.window = globalThis;
+                globalThis.SCRAPER_ID = {scraper_id_arg};
+                globalThis.SCRAPER_SETTINGS = {scraper_settings_arg};
 
                 function fetch(url, options) {{
                     options = options || {{}};
@@ -1171,8 +1341,17 @@ mod tests {
     }
 
     fn run_scraper(code: &str, tmdb_id: &str, media_type: &str) -> String {
-        execute_scraper(mock_client(), code.to_string(), tmdb_id.to_string(), media_type.to_string(), None, None)
-            .unwrap()
+        execute_scraper(
+            mock_client(),
+            code.to_string(),
+            "test-scraper".to_string(),
+            "{}".to_string(),
+            tmdb_id.to_string(),
+            media_type.to_string(),
+            None,
+            None,
+        )
+        .unwrap()
     }
 
     #[test]
@@ -1310,5 +1489,67 @@ mod tests {
         let result = run_scraper(&code, "1", "movie");
         let parsed: serde_json::Value = serde_json::from_str(&result).unwrap();
         assert_eq!(parsed[0]["title"], "true");
+    }
+
+    #[test]
+    fn scraper_id_and_settings_are_visible_as_globals() {
+        let code = r#"
+            module.exports.getStreams = async function() {
+                return [{ title: SCRAPER_ID + ':' + SCRAPER_SETTINGS.quality, url: 'https://example.com/x' }];
+            };
+        "#;
+        let result = execute_scraper(
+            mock_client(),
+            code.to_string(),
+            "my-scraper".to_string(),
+            r#"{"quality":"1080p"}"#.to_string(),
+            "1".to_string(),
+            "movie".to_string(),
+            None,
+            None,
+        )
+        .unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&result).unwrap();
+        assert_eq!(parsed[0]["title"], "my-scraper:1080p");
+    }
+
+    #[test]
+    fn settings_layout_returns_declared_field_layout() {
+        let code = r#"
+            module.exports.onSettings = async function() {
+                return [
+                    { type: 'header', label: 'General' },
+                    { key: 'apiKey', type: 'text', label: 'API Key', isPassword: true },
+                    {
+                        key: 'quality',
+                        type: 'select',
+                        label: 'Preferred Quality',
+                        defaultValue: '1080p',
+                        options: [
+                            { label: '720p', value: '720p' },
+                            { label: '1080p', value: '1080p' }
+                        ]
+                    },
+                    { key: 'enabled', type: 'toggle', label: 'Enable Feature', defaultValue: true }
+                ];
+            };
+        "#;
+
+        let result = get_settings_layout(code.to_string(), "my-scraper".to_string());
+        let parsed: serde_json::Value = serde_json::from_str(&result).unwrap();
+        assert_eq!(parsed.as_array().unwrap().len(), 4);
+        assert_eq!(parsed[1]["key"], "apiKey");
+        assert_eq!(parsed[2]["options"][1]["value"], "1080p");
+        assert_eq!(parsed[3]["defaultValue"], true);
+    }
+
+    #[test]
+    fn settings_layout_defaults_to_empty_array_when_undefined() {
+        let code = r#"
+            module.exports.getStreams = async function() { return []; };
+        "#;
+
+        let result = get_settings_layout(code.to_string(), "my-scraper".to_string());
+        assert_eq!(result, "[]");
     }
 }
