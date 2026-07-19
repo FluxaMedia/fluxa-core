@@ -1418,6 +1418,17 @@ fn route_library_state(method: &str, args_json: &str) -> Outcome {
                 field_str(&args, "imdbId")?,
             ))
         }
+        "isEpisodeReleased" => {
+            let args = object(args_json)?;
+            let video: Value = serde_json::from_str(field_str(&args, "videoJson")?).map_err(|e| {
+                fail(
+                    ErrorKind::InvalidArgs,
+                    format!("videoJson is not valid JSON: {e}"),
+                )
+            })?;
+            let now_ms = field_u64(&args, "nowMs")? as i64;
+            Ok(json!(library_state::is_episode_released(&video, now_ms)))
+        }
         "curateHomeItems" => opt_json(home_ranking::curate_home_items_json(&arg_str(
             args_json,
             "categoryJson",

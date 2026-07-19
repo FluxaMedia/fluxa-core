@@ -56,6 +56,7 @@ struct ProfileSafePrefs {
     continue_watching_layout: String,
     continue_watching_artwork: String,
     continue_watching_enabled: bool,
+    upcoming_row_enabled: bool,
     resolved_continue_watching_layout: String,
     subtitle_shadow: bool,
     auto_enable_subtitles: bool,
@@ -172,6 +173,7 @@ fn profile_safe_prefs(profile: &Value) -> ProfileSafePrefs {
             .unwrap_or("episode")
             .to_string(),
         continue_watching_enabled: bool_value(profile, "continueWatchingEnabled").unwrap_or(true),
+        upcoming_row_enabled: bool_value(profile, "upcomingRowEnabled").unwrap_or(false),
         resolved_continue_watching_layout: if continue_watching_layout == "inherit" {
             card_layout
         } else {
