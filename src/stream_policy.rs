@@ -68,7 +68,9 @@ pub(crate) fn stream_playable_url(stream: &Value) -> Option<String> {
 }
 
 pub(crate) fn stream_external_url(stream: &Value) -> Option<String> {
-    stream_text(stream, "externalUrl").map(str::to_string)
+    stream_text(stream, "externalUrl")
+        .or_else(|| stream_text(stream, "playerFrameUrl"))
+        .map(str::to_string)
 }
 
 pub(crate) fn percent_decode_component(value: &str) -> String {
