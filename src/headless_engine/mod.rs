@@ -550,6 +550,10 @@ impl HeadlessEngine {
                 scraper_id,
                 enabled,
             } => plugins::dispatch_toggle_scraper(self, scraper_id, enabled),
+            AppAction::PluginScraperSettingsUpdated {
+                scraper_id,
+                settings,
+            } => plugins::dispatch_update_scraper_settings(self, scraper_id, settings),
         }
     }
 
@@ -1767,6 +1771,78 @@ mod tests {
                 .len(),
             0
         );
+        assert!(destroy_headless_engine(handle));
+    }
+
+    #[test]
+    fn plugin_repository_refetch_preserves_disabled_state_and_settings() {
+        let handle = create_headless_engine("{}");
+        let manifest_value = json!({
+            "manifestUrl": "https://example.com/manifest.json",
+            "manifest": {
+                "name": "Phisher's Repo",
+                "version": "1.0.0",
+                "scrapers": [
+                    {"id": "MoviesDrive", "name": "MoviesDrive", "version": "1.1.1", "filename": "src/providers/moviesdrive.js"}
+                ]
+            }
+        });
+
+        let requested: Value = serde_json::from_str(
+            &headless_engine_dispatch_json(
+                handle,
+                r#"{"type":"pluginRepositoryAddRequested","manifestUrl":"https://example.com/manifest.json"}"#,
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        headless_engine_complete_effect_json(
+            handle,
+            &json!({
+                "effectId": requested["effects"][0]["id"].as_str().unwrap(),
+                "status": "ok",
+                "value": manifest_value
+            })
+            .to_string(),
+        )
+        .unwrap();
+
+        headless_engine_dispatch_json(
+            handle,
+            r#"{"type":"pluginScraperToggled","scraperId":"MoviesDrive","enabled":false}"#,
+        )
+        .unwrap();
+        headless_engine_dispatch_json(
+            handle,
+            r#"{"type":"pluginScraperSettingsUpdated","scraperId":"MoviesDrive","settings":{"quality":"1080p"}}"#,
+        )
+        .unwrap();
+
+        let refetch_requested: Value = serde_json::from_str(
+            &headless_engine_dispatch_json(
+                handle,
+                r#"{"type":"pluginRepositoryAddRequested","manifestUrl":"https://example.com/manifest.json"}"#,
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        let refetched: Value = serde_json::from_str(
+            &headless_engine_complete_effect_json(
+                handle,
+                &json!({
+                    "effectId": refetch_requested["effects"][0]["id"].as_str().unwrap(),
+                    "status": "ok",
+                    "value": manifest_value
+                })
+                .to_string(),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+
+        let scraper = &refetched["state"]["plugins"]["scrapers"][0];
+        assert_eq!(scraper["enabled"], false);
+        assert_eq!(scraper["settings"]["quality"], "1080p");
         assert!(destroy_headless_engine(handle));
     }
 

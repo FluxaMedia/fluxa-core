@@ -320,6 +320,11 @@ pub(super) enum AppAction {
     PluginRepositoryRemoveRequested { manifest_url: String },
     #[serde(rename = "pluginScraperToggled")]
     PluginScraperToggled { scraper_id: String, enabled: bool },
+    #[serde(rename = "pluginScraperSettingsUpdated")]
+    PluginScraperSettingsUpdated {
+        scraper_id: String,
+        settings: Value,
+    },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]

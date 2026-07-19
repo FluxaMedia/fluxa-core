@@ -77,6 +77,22 @@ pub(super) fn dispatch_toggle_scraper(
     vec![]
 }
 
+pub(super) fn dispatch_update_scraper_settings(
+    engine: &mut HeadlessEngine,
+    scraper_id: String,
+    settings: Value,
+) -> Vec<EffectEnvelope> {
+    if let Some(items) = engine.state.plugins.scrapers.as_array_mut() {
+        if let Some(scraper) = items
+            .iter_mut()
+            .find(|scraper| scraper["id"].as_str() == Some(scraper_id.as_str()))
+        {
+            scraper["settings"] = settings;
+        }
+    }
+    vec![]
+}
+
 pub(super) fn complete(
     engine: &mut HeadlessEngine,
     generation: u64,
@@ -114,11 +130,43 @@ pub(super) fn complete(
         repository_entry,
     );
 
+    let previous_by_id: std::collections::HashMap<String, Value> = engine
+        .state
+        .plugins
+        .scrapers
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|scraper| scraper["repositoryUrl"].as_str() == Some(manifest_url))
+        .filter_map(|scraper| {
+            scraper["id"]
+                .as_str()
+                .map(|id| (id.to_string(), scraper.clone()))
+        })
+        .collect();
+
     if let Some(items) = engine.state.plugins.scrapers.as_array_mut() {
         items.retain(|scraper| scraper["repositoryUrl"].as_str() != Some(manifest_url));
     }
     for mut scraper in scrapers {
         scraper["repositoryUrl"] = Value::String(manifest_url.to_string());
+        let manifest_enabled = scraper["enabled"].as_bool().unwrap_or(true);
+        if let Some(previous) = scraper["id"]
+            .as_str()
+            .and_then(|id| previous_by_id.get(id))
+        {
+            if manifest_enabled {
+                if let Some(previous_enabled) = previous["enabled"].as_bool() {
+                    scraper["enabled"] = Value::Bool(previous_enabled);
+                }
+            }
+            if let Some(previous_settings) = previous.get("settings") {
+                scraper["settings"] = previous_settings.clone();
+            }
+        }
+        if scraper.get("settings").is_none() {
+            scraper["settings"] = json!({});
+        }
         if let Some(items) = engine.state.plugins.scrapers.as_array_mut() {
             items.push(scraper);
         }

@@ -166,6 +166,7 @@ fn plugin_result_to_stream(result: PluginStreamResult) -> Stream {
         title: Some(result.title),
         info_hash: result.info_hash,
         headers: result.headers,
+        subtitles: subtitle_tracks.clone(),
         subtitle_tracks,
         extra,
         ..Default::default()
@@ -257,6 +258,8 @@ mod tests {
         let subs = stream.subtitle_tracks.as_ref().unwrap();
         assert_eq!(subs[0].lang, "en");
         assert_eq!(subs[0].url, "https://example.com/sub.srt");
+        let subs_alias = stream.subtitles.as_ref().unwrap();
+        assert_eq!(subs_alias[0].url, "https://example.com/sub.srt");
     }
 
     #[test]
