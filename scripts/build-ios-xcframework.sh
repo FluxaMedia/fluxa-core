@@ -19,8 +19,30 @@ for target in "${TARGETS[@]}"; do
     rustup target add "$target"
 done
 
+export LIBCLANG_PATH="$(xcode-select -p)/Toolchains/XcodeDefault.xctoolchain/usr/lib"
+
+apple_sdk_for_target() {
+    case "$1" in
+        aarch64-apple-ios) echo "iphoneos" ;;
+        aarch64-apple-ios-sim) echo "iphonesimulator" ;;
+        *) echo "error: no SDK mapping for target $1" >&2; exit 1 ;;
+    esac
+}
+
+apple_clang_triple_for_target() {
+    case "$1" in
+        aarch64-apple-ios) echo "arm64-apple-ios" ;;
+        aarch64-apple-ios-sim) echo "arm64-apple-ios-simulator" ;;
+        *) echo "error: no clang triple mapping for target $1" >&2; exit 1 ;;
+    esac
+}
+
 for target in "${TARGETS[@]}"; do
-    cargo build --release --target "$target" --no-default-features --features ios --lib
+    sdk="$(apple_sdk_for_target "$target")"
+    sdk_path="$(xcrun --sdk "$sdk" --show-sdk-path)"
+    clang_triple="$(apple_clang_triple_for_target "$target")"
+    BINDGEN_EXTRA_CLANG_ARGS="--target=$clang_triple --sysroot=$sdk_path -isysroot $sdk_path" \
+        cargo build --release --target "$target" --no-default-features --features ios --lib
 done
 
 BINDINGS_DIR="target/uniffi-swift"
