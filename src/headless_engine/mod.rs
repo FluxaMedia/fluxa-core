@@ -848,6 +848,64 @@ mod tests {
     }
 
     #[test]
+    fn detail_meta_link_trailers_become_direct_playback_sources() {
+        let handle = create_headless_engine("{}");
+        let requested: Value = serde_json::from_str(
+            &headless_engine_dispatch_json(
+                handle,
+                r#"{"type":"detailLoadRequested","contentType":"series","id":"tt0944947","language":"en"}"#,
+            )
+            .expect("dispatch"),
+        )
+        .expect("json");
+        let effect_id = requested["effects"][0]["id"].as_str().unwrap();
+        let completed: Value = serde_json::from_str(
+            &headless_engine_complete_effect_json(
+                handle,
+                &json!({
+                    "effectId": effect_id,
+                    "status": "ok",
+                    "value": {
+                        "id": "tt0944947",
+                        "name": "Game of Thrones",
+                        "links": [
+                            {
+                                "trailers": "https://video.fandango.com/trailer.mp4",
+                                "provider": "Rotten Tomatoes 1080p"
+                            },
+                            {
+                                "trailers": "https://imdb-video.media-imdb.com/trailer.m3u8",
+                                "provider": "IMDb SD"
+                            }
+                        ]
+                    }
+                })
+                .to_string(),
+            )
+            .expect("complete"),
+        )
+        .expect("json");
+
+        assert_eq!(
+            completed["state"]["detail"]["trailers"]
+                .as_array()
+                .unwrap()
+                .len(),
+            2
+        );
+        assert_eq!(
+            completed["state"]["detail"]["trailers"][0]["title"],
+            "Rotten Tomatoes 1080p"
+        );
+        assert_eq!(
+            completed["state"]["detail"]["trailers"][1]["url"],
+            "https://imdb-video.media-imdb.com/trailer.m3u8"
+        );
+
+        assert!(destroy_headless_engine(handle));
+    }
+
+    #[test]
     fn detail_selected_addon_changes_visible_streams_without_mutating_raw_streams() {
         let handle = create_headless_engine("{}");
         let requested: Value = serde_json::from_str(

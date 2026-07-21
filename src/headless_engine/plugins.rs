@@ -151,10 +151,7 @@ pub(super) fn complete(
     for mut scraper in scrapers {
         scraper["repositoryUrl"] = Value::String(manifest_url.to_string());
         let manifest_enabled = scraper["enabled"].as_bool().unwrap_or(true);
-        if let Some(previous) = scraper["id"]
-            .as_str()
-            .and_then(|id| previous_by_id.get(id))
-        {
+        if let Some(previous) = scraper["id"].as_str().and_then(|id| previous_by_id.get(id)) {
             if manifest_enabled {
                 if let Some(previous_enabled) = previous["enabled"].as_bool() {
                     scraper["enabled"] = Value::Bool(previous_enabled);

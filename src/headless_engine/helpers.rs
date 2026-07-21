@@ -80,7 +80,7 @@ pub(super) fn with_normalized_meta_trailers(mut meta: Value) -> Value {
 }
 
 pub(super) fn normalize_meta_trailers(meta: &Value) -> Value {
-    let trailers = meta["trailers"]
+    let mut trailers = meta["trailers"]
         .as_array()
         .map(|items| {
             items
@@ -89,6 +89,23 @@ pub(super) fn normalize_meta_trailers(meta: &Value) -> Value {
                 .collect::<Vec<_>>()
         })
         .unwrap_or_default();
+    // Trailerio and a few Stremio-compatible addons expose direct trailer
+    // streams as `links: [{ trailers, provider }]` rather than the usual
+    // `trailers` array. Preserve native trailer entries first, then append
+    // these URLs as additional sources without duplicating a URL.
+    if let Some(links) = meta["links"].as_array() {
+        for link in links {
+            let Some(trailer) = normalize_meta_link_trailer(link) else {
+                continue;
+            };
+            let duplicate = trailers
+                .iter()
+                .any(|existing| existing["url"] == trailer["url"]);
+            if !duplicate {
+                trailers.push(trailer);
+            }
+        }
+    }
     Value::Array(trailers)
 }
 
@@ -121,6 +138,24 @@ fn normalize_meta_trailer(trailer: &Value) -> Option<Value> {
         item_type,
         url,
         thumbnail,
+        source: "addon",
+    })
+    .ok()
+}
+
+fn normalize_meta_link_trailer(link: &Value) -> Option<Value> {
+    let url = non_blank_str(link, "trailers")?;
+    let item_type = non_blank_str(link, "type").unwrap_or_else(|| "Trailer".to_string());
+    let title = non_blank_str(link, "provider")
+        .or_else(|| non_blank_str(link, "name"))
+        .or_else(|| non_blank_str(link, "title"))
+        .unwrap_or_else(|| item_type.clone());
+    serde_json::to_value(NormalizedTrailer {
+        id: url.clone(),
+        title,
+        item_type,
+        url,
+        thumbnail: non_blank_str(link, "thumbnail"),
         source: "addon",
     })
     .ok()

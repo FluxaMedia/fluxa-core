@@ -177,6 +177,10 @@ preferHttpsAssetUrl
 prefetchDetailStreamsPlan
 prioritizeHomeRows
 profileAvatarDefault
+profileAvatarPackCatalog
+profileAvatarPackDiscoveryPlan
+profileAvatarPackParse
+profileAvatarPackRepositoryPlan
 profileMutationPlan
 createProfilePlan
 profilePinHash

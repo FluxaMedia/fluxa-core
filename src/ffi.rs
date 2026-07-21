@@ -7,8 +7,8 @@ use crate::{
     content_identity, core_contract, data_policy, discovery_plan, external_sync,
     headless_adapter_plan, headless_engine, home_ranking, intro_segments, library_state,
     nuvio_sync, offline_download, platform_plan, player_flow, player_policy, player_scrobble,
-    plugins, profile_contract, profile_prefs, repository_flow, search_plan, stream_policy,
-    tmdb_plan, trailer_subtitles, watchlist_plan,
+    plugins, profile_avatar_pack, profile_contract, profile_prefs, repository_flow, search_plan,
+    stream_policy, tmdb_plan, trailer_subtitles, watchlist_plan,
 };
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -93,6 +93,7 @@ const ROUTERS: &[fn(&str, &str) -> Outcome] = &[
     route_core_contract,
     route_plugins,
     route_addon_store,
+    route_profile_avatar_pack,
     route_profile_contract,
     route_profile_prefs,
     route_headless_adapter_plan,
@@ -1000,15 +1001,13 @@ fn route_external_sync_trakt(method: &str, args_json: &str) -> Outcome {
         "traktBearer" => Ok(Value::String(external_sync::trakt_bearer(&arg_str(
             args_json, "token",
         )?))),
-        "traktScrobbleUrl" => Ok(Value::String(external_sync::trakt_scrobble_url(&arg_str(
+        "traktScrobbleUrl" => opt_str(external_sync::trakt_scrobble_url(&arg_str(
             args_json, "action",
-        )?))),
+        )?)),
         "traktPlaybackUrl" => {
             let args = object(args_json)?;
             let content_type = args.get("contentType").and_then(Value::as_str);
-            Ok(Value::String(external_sync::trakt_playback_url(
-                content_type,
-            )))
+            opt_str(external_sync::trakt_playback_url(content_type))
         }
         "traktTokenExpiresAt" => {
             let args = object(args_json)?;
@@ -1867,6 +1866,30 @@ fn route_addon_store(method: &str, args_json: &str) -> Outcome {
     }
 }
 
+fn route_profile_avatar_pack(method: &str, args_json: &str) -> Outcome {
+    match method {
+        // args_json IS the request object for all of these. The platform owns
+        // the HTTP calls between plans; this crate only validates and maps the
+        // GitHub responses into the stable UI contract.
+        "profileAvatarPackRepositoryPlan" => {
+            opt_json(profile_avatar_pack::profile_avatar_pack_repository_plan_json(args_json))
+        }
+        "profileAvatarPackDiscoveryPlan" => {
+            opt_json(profile_avatar_pack::profile_avatar_pack_discovery_plan_json(args_json))
+        }
+        "profileAvatarPackCatalog" => {
+            opt_json(profile_avatar_pack::profile_avatar_pack_catalog_json(args_json))
+        }
+        "profileAvatarPackParse" => {
+            opt_json(profile_avatar_pack::profile_avatar_pack_json(args_json))
+        }
+        _ => Err(fail(
+            ErrorKind::UnknownMethod,
+            format!("no such method `{method}`"),
+        )),
+    }
+}
+
 fn route_profile_contract(method: &str, args_json: &str) -> Outcome {
     match method {
         // args_json IS the request object for all of these
@@ -2430,7 +2453,7 @@ mod tests {
             "traktTokenExpiresAt",
             r#"{"createdAtSeconds":1000,"expiresInSeconds":7200}"#,
         ));
-        assert_eq!(expires_at["value"], json!((1000 * 1000) + (6900 * 1000)));
+        assert_eq!(expires_at["value"], json!(1000 + 6900));
 
         let show_id = parse(&core_invoke(
             "traktShowIdFromEpisodeId",

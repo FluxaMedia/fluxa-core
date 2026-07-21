@@ -434,21 +434,28 @@ pub(crate) fn trakt_bearer(token: &str) -> String {
     format!("Bearer {token}")
 }
 
-pub(crate) fn trakt_scrobble_url(action: &str) -> String {
-    format!("{TRAKT_API_BASE_URL}/scrobble/{action}")
+pub(crate) fn trakt_scrobble_url(action: &str) -> Option<String> {
+    matches!(action.trim(), "start" | "pause" | "stop")
+        .then(|| format!("{TRAKT_API_BASE_URL}/scrobble/{}", action.trim()))
 }
 
-pub(crate) fn trakt_playback_url(content_type: Option<&str>) -> String {
-    match content_type.filter(|value| !value.trim().is_empty()) {
-        Some(content_type) => format!("{TRAKT_API_BASE_URL}/sync/playback/{content_type}"),
+pub(crate) fn trakt_playback_url(content_type: Option<&str>) -> Option<String> {
+    let suffix = match content_type.map(str::trim).filter(|value| !value.is_empty()) {
+        None => None,
+        Some("movie" | "movies") => Some("movies"),
+        Some("series" | "show" | "shows" | "episode" | "episodes") => Some("episodes"),
+        Some(_) => return None,
+    };
+    Some(match suffix {
+        Some(suffix) => format!("{TRAKT_API_BASE_URL}/sync/playback/{suffix}"),
         None => format!("{TRAKT_API_BASE_URL}/sync/playback"),
-    }
+    })
 }
 
 pub(crate) fn trakt_token_expires_at(created_at_seconds: i64, expires_in_seconds: i64) -> i64 {
     let refresh_buffer_seconds = 5 * 60;
     let effective_expires_in = (expires_in_seconds - refresh_buffer_seconds).max(0);
-    (created_at_seconds * 1000) + (effective_expires_in * 1000)
+    created_at_seconds + effective_expires_in
 }
 
 fn number_to_i32(value: &Value) -> Option<i32> {
@@ -695,14 +702,9 @@ fn trakt_playback_item_to_library(item: &Value) -> Option<Value> {
     let time_offset_sec = ((progress / 100.0) * duration_sec as f64).round() as i64;
     let content_type = if movie.is_some() { "movie" } else { "series" };
     let last_video_id = if let Some(ep) = episode {
-        let show_imdb = show
-            .and_then(|s| s.get("ids"))
-            .and_then(|ids| ids.get("imdb"))
-            .and_then(Value::as_str)
-            .unwrap_or("trakt");
         let season = ep.get("season").and_then(Value::as_i64).unwrap_or(0);
         let number = ep.get("number").and_then(Value::as_i64).unwrap_or(0);
-        format!("{show_imdb}:{season}:{number}")
+        format!("{id}:{season}:{number}")
     } else {
         id.clone()
     };
@@ -733,14 +735,22 @@ pub(crate) fn trakt_watchlist_to_items_json(movies_json: &str, shows_json: &str)
     let shows: Vec<Value> = serde_json::from_str(shows_json).unwrap_or_default();
     let mut items: Vec<Value> = Vec::new();
     for entry in &movies {
-        let movie = entry.get("movie")?;
-        let id = trakt_id_from_source(movie)?;
+        let Some(movie) = entry.get("movie") else {
+            continue;
+        };
+        let Some(id) = trakt_id_from_source(movie) else {
+            continue;
+        };
         let name = movie.get("title").and_then(Value::as_str).unwrap_or("");
         items.push(json!({ "id": id, "name": name, "type": "movie", "source": "trakt" }));
     }
     for entry in &shows {
-        let show = entry.get("show")?;
-        let id = trakt_id_from_source(show)?;
+        let Some(show) = entry.get("show") else {
+            continue;
+        };
+        let Some(id) = trakt_id_from_source(show) else {
+            continue;
+        };
         let name = show.get("title").and_then(Value::as_str).unwrap_or("");
         items.push(json!({ "id": id, "name": name, "type": "series", "source": "trakt" }));
     }
@@ -752,25 +762,13 @@ pub(crate) fn trakt_watched_to_ids_json(movies_json: &str, shows_json: &str) -> 
     let shows: Vec<Value> = serde_json::from_str(shows_json).unwrap_or_default();
     let mut ids: serde_json::Map<String, Value> = serde_json::Map::new();
     for entry in &movies {
-        if let Some(imdb) = entry
-            .get("movie")
-            .and_then(|m| m.get("ids"))
-            .and_then(|ids| ids.get("imdb"))
-            .and_then(Value::as_str)
-            .filter(|s| !s.is_empty())
-        {
-            ids.insert(imdb.to_string(), Value::Bool(true));
+        if let Some(id) = entry.get("movie").and_then(trakt_id_from_source) {
+            ids.insert(id, Value::Bool(true));
         }
     }
     for entry in &shows {
-        let imdb = match entry
-            .get("show")
-            .and_then(|s| s.get("ids"))
-            .and_then(|ids| ids.get("imdb"))
-            .and_then(Value::as_str)
-            .filter(|s| !s.is_empty())
-        {
-            Some(s) => s,
+        let show_id = match entry.get("show").and_then(trakt_id_from_source) {
+            Some(id) => id,
             None => continue,
         };
         let seasons = entry
@@ -788,7 +786,7 @@ pub(crate) fn trakt_watched_to_ids_json(movies_json: &str, shows_json: &str) -> 
             for ep in &episodes {
                 let e_num = ep.get("number").and_then(Value::as_i64).unwrap_or(0);
                 if s_num > 0 && e_num > 0 {
-                    ids.insert(format!("{imdb}:{s_num}:{e_num}"), Value::Bool(true));
+                    ids.insert(format!("{show_id}:{s_num}:{e_num}"), Value::Bool(true));
                 }
             }
         }
@@ -1050,6 +1048,8 @@ pub(crate) fn merge_continue_watching_lists_json(
         }
     }
 
+    merged.sort_by(|a, b| saved_at_ms(b).cmp(&saved_at_ms(a)));
+
     serde_json::to_string(&merged).ok()
 }
 
@@ -1058,12 +1058,17 @@ pub(crate) fn simkl_watching_to_items_json(shows_json: &str, movies_json: &str) 
     let movies: Vec<Value> = serde_json::from_str(movies_json).unwrap_or_default();
     let mut items: Vec<Value> = Vec::new();
     for entry in &shows {
-        let show = entry.get("show")?;
-        let ids = show.get("ids")?;
-        let imdb = ids
+        let Some(show) = entry.get("show") else {
+            continue;
+        };
+        let Some(ids) = show.get("ids") else { continue };
+        let Some(imdb) = ids
             .get("imdb")
             .and_then(Value::as_str)
-            .filter(|s| !s.is_empty())?;
+            .filter(|s| !s.is_empty())
+        else {
+            continue;
+        };
         let title = show.get("title").and_then(Value::as_str).unwrap_or("");
         let poster = show
             .get("poster")
@@ -1080,12 +1085,19 @@ pub(crate) fn simkl_watching_to_items_json(shows_json: &str, movies_json: &str) 
         }));
     }
     for entry in &movies {
-        let movie = entry.get("movie")?;
-        let ids = movie.get("ids")?;
-        let imdb = ids
+        let Some(movie) = entry.get("movie") else {
+            continue;
+        };
+        let Some(ids) = movie.get("ids") else {
+            continue;
+        };
+        let Some(imdb) = ids
             .get("imdb")
             .and_then(Value::as_str)
-            .filter(|s| !s.is_empty())?;
+            .filter(|s| !s.is_empty())
+        else {
+            continue;
+        };
         let title = movie.get("title").and_then(Value::as_str).unwrap_or("");
         let poster = movie
             .get("poster")
@@ -1108,12 +1120,17 @@ pub(crate) fn simkl_watchlist_to_items_json(shows_json: &str, movies_json: &str)
     let movies: Vec<Value> = serde_json::from_str(movies_json).unwrap_or_default();
     let mut items: Vec<Value> = Vec::new();
     for entry in &shows {
-        let show = entry.get("show")?;
-        let ids = show.get("ids")?;
-        let imdb = ids
+        let Some(show) = entry.get("show") else {
+            continue;
+        };
+        let Some(ids) = show.get("ids") else { continue };
+        let Some(imdb) = ids
             .get("imdb")
             .and_then(Value::as_str)
-            .filter(|s| !s.is_empty())?;
+            .filter(|s| !s.is_empty())
+        else {
+            continue;
+        };
         let title = show.get("title").and_then(Value::as_str).unwrap_or("");
         let poster = show
             .get("poster")
@@ -1122,12 +1139,19 @@ pub(crate) fn simkl_watchlist_to_items_json(shows_json: &str, movies_json: &str)
         items.push(json!({ "id": imdb, "name": title, "type": "series", "source": "simkl", "poster": poster }));
     }
     for entry in &movies {
-        let movie = entry.get("movie")?;
-        let ids = movie.get("ids")?;
-        let imdb = ids
+        let Some(movie) = entry.get("movie") else {
+            continue;
+        };
+        let Some(ids) = movie.get("ids") else {
+            continue;
+        };
+        let Some(imdb) = ids
             .get("imdb")
             .and_then(Value::as_str)
-            .filter(|s| !s.is_empty())?;
+            .filter(|s| !s.is_empty())
+        else {
+            continue;
+        };
         let title = movie.get("title").and_then(Value::as_str).unwrap_or("");
         let poster = movie
             .get("poster")
@@ -1143,25 +1167,13 @@ pub(crate) fn simkl_watched_to_ids_json(shows_json: &str, movies_json: &str) -> 
     let movies: Vec<Value> = serde_json::from_str(movies_json).unwrap_or_default();
     let mut ids: serde_json::Map<String, Value> = serde_json::Map::new();
     for entry in &shows {
-        if let Some(imdb) = entry
-            .get("show")
-            .and_then(|s| s.get("ids"))
-            .and_then(|i| i.get("imdb"))
-            .and_then(Value::as_str)
-            .filter(|s| !s.is_empty())
-        {
-            ids.insert(imdb.to_string(), Value::Bool(true));
+        if let Some(id) = entry.get("show").and_then(trakt_id_from_source) {
+            ids.insert(id, Value::Bool(true));
         }
     }
     for entry in &movies {
-        if let Some(imdb) = entry
-            .get("movie")
-            .and_then(|m| m.get("ids"))
-            .and_then(|i| i.get("imdb"))
-            .and_then(Value::as_str)
-            .filter(|s| !s.is_empty())
-        {
-            ids.insert(imdb.to_string(), Value::Bool(true));
+        if let Some(id) = entry.get("movie").and_then(trakt_id_from_source) {
+            ids.insert(id, Value::Bool(true));
         }
     }
     serde_json::to_string(&Value::Object(ids)).ok()
@@ -1945,6 +1957,7 @@ pub(crate) fn merge_library_items_by_id(local: &[Value], incoming: &[Value]) -> 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::player_scrobble;
     use serde_json::Value;
 
     #[test]
@@ -1955,6 +1968,28 @@ mod tests {
             {"id": "tt3", "reason": "Nuvio", "timeOffset": 100, "duration": 1000, "savedAt": "2026-07-17T19:11:51Z"},
         ]);
         let result = replace_external_continue_watching_json("[]", Some("Nuvio"), &items.to_string(), None, None);
+        let parsed: Vec<Value> = serde_json::from_str(&result).unwrap();
+        let ids: Vec<&str> = parsed.iter().map(|v| v["id"].as_str().unwrap()).collect();
+        assert_eq!(ids, vec!["tt2", "tt3", "tt1"]);
+    }
+
+    #[test]
+    fn merge_continue_watching_sorts_the_combined_result_by_saved_at_descending() {
+        let local = json!([
+            {"id": "tt1", "savedAt": "2026-07-16T16:18:15Z"},
+            {"id": "tt3", "savedAt": "2026-07-17T19:11:51Z"},
+        ]);
+        let external = json!([
+            {"id": "tt2", "savedAt": "2026-07-18T22:15:23Z"},
+        ]);
+        let result = merge_continue_watching_lists_json(
+            &local.to_string(),
+            &external.to_string(),
+            "{}",
+            None,
+            None,
+        )
+        .unwrap();
         let parsed: Vec<Value> = serde_json::from_str(&result).unwrap();
         let ids: Vec<&str> = parsed.iter().map(|v| v["id"].as_str().unwrap()).collect();
         assert_eq!(ids, vec!["tt2", "tt3", "tt1"]);
@@ -2106,6 +2141,147 @@ mod tests {
                 .and_then(|ids| ids.get("tmdb").and_then(Value::as_i64)),
             Some(42)
         );
+    }
+
+    #[test]
+    fn trakt_token_expiry_stays_in_epoch_seconds() {
+        assert_eq!(trakt_token_expires_at(1_700_000_000, 3_600), 1_700_003_300);
+    }
+
+    #[test]
+    fn trakt_urls_accept_only_supported_routes() {
+        assert_eq!(
+            trakt_scrobble_url("pause").as_deref(),
+            Some("https://api.trakt.tv/scrobble/pause")
+        );
+        assert_eq!(trakt_scrobble_url("delete"), None);
+        assert_eq!(
+            trakt_playback_url(Some("series")).as_deref(),
+            Some("https://api.trakt.tv/sync/playback/episodes")
+        );
+        assert_eq!(trakt_playback_url(Some("unknown")), None);
+    }
+
+    #[test]
+    fn external_sync_wire_fixtures_preserve_provider_contracts() {
+        let trakt_input: Value = serde_json::from_str(include_str!(
+            "../tests/fixtures/external_sync/trakt_scrobble_plan_input.json"
+        ))
+        .unwrap();
+        let trakt_expected: Value = serde_json::from_str(include_str!(
+            "../tests/fixtures/external_sync/trakt_scrobble_plan_expected.json"
+        ))
+        .unwrap();
+        let trakt_actual: Value = serde_json::from_str(
+            &player_scrobble::trakt_scrobble_plan_json(
+                &trakt_input["ids"].to_string(),
+                trakt_input["isEpisode"].as_bool().unwrap(),
+                None,
+                None,
+                trakt_input["timePosSec"].as_f64().unwrap(),
+                trakt_input["durationSec"].as_f64().unwrap(),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(trakt_actual, trakt_expected);
+
+        let simkl_input = include_str!("../tests/fixtures/external_sync/simkl_mark_watched_input.json");
+        let simkl_expected: Value = serde_json::from_str(include_str!(
+            "../tests/fixtures/external_sync/simkl_mark_watched_expected.json"
+        ))
+        .unwrap();
+        let simkl_actual: Value = serde_json::from_str(
+            &simkl_mark_watched_body_json(simkl_input).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(simkl_actual, simkl_expected);
+
+        let trakt_playback_expected: Value = serde_json::from_str(include_str!(
+            "../tests/fixtures/external_sync/trakt_playback_expected.json"
+        ))
+        .unwrap();
+        let trakt_playback_actual: Value = serde_json::from_str(
+            &trakt_playback_items_to_library_json(include_str!(
+                "../tests/fixtures/external_sync/trakt_playback_response.json"
+            ))
+            .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(trakt_playback_actual, trakt_playback_expected);
+
+        let simkl_response: Value = serde_json::from_str(include_str!(
+            "../tests/fixtures/external_sync/simkl_watched_response.json"
+        ))
+        .unwrap();
+        let simkl_watched_expected: Value = serde_json::from_str(include_str!(
+            "../tests/fixtures/external_sync/simkl_watched_expected.json"
+        ))
+        .unwrap();
+        let simkl_watched_actual: Value = serde_json::from_str(
+            &simkl_watched_to_ids_json(
+                &simkl_response["shows"].to_string(),
+                &simkl_response["movies"].to_string(),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(simkl_watched_actual, simkl_watched_expected);
+    }
+
+    #[test]
+    fn trakt_playback_tmdb_show_keeps_a_resolvable_episode_id() {
+        let item = json!({
+            "progress": 50.0,
+            "paused_at": "2026-07-21T00:00:00.000Z",
+            "show": {"title": "Show", "runtime": 45, "ids": {"tmdb": 42}},
+            "episode": {"season": 1, "number": 2, "runtime": 45}
+        });
+        let result = trakt_playback_item_to_library(&item).expect("playback item");
+        assert_eq!(result["id"], "tmdb:42");
+        assert_eq!(result["lastVideoId"], "tmdb:42:1:2");
+    }
+
+    #[test]
+    fn external_list_mappers_skip_invalid_records_and_keep_valid_ones() {
+        let trakt: Vec<Value> = serde_json::from_str(
+            &trakt_watchlist_to_items_json(
+                r#"[{"movie":{"title":"Valid","ids":{"tmdb":7}}},{"movie":{"title":"Invalid","ids":{}}}]"#,
+                "[]",
+            )
+            .expect("trakt items"),
+        )
+        .unwrap();
+        assert_eq!(trakt.len(), 1);
+        assert_eq!(trakt[0]["id"], "tmdb:7");
+
+        let simkl: Vec<Value> = serde_json::from_str(
+            &simkl_watchlist_to_items_json(
+                r#"[{"show":{"title":"Valid","ids":{"imdb":"tt7"}}},{"show":{"title":"Invalid","ids":{}}}]"#,
+                "[]",
+            )
+            .expect("simkl items"),
+        )
+        .unwrap();
+        assert_eq!(simkl.len(), 1);
+        assert_eq!(simkl[0]["id"], "tt7");
+    }
+
+    #[test]
+    fn watched_mappers_retain_tmdb_only_records() {
+        let trakt: Value = serde_json::from_str(
+            &trakt_watched_to_ids_json(r#"[{"movie":{"ids":{"tmdb":7}}}]"#, "[]")
+                .expect("trakt watched"),
+        )
+        .unwrap();
+        assert_eq!(trakt["tmdb:7"], Value::Bool(true));
+
+        let simkl: Value = serde_json::from_str(
+            &simkl_watched_to_ids_json("[]", r#"[{"movie":{"ids":{"tmdb":8}}}]"#)
+                .expect("simkl watched"),
+        )
+        .unwrap();
+        assert_eq!(simkl["tmdb:8"], Value::Bool(true));
     }
 
     #[test]

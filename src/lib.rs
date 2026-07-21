@@ -87,6 +87,8 @@ pub mod plugin_runtime;
 #[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
 mod profile_contract;
 #[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
+mod profile_avatar_pack;
+#[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
 mod profile_prefs;
 #[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
 mod repository_flow;
