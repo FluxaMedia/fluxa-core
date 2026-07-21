@@ -228,7 +228,21 @@ pub(crate) fn desktop_calendar_read_plan_json(request_json: &str) -> Option<Stri
             if !seen.insert(key.clone()) {
                 return None;
             }
-            Some(json!({"id": key, "title": item.get("name"), "name": item.get("name"), "dateIso": date_iso, "poster": item.get("poster"), "contentId": id, "seriesId": id}))
+            Some(json!({
+                "id": key,
+                "title": item.get("name"),
+                "name": item.get("name"),
+                "dateIso": date_iso,
+                "poster": item.get("nextEpisodePoster").or_else(|| item.get("poster")),
+                "seriesPoster": item.get("poster"),
+                "episodePoster": item.get("nextEpisodePoster"),
+                "seasonNumber": item.get("nextEpisodeSeason"),
+                "episodeNumber": item.get("nextEpisodeNumber"),
+                "episodeTitle": item.get("nextEpisodeTitle"),
+                "contentId": id,
+                "seriesId": id,
+                "metaType": item.get("type"),
+            }))
         })
         .collect();
     let external_items: Vec<&Value> = request

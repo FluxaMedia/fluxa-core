@@ -697,11 +697,18 @@ pub(crate) fn air_date_refresh_candidates_json(args_json: &str) -> Option<String
             Some(ms) => ms <= now_ms,
             None => true,
         };
-        if !missing_or_past {
+        let missing_episode_details = [
+            "nextEpisodeSeason",
+            "nextEpisodeNumber",
+            "nextEpisodeTitle",
+        ]
+        .iter()
+        .any(|key| item.get(*key).is_none() || item.get(*key) == Some(&Value::Null));
+        if !missing_or_past && !missing_episode_details {
             continue;
         }
         let last_checked = parse_ms(item.get("lastAirDateCheckedAt")).unwrap_or(0);
-        if now_ms - last_checked >= AIR_DATE_COOLDOWN_MS {
+        if missing_episode_details || now_ms - last_checked >= AIR_DATE_COOLDOWN_MS {
             due.push(Value::String(id.to_string()));
         }
     }
@@ -1009,7 +1016,14 @@ pub(crate) fn apply_air_date_updates_json(args_json: &str) -> Option<String> {
                     return item.clone();
                 };
                 let mut merged = item.as_object().cloned().unwrap_or_default();
-                for key in ["nextEpisodeAirDate", "lastAirDateCheckedAt"] {
+                for key in [
+                    "nextEpisodeAirDate",
+                    "nextEpisodeSeason",
+                    "nextEpisodeNumber",
+                    "nextEpisodeTitle",
+                    "nextEpisodePoster",
+                    "lastAirDateCheckedAt",
+                ] {
                     merged.insert(
                         key.to_string(),
                         update.get(key).cloned().unwrap_or(Value::Null),
