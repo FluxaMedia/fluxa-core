@@ -40,7 +40,11 @@ pub(crate) fn addon_state_json(args_json: &str) -> Option<String> {
     let mut installed_urls = Vec::new();
     let mut disabled_urls = Vec::new();
     for addon in addons {
-        let Some(url) = addon.get("url").and_then(Value::as_str).filter(|url| !url.is_empty()) else {
+        let Some(url) = addon
+            .get("url")
+            .and_then(Value::as_str)
+            .filter(|url| !url.is_empty())
+        else {
             continue;
         };
         if !installed_urls.iter().any(|item| item == url) {
@@ -146,15 +150,27 @@ pub(crate) fn watched_items_request_json(args_json: &str) -> Option<String> {
     let args: Value = serde_json::from_str(args_json).ok()?;
     let meta = args.get("meta")?;
     let at = args.get("watchedAt").and_then(Value::as_i64)?;
-    if meta.get("type").and_then(Value::as_str) == Some("movie") { return serde_json::to_string(&json!([{ "content_id": meta.get("id"), "content_type": "movie", "title": meta.get("name"), "watched_at": at }])).ok(); }
+    if meta.get("type").and_then(Value::as_str) == Some("movie") {
+        return serde_json::to_string(&json!([{ "content_id": meta.get("id"), "content_type": "movie", "title": meta.get("name"), "watched_at": at }])).ok();
+    }
     let items = args.get("episodes").and_then(Value::as_array)?.iter().filter_map(|e| Some(json!({"content_id": meta.get("id"), "content_type": meta.get("type"), "title": meta.get("name"), "season": e.get("season")?.as_i64()?, "episode": e.get("number")?.as_i64()?, "watched_at": at}))).collect::<Vec<_>>();
     serde_json::to_string(&items).ok()
 }
 
 pub(crate) fn playback_progress_request_json(args_json: &str) -> Option<String> {
-    let args: Value = serde_json::from_str(args_json).ok()?; let meta = args.get("meta")?;
-    let video = args.get("videoId").and_then(Value::as_str).unwrap_or_else(|| meta.get("id").and_then(Value::as_str).unwrap_or(""));
-    let parts: Vec<&str> = video.split(':').collect(); let season = (parts.len() == 3).then(|| parts[1].parse::<i64>().ok()).flatten(); let episode = (parts.len() == 3).then(|| parts[2].parse::<i64>().ok()).flatten();
+    let args: Value = serde_json::from_str(args_json).ok()?;
+    let meta = args.get("meta")?;
+    let video = args
+        .get("videoId")
+        .and_then(Value::as_str)
+        .unwrap_or_else(|| meta.get("id").and_then(Value::as_str).unwrap_or(""));
+    let parts: Vec<&str> = video.split(':').collect();
+    let season = (parts.len() == 3)
+        .then(|| parts[1].parse::<i64>().ok())
+        .flatten();
+    let episode = (parts.len() == 3)
+        .then(|| parts[2].parse::<i64>().ok())
+        .flatten();
     serde_json::to_string(&json!({"content_id": meta.get("id"), "content_type": meta.get("type"), "video_id": video, "position": args.get("position"), "duration": args.get("duration"), "last_watched": args.get("watchedAt"), "season": season, "episode": episode, "progress_key": if let (Some(s), Some(e)) = (season, episode) { format!("{}_s{s}e{e}", meta.get("id").and_then(Value::as_str).unwrap_or("")) } else { meta.get("id").and_then(Value::as_str).unwrap_or("").to_string() }})).ok()
 }
 
@@ -172,25 +188,44 @@ pub(crate) fn addon_reconciliation_plan_json(args_json: &str) -> Option<String> 
     let current = args.get("current")?.as_array()?;
     let desired = args.get("desired")?.as_array()?;
     let user_id = args.get("userId").and_then(Value::as_str).unwrap_or("");
-    let profile_id = args.get("profileId").and_then(Value::as_i64).unwrap_or_default();
+    let profile_id = args
+        .get("profileId")
+        .and_then(Value::as_i64)
+        .unwrap_or_default();
     let desired_by_url: std::collections::BTreeMap<String, Value> = desired.iter().enumerate().filter_map(|(index, addon)| {
         let url = addon.get("url")?.as_str()?.trim();
         (!url.is_empty()).then(|| (url.to_string(), json!({"url":url,"name":addon.get("name").and_then(Value::as_str),"enabled":addon.get("enabled").and_then(Value::as_bool).unwrap_or(true),"sort_order":addon.get("sort_order").and_then(Value::as_i64).unwrap_or(index as i64)})))
     }).collect();
-    let delete_ids = current.iter().filter_map(|addon| {
-        let url = addon.get("url")?.as_str()?;
-        (!desired_by_url.contains_key(url)).then(|| addon.get("id").cloned()).flatten()
-    }).collect::<Vec<_>>();
-    let updates = current.iter().filter_map(|addon| {
-        let url = addon.get("url")?.as_str()?;
-        Some(json!({"id":addon.get("id")?,"payload":desired_by_url.get(url)?}))
-    }).collect::<Vec<_>>();
-    let creates = desired_by_url.iter().filter(|(url, _)| !current.iter().any(|addon| addon.get("url").and_then(Value::as_str) == Some(url.as_str()))).map(|(_, payload)| {
-        let mut payload = payload.as_object().cloned().unwrap_or_default();
-        payload.insert("user_id".into(), Value::String(user_id.to_string()));
-        payload.insert("profile_id".into(), json!(profile_id));
-        Value::Object(payload)
-    }).collect::<Vec<_>>();
+    let delete_ids = current
+        .iter()
+        .filter_map(|addon| {
+            let url = addon.get("url")?.as_str()?;
+            (!desired_by_url.contains_key(url))
+                .then(|| addon.get("id").cloned())
+                .flatten()
+        })
+        .collect::<Vec<_>>();
+    let updates = current
+        .iter()
+        .filter_map(|addon| {
+            let url = addon.get("url")?.as_str()?;
+            Some(json!({"id":addon.get("id")?,"payload":desired_by_url.get(url)?}))
+        })
+        .collect::<Vec<_>>();
+    let creates = desired_by_url
+        .iter()
+        .filter(|(url, _)| {
+            !current
+                .iter()
+                .any(|addon| addon.get("url").and_then(Value::as_str) == Some(url.as_str()))
+        })
+        .map(|(_, payload)| {
+            let mut payload = payload.as_object().cloned().unwrap_or_default();
+            payload.insert("user_id".into(), Value::String(user_id.to_string()));
+            payload.insert("profile_id".into(), json!(profile_id));
+            Value::Object(payload)
+        })
+        .collect::<Vec<_>>();
     serde_json::to_string(&json!({"deleteIds":delete_ids,"updates":updates,"creates":creates})).ok()
 }
 

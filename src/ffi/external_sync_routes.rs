@@ -64,7 +64,9 @@ pub(super) fn route_external_sync_trakt(method: &str, args_json: &str) -> Outcom
             &arg_str(args_json, "idsJson")?,
         )),
         "traktSyncItemToMeta" => opt_json(external_sync::trakt_sync_item_to_meta_json(args_json)),
-        "traktPlaybackDeleteIds" => opt_json(external_sync::trakt_playback_delete_ids_json(args_json)),
+        "traktPlaybackDeleteIds" => {
+            opt_json(external_sync::trakt_playback_delete_ids_json(args_json))
+        }
         "traktIdsFromContentId" => opt_json(external_sync::trakt_ids_from_content_id_json(
             &arg_str(args_json, "rawId")?,
         )),
@@ -222,8 +224,12 @@ pub(super) fn route_external_sync_trakt(method: &str, args_json: &str) -> Outcom
 pub(super) fn route_external_sync_simkl(method: &str, args_json: &str) -> Outcome {
     match method {
         "simklHistoryRequest" => opt_json(external_sync::simkl_history_request_json(args_json)),
-        "simklWatchlistRequest" => opt_json(external_sync::simkl_watchlist_request_json(args_json, false)),
-        "simklWatchlistRemovalRequest" => opt_json(external_sync::simkl_watchlist_request_json(args_json, true)),
+        "simklWatchlistRequest" => opt_json(external_sync::simkl_watchlist_request_json(
+            args_json, false,
+        )),
+        "simklWatchlistRemovalRequest" => {
+            opt_json(external_sync::simkl_watchlist_request_json(args_json, true))
+        }
         "simklMarkWatchedBody" => opt_json(external_sync::simkl_mark_watched_body_json(args_json)),
         "simklWatchlistBody" => opt_json(external_sync::simkl_watchlist_body_json(args_json)),
         "simklWatchingToItems" => {

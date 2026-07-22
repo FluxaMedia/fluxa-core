@@ -40,8 +40,8 @@ fn classify_chapter(title: &str) -> Option<&'static str> {
     match normalized.as_str() {
         "op" | "opening" | "intro" | "introduction" | "op sequence" | "mixed-intro"
         | "opening sequence" | "opening theme" => return Some("intro"),
-        "ed" | "ending" | "outro" | "credits" | "end credits" | "closing"
-        | "ending theme" | "ending sequence" => return Some("outro"),
+        "ed" | "ending" | "outro" | "credits" | "end credits" | "closing" | "ending theme"
+        | "ending sequence" => return Some("outro"),
         "recap" | "previously" | "previously on" | "cold open" => return Some("recap"),
         _ => {}
     }

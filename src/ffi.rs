@@ -1,8 +1,8 @@
 use serde_json::{json, Value};
 
-mod engine_routes;
 mod addon_resource_routes;
 mod addon_support_routes;
+mod engine_routes;
 use addon_resource_routes::route_addon_resource;
 use addon_support_routes::{route_addon_uptime, route_trailer_subtitles};
 use engine_routes::route_engine_lifecycle;
@@ -10,12 +10,12 @@ use engine_routes::route_engine_lifecycle;
 #[cfg(feature = "native")]
 use crate::dolby_vision_rpu;
 use crate::{
-    addon_protocol, addon_resource, addon_store, addon_uptime, anime_detection, app_state, calendar_plan,
-    content_identity, core_contract, data_policy, desktop_playback, discovery_plan, external_sync,
-    headless_adapter_plan, headless_engine, home_ranking, intro_segments, library_state,
-    nuvio_sync, offline_download, platform_plan, player_flow, player_policy, player_scrobble,
-    plugins, profile_avatar_pack, profile_contract, profile_prefs, repository_flow, search_plan,
-    stream_policy, tmdb_plan, trailer_subtitles, watchlist_plan,
+    addon_protocol, addon_resource, addon_store, addon_uptime, anime_detection, app_state,
+    calendar_plan, content_identity, core_contract, data_policy, desktop_playback, discovery_plan,
+    external_sync, headless_adapter_plan, headless_engine, home_ranking, intro_segments,
+    library_state, nuvio_sync, offline_download, platform_plan, player_flow, player_policy,
+    player_scrobble, plugins, profile_avatar_pack, profile_contract, profile_prefs,
+    repository_flow, search_plan, stream_policy, tmdb_plan, trailer_subtitles, watchlist_plan,
 };
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -588,10 +588,18 @@ fn route_offline(method: &str, args_json: &str) -> Outcome {
 fn route_content_identity(method: &str, args_json: &str) -> Outcome {
     match method {
         "contentImdbId" => Ok(json!(content_identity::imdb_id(&arg_str(args_json, "id")?))),
-        "contentBaseId" => Ok(Value::String(content_identity::base_content_id(&arg_str(args_json, "id")?))),
-        "normalizeSeriesLookupId" => Ok(Value::String(content_identity::normalize_series_lookup_id(&arg_str(args_json, "id")?))),
-        "isTmdbLikeContentId" => Ok(json!(content_identity::is_tmdb_like_content_id(&arg_str(args_json, "id")?))),
-        "tmdbNumericId" => Ok(json!(content_identity::tmdb_numeric_id(&arg_str(args_json, "id")?))),
+        "contentBaseId" => Ok(Value::String(content_identity::base_content_id(&arg_str(
+            args_json, "id",
+        )?))),
+        "normalizeSeriesLookupId" => Ok(Value::String(
+            content_identity::normalize_series_lookup_id(&arg_str(args_json, "id")?),
+        )),
+        "isTmdbLikeContentId" => Ok(json!(content_identity::is_tmdb_like_content_id(&arg_str(
+            args_json, "id"
+        )?))),
+        "tmdbNumericId" => Ok(json!(content_identity::tmdb_numeric_id(&arg_str(
+            args_json, "id"
+        )?))),
         "parseVideoId" => into_json(content_identity::parse_video_id_json(&arg_str(
             args_json, "id",
         )?)),
@@ -910,9 +918,9 @@ fn route_anime_detection(method: &str, args_json: &str) -> Outcome {
             ))
         }
         // args_json IS the meta object
-        "shouldAttemptAnimeTracking" => Ok(json!(
-            anime_detection::should_attempt_anime_tracking(&object(args_json)?)
-        )),
+        "shouldAttemptAnimeTracking" => Ok(json!(anime_detection::should_attempt_anime_tracking(
+            &object(args_json)?
+        ))),
 
         _ => Err(fail(
             ErrorKind::UnknownMethod,
@@ -939,10 +947,14 @@ fn route_nuvio_sync(method: &str, args_json: &str) -> Outcome {
             opt_json(nuvio_sync::sort_addons_by_priority_json(args_json))
         }
         "nuvioAddonState" => opt_json(nuvio_sync::addon_state_json(args_json)),
-        "nuvioAddonReconciliationPlan" => opt_json(nuvio_sync::addon_reconciliation_plan_json(args_json)),
+        "nuvioAddonReconciliationPlan" => {
+            opt_json(nuvio_sync::addon_reconciliation_plan_json(args_json))
+        }
         "nuvioLibraryItemRequest" => opt_json(nuvio_sync::library_item_request_json(args_json)),
         "nuvioWatchedItemsRequest" => opt_json(nuvio_sync::watched_items_request_json(args_json)),
-        "nuvioPlaybackProgressRequest" => opt_json(nuvio_sync::playback_progress_request_json(args_json)),
+        "nuvioPlaybackProgressRequest" => {
+            opt_json(nuvio_sync::playback_progress_request_json(args_json))
+        }
         "nuvioCollectionRequest" => opt_json(nuvio_sync::collection_request_json(args_json)),
 
         _ => Err(fail(
@@ -1202,9 +1214,9 @@ fn route_profile_avatar_pack(method: &str, args_json: &str) -> Outcome {
         "profileAvatarPackDiscoveryPlan" => {
             opt_json(profile_avatar_pack::profile_avatar_pack_discovery_plan_json(args_json))
         }
-        "profileAvatarPackCatalog" => {
-            opt_json(profile_avatar_pack::profile_avatar_pack_catalog_json(args_json))
-        }
+        "profileAvatarPackCatalog" => opt_json(
+            profile_avatar_pack::profile_avatar_pack_catalog_json(args_json),
+        ),
         "profileAvatarPackParse" => {
             opt_json(profile_avatar_pack::profile_avatar_pack_json(args_json))
         }

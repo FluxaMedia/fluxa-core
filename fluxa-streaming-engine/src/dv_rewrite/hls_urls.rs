@@ -17,17 +17,21 @@ pub(super) fn fetch(
 }
 
 pub(super) fn rewrite_manifest(manifest: &str, base_url: &str, proxy_segment_base: &str) -> String {
-    manifest.lines().map(|line| {
-        if line.is_empty() {
-            return line.to_string();
-        }
-        if line.starts_with('#') {
-            rewrite_uri_attributes(&rewrite_p7_codecs(line), base_url, proxy_segment_base)
-        } else {
-            let absolute_url = resolve_url(base_url, line);
-            format!("{}{}", proxy_segment_base, percent_encode(&absolute_url))
-        }
-    }).collect::<Vec<_>>().join("\n")
+    manifest
+        .lines()
+        .map(|line| {
+            if line.is_empty() {
+                return line.to_string();
+            }
+            if line.starts_with('#') {
+                rewrite_uri_attributes(&rewrite_p7_codecs(line), base_url, proxy_segment_base)
+            } else {
+                let absolute_url = resolve_url(base_url, line);
+                format!("{}{}", proxy_segment_base, percent_encode(&absolute_url))
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 pub(super) fn percent_decode(value: &str) -> String {
@@ -113,10 +117,17 @@ fn resolve_url(base_url: &str, relative: &str) -> String {
         if let Some(scheme_end) = base_url.find("://") {
             let remainder = &base_url[scheme_end + 3..];
             let authority_end = remainder.find('/').unwrap_or(remainder.len());
-            return format!("{}{}", &base_url[..scheme_end + 3 + authority_end], relative);
+            return format!(
+                "{}{}",
+                &base_url[..scheme_end + 3 + authority_end],
+                relative
+            );
         }
     }
-    let base_directory = base_url.rfind('/').map(|position| &base_url[..position + 1]).unwrap_or(base_url);
+    let base_directory = base_url
+        .rfind('/')
+        .map(|position| &base_url[..position + 1])
+        .unwrap_or(base_url);
     normalize_url_path(format!("{}{}", base_directory, relative))
 }
 
@@ -131,19 +142,48 @@ fn normalize_url_path(url: String) -> String {
     let mut parts = Vec::new();
     for segment in path.split('/') {
         match segment {
-            ".." => { parts.pop(); }
+            ".." => {
+                parts.pop();
+            }
             "." | "" => {}
             value => parts.push(value),
         }
     }
-    format!("{}/{}{}", prefix, parts.join("/"), if path.ends_with('/') { "/" } else { "" })
+    format!(
+        "{}/{}{}",
+        prefix,
+        parts.join("/"),
+        if path.ends_with('/') { "/" } else { "" }
+    )
 }
 
 fn percent_encode(value: &str) -> String {
     let mut output = String::with_capacity(value.len() * 3);
     for byte in value.bytes() {
         match byte {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' | b':' | b'/' | b'?' | b'#' | b'@' | b'!' | b'$' | b'&' | b'\'' | b'(' | b')' | b'*' | b'+' | b',' | b';' | b'=' => output.push(byte as char),
+            b'A'..=b'Z'
+            | b'a'..=b'z'
+            | b'0'..=b'9'
+            | b'-'
+            | b'_'
+            | b'.'
+            | b'~'
+            | b':'
+            | b'/'
+            | b'?'
+            | b'#'
+            | b'@'
+            | b'!'
+            | b'$'
+            | b'&'
+            | b'\''
+            | b'('
+            | b')'
+            | b'*'
+            | b'+'
+            | b','
+            | b';'
+            | b'=' => output.push(byte as char),
             value => output.push_str(&format!("%{value:02X}")),
         }
     }

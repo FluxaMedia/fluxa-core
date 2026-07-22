@@ -472,7 +472,8 @@ pub(crate) fn parse_catalogs(json: &Value) -> Vec<Value> {
                         .and_then(Value::as_array)
                         .cloned()
                         .unwrap_or_default();
-                    let extra_supported = string_array(&Value::Object(map.clone()), "extraSupported");
+                    let extra_supported =
+                        string_array(&Value::Object(map.clone()), "extraSupported");
                     let supports_initial_load = !extras.iter().any(|extra| {
                         extra
                             .get("isRequired")
@@ -1041,7 +1042,10 @@ mod tests {
             manifest["catalogs"][0]["supportsInitialLoad"].as_bool(),
             Some(true)
         );
-        assert_eq!(manifest["catalogs"][0]["supportsSearch"].as_bool(), Some(true));
+        assert_eq!(
+            manifest["catalogs"][0]["supportsSearch"].as_bool(),
+            Some(true)
+        );
         assert_eq!(
             manifest["catalogs"][0]["hasRequiredExtraExceptGenre"].as_bool(),
             Some(false)

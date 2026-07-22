@@ -53,12 +53,13 @@ pub(super) fn route_library_state(method: &str, args_json: &str) -> Outcome {
         }
         "isEpisodeReleased" => {
             let args = object(args_json)?;
-            let video: Value = serde_json::from_str(field_str(&args, "videoJson")?).map_err(|e| {
-                fail(
-                    ErrorKind::InvalidArgs,
-                    format!("videoJson is not valid JSON: {e}"),
-                )
-            })?;
+            let video: Value =
+                serde_json::from_str(field_str(&args, "videoJson")?).map_err(|e| {
+                    fail(
+                        ErrorKind::InvalidArgs,
+                        format!("videoJson is not valid JSON: {e}"),
+                    )
+                })?;
             let now_ms = field_u64(&args, "nowMs")? as i64;
             Ok(json!(library_state::is_episode_released(&video, now_ms)))
         }
@@ -204,12 +205,24 @@ pub(super) fn route_library_state(method: &str, args_json: &str) -> Outcome {
         "folderPageState" => opt_json(home_ranking::folder_page_state_json(args_json)),
         "folderSourcePagePlan" => opt_json(home_ranking::folder_source_page_plan_json(args_json)),
         "homeHeroPlan" => opt_json(home_ranking::home_hero_plan_json(args_json)),
-        "homeBillboardCandidateScore" => Ok(json!(home_ranking::billboard_candidate_score_json(args_json))),
-        "homeBillboardVisualScore" => Ok(json!(home_ranking::billboard_visual_score_json(args_json))),
-        "homeBillboardHasBackdrop" => Ok(json!(home_ranking::billboard_has_backdrop_json(args_json))),
-        "homeBillboardEditorialMatchScore" => Ok(json!(home_ranking::billboard_editorial_match_score_json(args_json))),
-        "homeBillboardIdentityKey" => Ok(json!(home_ranking::billboard_identity_key_json(args_json))),
-        "homeBillboardNormalizedTitle" => Ok(Value::String(home_ranking::billboard_normalized_title(&arg_str(args_json, "value")?))),
+        "homeBillboardCandidateScore" => Ok(json!(home_ranking::billboard_candidate_score_json(
+            args_json
+        ))),
+        "homeBillboardVisualScore" => {
+            Ok(json!(home_ranking::billboard_visual_score_json(args_json)))
+        }
+        "homeBillboardHasBackdrop" => {
+            Ok(json!(home_ranking::billboard_has_backdrop_json(args_json)))
+        }
+        "homeBillboardEditorialMatchScore" => Ok(json!(
+            home_ranking::billboard_editorial_match_score_json(args_json)
+        )),
+        "homeBillboardIdentityKey" => {
+            Ok(json!(home_ranking::billboard_identity_key_json(args_json)))
+        }
+        "homeBillboardNormalizedTitle" => Ok(Value::String(
+            home_ranking::billboard_normalized_title(&arg_str(args_json, "value")?),
+        )),
         "mergeFolderSources" => opt_json(home_ranking::merge_folder_sources_json(args_json)),
         "watchedMapDiff" => {
             let args = object(args_json)?;

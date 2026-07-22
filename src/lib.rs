@@ -22,11 +22,11 @@ mod action_contract;
 #[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
 mod addon_protocol;
 #[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
-mod addon_uptime;
-#[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
 mod addon_resource;
 #[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
 mod addon_store;
+#[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
+mod addon_uptime;
 #[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
 mod anime_detection;
 #[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
@@ -82,14 +82,14 @@ mod player_flow;
 mod player_policy;
 #[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
 mod player_scrobble;
-#[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
-mod plugins;
 #[cfg(feature = "plugin-js-engine")]
 pub mod plugin_runtime;
 #[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
-mod profile_contract;
+mod plugins;
 #[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
 mod profile_avatar_pack;
+#[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
+mod profile_contract;
 #[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
 mod profile_prefs;
 #[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]

@@ -40,7 +40,12 @@ pub(crate) fn simkl_history_request_json(args_json: &str) -> Option<String> {
                 .iter()
                 .filter_map(|(season, episodes)| {
                     let season = season.parse::<i64>().ok()?;
-                    let episodes = episodes.as_array()?.iter().filter_map(Value::as_i64).map(|number| json!({ "number": number })).collect::<Vec<_>>();
+                    let episodes = episodes
+                        .as_array()?
+                        .iter()
+                        .filter_map(Value::as_i64)
+                        .map(|number| json!({ "number": number }))
+                        .collect::<Vec<_>>();
                     Some(json!({ "number": season, "episodes": episodes }))
                 })
                 .collect::<Vec<_>>()
@@ -553,7 +558,10 @@ pub(crate) fn trakt_scrobble_url(action: &str) -> Option<String> {
 }
 
 pub(crate) fn trakt_playback_url(content_type: Option<&str>) -> Option<String> {
-    let suffix = match content_type.map(str::trim).filter(|value| !value.is_empty()) {
+    let suffix = match content_type
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
         None => None,
         Some("movie" | "movies") => Some("movies"),
         Some("series" | "show" | "shows" | "episode" | "episodes") => Some("episodes"),
@@ -780,10 +788,16 @@ pub(super) fn trakt_id_from_source(source: &Value) -> Option<String> {
 pub(crate) fn trakt_playback_delete_ids_json(args_json: &str) -> Option<String> {
     let args: Value = serde_json::from_str(args_json).ok()?;
     let content_id = args.get("contentId")?.as_str()?;
-    let ids = args.get("items")?.as_array()?.iter().filter_map(|item| {
-        let source = item.get("show").or_else(|| item.get("movie"))?;
-        (trakt_id_from_source(source).as_deref() == Some(content_id)).then(|| item.get("id")?.as_i64())
-    }).collect::<Vec<_>>();
+    let ids = args
+        .get("items")?
+        .as_array()?
+        .iter()
+        .filter_map(|item| {
+            let source = item.get("show").or_else(|| item.get("movie"))?;
+            (trakt_id_from_source(source).as_deref() == Some(content_id))
+                .then(|| item.get("id")?.as_i64())
+        })
+        .collect::<Vec<_>>();
     serde_json::to_string(&ids).ok()
 }
 
@@ -1179,28 +1193,18 @@ pub(crate) fn merge_continue_watching_lists_json(
 mod provider_mappers;
 
 pub(crate) use provider_mappers::{
-    replace_external_continue_watching_json,
-    simkl_lookup_id_for_type,
-    simkl_mark_watched_body_json,
-    simkl_match_episode_json,
-    simkl_recommendation_candidates_json,
-    simkl_recommendation_to_meta_json,
-    simkl_watched_to_ids_json,
-    simkl_watching_to_items_json,
-    simkl_watchlist_body_json,
-    simkl_watchlist_to_items_json,
-    trakt_mark_watched_body_json,
-    trakt_playback_items_dedup_json,
-    trakt_related_items_to_metas_json,
-    trakt_related_lookup_slug,
+    replace_external_continue_watching_json, simkl_lookup_id_for_type,
+    simkl_mark_watched_body_json, simkl_match_episode_json, simkl_recommendation_candidates_json,
+    simkl_recommendation_to_meta_json, simkl_watched_to_ids_json, simkl_watching_to_items_json,
+    simkl_watchlist_body_json, simkl_watchlist_to_items_json, trakt_mark_watched_body_json,
+    trakt_playback_items_dedup_json, trakt_related_items_to_metas_json, trakt_related_lookup_slug,
 };
 mod anilist;
 
 pub(crate) use anilist::{
     anilist_entries_to_sync, anilist_media_list_status,
     anilist_save_media_list_entry_variables_json, anilist_search_best_match_json,
-    extract_anilist_id_from_links,
-    merge_library_items_by_id,
+    extract_anilist_id_from_links, merge_library_items_by_id,
 };
 #[cfg(test)]
 mod tests {
@@ -1215,7 +1219,13 @@ mod tests {
             {"id": "tt2", "reason": "Nuvio", "timeOffset": 100, "duration": 1000, "savedAt": "2026-07-18T22:15:23Z"},
             {"id": "tt3", "reason": "Nuvio", "timeOffset": 100, "duration": 1000, "savedAt": "2026-07-17T19:11:51Z"},
         ]);
-        let result = replace_external_continue_watching_json("[]", Some("Nuvio"), &items.to_string(), None, None);
+        let result = replace_external_continue_watching_json(
+            "[]",
+            Some("Nuvio"),
+            &items.to_string(),
+            None,
+            None,
+        );
         let parsed: Vec<Value> = serde_json::from_str(&result).unwrap();
         let ids: Vec<&str> = parsed.iter().map(|v| v["id"].as_str().unwrap()).collect();
         assert_eq!(ids, vec!["tt2", "tt3", "tt1"]);
@@ -1434,15 +1444,14 @@ mod tests {
         .unwrap();
         assert_eq!(trakt_actual, trakt_expected);
 
-        let simkl_input = include_str!("../tests/fixtures/external_sync/simkl_mark_watched_input.json");
+        let simkl_input =
+            include_str!("../tests/fixtures/external_sync/simkl_mark_watched_input.json");
         let simkl_expected: Value = serde_json::from_str(include_str!(
             "../tests/fixtures/external_sync/simkl_mark_watched_expected.json"
         ))
         .unwrap();
-        let simkl_actual: Value = serde_json::from_str(
-            &simkl_mark_watched_body_json(simkl_input).unwrap(),
-        )
-        .unwrap();
+        let simkl_actual: Value =
+            serde_json::from_str(&simkl_mark_watched_body_json(simkl_input).unwrap()).unwrap();
         assert_eq!(simkl_actual, simkl_expected);
 
         let trakt_playback_expected: Value = serde_json::from_str(include_str!(
@@ -1670,9 +1679,18 @@ mod tests {
 
     #[test]
     fn mal_sync_policy_maps_auth_and_episode_updates() {
-        assert_eq!(external_sync_response_action("mal", 401), "refresh_credentials");
-        assert_eq!(external_sync_response_action("simkl", 401), "clear_credentials");
-        assert_eq!(external_sync_refresh_retry_action(Some(401)), "clear_credentials");
+        assert_eq!(
+            external_sync_response_action("mal", 401),
+            "refresh_credentials"
+        );
+        assert_eq!(
+            external_sync_response_action("simkl", 401),
+            "clear_credentials"
+        );
+        assert_eq!(
+            external_sync_refresh_retry_action(Some(401)),
+            "clear_credentials"
+        );
         let watched = mal_list_update_json(
             &json!({
                 "meta": { "id": "mal:42", "type": "series", "episodesCount": 12 },
@@ -1699,7 +1717,12 @@ mod tests {
         .and_then(|value| serde_json::from_str::<Value>(&value).ok())
         .unwrap();
         assert_eq!(history["shows"][0]["seasons"][0]["number"], 2);
-        assert_eq!(history["shows"][0]["seasons"][0]["episodes"].as_array().map(Vec::len), Some(2));
+        assert_eq!(
+            history["shows"][0]["seasons"][0]["episodes"]
+                .as_array()
+                .map(Vec::len),
+            Some(2)
+        );
 
         let removal = simkl_watchlist_request_json(
             &json!({ "imdbId": "tt1", "isSeries": false }).to_string(),

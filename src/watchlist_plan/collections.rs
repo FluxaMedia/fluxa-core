@@ -244,13 +244,10 @@ pub(crate) fn air_date_refresh_candidates_json(args_json: &str) -> Option<String
             Some(ms) => ms <= now_ms,
             None => true,
         };
-        let missing_episode_details = [
-            "nextEpisodeSeason",
-            "nextEpisodeNumber",
-            "nextEpisodeTitle",
-        ]
-        .iter()
-        .any(|key| item.get(*key).is_none() || item.get(*key) == Some(&Value::Null));
+        let missing_episode_details =
+            ["nextEpisodeSeason", "nextEpisodeNumber", "nextEpisodeTitle"]
+                .iter()
+                .any(|key| item.get(*key).is_none() || item.get(*key) == Some(&Value::Null));
         if !missing_or_past && !missing_episode_details {
             continue;
         }
@@ -635,4 +632,3 @@ pub(crate) fn export_collections_json(collections_json: &str) -> Option<String> 
         .collect();
     serde_json::to_string(&data).ok()
 }
-

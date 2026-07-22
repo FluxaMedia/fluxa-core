@@ -207,4 +207,3 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_drain
     }))
     .unwrap_or(ptr::null_mut())
 }
-

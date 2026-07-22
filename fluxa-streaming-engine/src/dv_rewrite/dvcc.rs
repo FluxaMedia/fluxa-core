@@ -15,7 +15,11 @@ pub(super) fn mangle_fourcc(data: &mut [u8]) -> usize {
     count
 }
 
-pub(crate) fn apply_patch_at_offset(data: &mut [u8], file_offset: u64, scan_window: usize) -> usize {
+pub(crate) fn apply_patch_at_offset(
+    data: &mut [u8],
+    file_offset: u64,
+    scan_window: usize,
+) -> usize {
     if file_offset >= scan_window as u64 {
         return 0;
     }
@@ -38,7 +42,9 @@ pub(super) struct ContainerInfo {
 
 impl ContainerInfo {
     pub(super) fn not_has_hdr10_fallback(self) -> bool {
-        self.profile == 4 || (self.profile == 5 && self.compat_id != 1) || (self.profile == 10 && matches!(self.compat_id, 0 | 2 | 3))
+        self.profile == 4
+            || (self.profile == 5 && self.compat_id != 1)
+            || (self.profile == 10 && matches!(self.compat_id, 0 | 2 | 3))
     }
 }
 
@@ -47,7 +53,10 @@ pub(super) fn scan_info(data: &[u8]) -> Option<ContainerInfo> {
         if data[index..index + 4] == *b"dvcC" {
             let payload = &data[index + 4..];
             if payload.len() >= 5 {
-                return Some(ContainerInfo { profile: (payload[2] >> 1) & 0x7F, compat_id: (payload[4] >> 4) & 0x0F });
+                return Some(ContainerInfo {
+                    profile: (payload[2] >> 1) & 0x7F,
+                    compat_id: (payload[4] >> 4) & 0x0F,
+                });
             }
         }
     }

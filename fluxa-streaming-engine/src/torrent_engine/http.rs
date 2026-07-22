@@ -1,6 +1,9 @@
 use super::*;
 
-pub(super) fn parse_range(value: Option<&HeaderValue>, length: u64) -> Result<Option<(u64, u64)>, ()> {
+pub(super) fn parse_range(
+    value: Option<&HeaderValue>,
+    length: u64,
+) -> Result<Option<(u64, u64)>, ()> {
     let Some(value) = value else {
         return Ok(None);
     };

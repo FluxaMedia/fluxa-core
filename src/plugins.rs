@@ -54,8 +54,14 @@ pub(crate) fn plugin_execution_plan_json(payload: &str) -> Option<String> {
         .scrapers
         .into_iter()
         .filter(|scraper| {
-            scraper.get("enabled").and_then(Value::as_bool).unwrap_or(true)
-                && scraper.get("id").and_then(Value::as_str).is_some_and(|id| !id.trim().is_empty())
+            scraper
+                .get("enabled")
+                .and_then(Value::as_bool)
+                .unwrap_or(true)
+                && scraper
+                    .get("id")
+                    .and_then(Value::as_str)
+                    .is_some_and(|id| !id.trim().is_empty())
                 && scraper
                     .get("filename")
                     .and_then(Value::as_str)

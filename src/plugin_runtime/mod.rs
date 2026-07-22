@@ -74,7 +74,10 @@ pub fn execute_scraper(
 }
 
 pub fn get_settings_layout(code: String, scraper_id: String) -> String {
-    let rt = match tokio::runtime::Builder::new_current_thread().enable_all().build() {
+    let rt = match tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+    {
         Ok(rt) => rt,
         Err(_) => return "[]".to_string(),
     };
@@ -239,7 +242,9 @@ async fn run(
         .set_interrupt_handler(Some(Box::new(move || std::time::Instant::now() > deadline)))
         .await;
     tokio::task::spawn_local(qjs_rt.drive());
-    let ctx = AsyncContext::full(&qjs_rt).await.map_err(|e| e.to_string())?;
+    let ctx = AsyncContext::full(&qjs_rt)
+        .await
+        .map_err(|e| e.to_string())?;
 
     let captured: Arc<Mutex<Option<String>>> = Default::default();
     let captured_clone = captured.clone();
@@ -359,8 +364,7 @@ fn native_fetch(
     body: Option<String>,
     follow_redirects: bool,
 ) -> String {
-    let headers: HashMap<String, String> =
-        serde_json::from_str(&headers_json).unwrap_or_default();
+    let headers: HashMap<String, String> = serde_json::from_str(&headers_json).unwrap_or_default();
     let response = client.fetch(PluginHttpRequest {
         method,
         url,
@@ -423,7 +427,11 @@ fn register_host_functions(
         "__native_fetch",
         Function::new(
             ctx.clone(),
-            move |url: String, method: String, headers_json: String, body: Option<String>, follow_redirects: bool| {
+            move |url: String,
+                  method: String,
+                  headers_json: String,
+                  body: Option<String>,
+                  follow_redirects: bool| {
                 native_fetch(&client, url, method, headers_json, body, follow_redirects)
             },
         )?,
@@ -448,7 +456,9 @@ fn register_host_functions(
         "__cheerio_find",
         Function::new(
             ctx.clone(),
-            move |doc_id: String, element_id: String, selector: String| d.find(doc_id, element_id, selector),
+            move |doc_id: String, element_id: String, selector: String| {
+                d.find(doc_id, element_id, selector)
+            },
         )?,
     )?;
 
@@ -479,9 +489,12 @@ fn register_host_functions(
     let d = dom.clone();
     ctx.globals().set(
         "__cheerio_attr",
-        Function::new(ctx.clone(), move |_doc_id: String, element_id: String, attr_name: String| {
-            d.attr(element_id, attr_name)
-        })?,
+        Function::new(
+            ctx.clone(),
+            move |_doc_id: String, element_id: String, attr_name: String| {
+                d.attr(element_id, attr_name)
+            },
+        )?,
     )?;
 
     let d = dom.clone();
@@ -502,7 +515,9 @@ fn register_host_functions(
 
     ctx.globals().set(
         "__crypto_get_random_values_hex",
-        Function::new(ctx.clone(), |len: usize| to_hex(&crypto_bridge::random_bytes(len)))?,
+        Function::new(ctx.clone(), |len: usize| {
+            to_hex(&crypto_bridge::random_bytes(len))
+        })?,
     )?;
 
     ctx.globals().set(
@@ -516,18 +531,25 @@ fn register_host_functions(
 
     ctx.globals().set(
         "__crypto_hmac_hex_raw",
-        Function::new(ctx.clone(), |algorithm: String, key_hex: String, data_hex: String| {
-            crypto_bridge::hmac(&algorithm, &from_hex(&key_hex), &from_hex(&data_hex))
-                .map(|bytes| to_hex(&bytes))
-                .unwrap_or_default()
-        })?,
+        Function::new(
+            ctx.clone(),
+            |algorithm: String, key_hex: String, data_hex: String| {
+                crypto_bridge::hmac(&algorithm, &from_hex(&key_hex), &from_hex(&data_hex))
+                    .map(|bytes| to_hex(&bytes))
+                    .unwrap_or_default()
+            },
+        )?,
     )?;
 
     ctx.globals().set(
         "__crypto_pbkdf2_hex",
         Function::new(
             ctx.clone(),
-            |password_hex: String, salt_hex: String, iterations: u32, key_size_bits: u32, algorithm: String| {
+            |password_hex: String,
+             salt_hex: String,
+             iterations: u32,
+             key_size_bits: u32,
+             algorithm: String| {
                 crypto_bridge::pbkdf2(
                     &from_hex(&password_hex),
                     &from_hex(&salt_hex),
@@ -546,9 +568,14 @@ fn register_host_functions(
         Function::new(
             ctx.clone(),
             |mode: String, key_hex: String, iv_hex: String, data_hex: String| {
-                crypto_bridge::aes_encrypt(&mode, &from_hex(&key_hex), &from_hex(&iv_hex), &from_hex(&data_hex))
-                    .map(|bytes| to_hex(&bytes))
-                    .unwrap_or_default()
+                crypto_bridge::aes_encrypt(
+                    &mode,
+                    &from_hex(&key_hex),
+                    &from_hex(&iv_hex),
+                    &from_hex(&data_hex),
+                )
+                .map(|bytes| to_hex(&bytes))
+                .unwrap_or_default()
             },
         )?,
     )?;
@@ -558,9 +585,14 @@ fn register_host_functions(
         Function::new(
             ctx.clone(),
             |mode: String, key_hex: String, iv_hex: String, data_hex: String| {
-                crypto_bridge::aes_decrypt(&mode, &from_hex(&key_hex), &from_hex(&iv_hex), &from_hex(&data_hex))
-                    .map(|bytes| to_hex(&bytes))
-                    .unwrap_or_default()
+                crypto_bridge::aes_decrypt(
+                    &mode,
+                    &from_hex(&key_hex),
+                    &from_hex(&iv_hex),
+                    &from_hex(&data_hex),
+                )
+                .map(|bytes| to_hex(&bytes))
+                .unwrap_or_default()
             },
         )?,
     )?;
@@ -579,11 +611,14 @@ fn register_host_functions(
 
     ctx.globals().set(
         "__crypto_sign_hex",
-        Function::new(ctx.clone(), |algorithm: String, key_hex: String, data_hex: String| {
-            crypto_bridge::sign(&algorithm, &from_hex(&key_hex), &from_hex(&data_hex))
-                .map(|bytes| to_hex(&bytes))
-                .unwrap_or_default()
-        })?,
+        Function::new(
+            ctx.clone(),
+            |algorithm: String, key_hex: String, data_hex: String| {
+                crypto_bridge::sign(&algorithm, &from_hex(&key_hex), &from_hex(&data_hex))
+                    .map(|bytes| to_hex(&bytes))
+                    .unwrap_or_default()
+            },
+        )?,
     )?;
 
     ctx.globals().set(

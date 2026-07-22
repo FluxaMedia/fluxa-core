@@ -2,9 +2,9 @@ use dolby_vision::rpu::dovi_rpu::DoviRpu;
 use dolby_vision::rpu::extension_metadata::blocks::ExtMetadataBlock;
 use serde::Deserialize;
 
-mod stats;
-mod hls_urls;
 mod dvcc;
+mod hls_urls;
+mod stats;
 
 // Startup self-test
 //
@@ -1337,8 +1337,11 @@ mod mkv;
 pub(crate) use mkv::*;
 #[cfg(test)]
 mod tests {
+    use super::dvcc::{
+        apply_patch_at_offset as apply_dvcc_patch_at_offset, mangle_fourcc as mangle_dvcc_fourcc,
+        parse_content_range_start,
+    };
     use super::*;
-    use super::dvcc::{apply_patch_at_offset as apply_dvcc_patch_at_offset, mangle_fourcc as mangle_dvcc_fourcc, parse_content_range_start};
 
     // DVCC fourcc mangler
     #[test]

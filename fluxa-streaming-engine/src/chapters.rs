@@ -113,7 +113,9 @@ fn parse_seek_entry(
         let (id, _, content_start, content_end) = read_element(buf, pos, end)?;
         match id {
             ID_SEEK_ID => seek_id = Some(read_uint_be(&buf[content_start..content_end])),
-            ID_SEEK_POSITION => seek_position = Some(read_uint_be(&buf[content_start..content_end])),
+            ID_SEEK_POSITION => {
+                seek_position = Some(read_uint_be(&buf[content_start..content_end]))
+            }
             _ => {}
         }
         pos = content_end.max(pos + 1);
@@ -135,9 +137,13 @@ fn scan_seek_head(
     while pos < end {
         let (id, _, content_start, content_end) = read_element(buf, pos, end)?;
         if id == ID_SEEK {
-            if let Some(offset) =
-                parse_seek_entry(buf, content_start, content_end, segment_content_start, target_id)
-            {
+            if let Some(offset) = parse_seek_entry(
+                buf,
+                content_start,
+                content_end,
+                segment_content_start,
+                target_id,
+            ) {
                 return Some(offset);
             }
         }
@@ -168,8 +174,13 @@ fn scan_segment(buf: &[u8], mut pos: usize, end: usize) -> MkvChapterScan {
             };
         }
         if id == ID_SEEK_HEAD {
-            chapters_offset_hint =
-                scan_seek_head(buf, content_start, content_end, segment_content_start, ID_CHAPTERS);
+            chapters_offset_hint = scan_seek_head(
+                buf,
+                content_start,
+                content_end,
+                segment_content_start,
+                ID_CHAPTERS,
+            );
         }
         pos = content_end.max(pos + 1);
     }
@@ -221,7 +232,9 @@ pub(crate) fn parse_mkv_chapters_at_offset_json(buf: &[u8]) -> String {
     let end = buf.len();
     let chapters = read_element(buf, 0, end)
         .filter(|(id, ..)| *id == ID_CHAPTERS)
-        .map(|(_, _, content_start, content_end)| parse_chapters_element(buf, content_start, content_end))
+        .map(|(_, _, content_start, content_end)| {
+            parse_chapters_element(buf, content_start, content_end)
+        })
         .unwrap_or_default();
     let arr: Vec<serde_json::Value> = chapters
         .iter()

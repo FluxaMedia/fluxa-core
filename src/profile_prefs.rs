@@ -165,8 +165,11 @@ fn profile_safe_prefs(profile: &Value) -> ProfileSafePrefs {
         ambient_light: bool_value(profile, "ambientLight").unwrap_or(true),
         force_software_audio: bool_value(profile, "forceSoftwareAudio").unwrap_or(false),
         preferred_player: safe_preferred_player(text(profile, "preferredPlayer")).to_string(),
-        continue_watching_source: safe_continue_watching_source(text(profile, "continueWatchingSource"))
-            .to_string(),
+        continue_watching_source: safe_continue_watching_source(text(
+            profile,
+            "continueWatchingSource",
+        ))
+        .to_string(),
         card_layout: card_layout.clone(),
         continue_watching_layout: continue_watching_layout.clone(),
         continue_watching_artwork: text(profile, "continueWatchingArtwork")

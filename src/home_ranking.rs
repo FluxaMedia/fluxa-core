@@ -254,38 +254,108 @@ pub(crate) fn home_bootstrap_preparation_plan_json(request_json: &str) -> Option
     let profile = request.get("profile").cloned().unwrap_or_else(|| json!({}));
     let prefs = request.get("prefs").cloned().unwrap_or_else(|| json!({}));
     let library = request.get("library").cloned().unwrap_or_else(|| json!({}));
-    let disabled = profile.pointer("/addonSettings/disabledLocalAddons").or_else(|| profile.get("disabledLocalAddons"))
-        .and_then(Value::as_array).into_iter().flatten().filter_map(Value::as_str).collect::<HashSet<_>>();
-    let mut addons = request.get("addons").and_then(Value::as_array).cloned().unwrap_or_default().into_iter().filter(|addon| {
-        let key = addon.get("transportUrl").and_then(Value::as_str).or_else(|| addon.pointer("/manifest/id").and_then(Value::as_str)).unwrap_or("");
-        !disabled.contains(key)
-    }).collect::<Vec<_>>();
-    if let Some(builtin) = request.get("builtinAddon").filter(|value| value.is_object()) {
-        if prefs.get("tmdbPreferOverAddons").and_then(Value::as_bool).unwrap_or(false) { addons.insert(0, builtin.clone()); } else { addons.push(builtin.clone()); }
+    let disabled = profile
+        .pointer("/addonSettings/disabledLocalAddons")
+        .or_else(|| profile.get("disabledLocalAddons"))
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .collect::<HashSet<_>>();
+    let mut addons = request
+        .get("addons")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|addon| {
+            let key = addon
+                .get("transportUrl")
+                .and_then(Value::as_str)
+                .or_else(|| addon.pointer("/manifest/id").and_then(Value::as_str))
+                .unwrap_or("");
+            !disabled.contains(key)
+        })
+        .collect::<Vec<_>>();
+    if let Some(builtin) = request
+        .get("builtinAddon")
+        .filter(|value| value.is_object())
+    {
+        if prefs
+            .get("tmdbPreferOverAddons")
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+        {
+            addons.insert(0, builtin.clone());
+        } else {
+            addons.push(builtin.clone());
+        }
     }
-    let local = library.get("continueWatching").and_then(Value::as_array).cloned().unwrap_or_default();
-    let external = library.get("externalContinueWatching").and_then(Value::as_array).cloned().unwrap_or_default();
-    let progress = library.get("progress").cloned().unwrap_or_else(|| json!({}));
+    let local = library
+        .get("continueWatching")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let external = library
+        .get("externalContinueWatching")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let progress = library
+        .get("progress")
+        .cloned()
+        .unwrap_or_else(|| json!({}));
     let continue_watching: Value = crate::external_sync::merge_continue_watching_lists_json(
-        &Value::Array(local).to_string(), &Value::Array(external).to_string(), &progress.to_string(),
-        prefs.get("syncCwSourceOfTruth").and_then(Value::as_str), prefs.get("syncCwRanking").and_then(Value::as_str)
-    ).and_then(|value| serde_json::from_str(&value).ok()).unwrap_or_else(|| json!([]));
+        &Value::Array(local).to_string(),
+        &Value::Array(external).to_string(),
+        &progress.to_string(),
+        prefs.get("syncCwSourceOfTruth").and_then(Value::as_str),
+        prefs.get("syncCwRanking").and_then(Value::as_str),
+    )
+    .and_then(|value| serde_json::from_str(&value).ok())
+    .unwrap_or_else(|| json!([]));
     let addons_json = Value::Array(addons.clone()).to_string();
     let mut feeds: Vec<Value> = crate::search_plan::build_metadata_feed_options_json(&addons_json)
-        .and_then(|value| serde_json::from_str(&value).ok()).unwrap_or_default();
+        .and_then(|value| serde_json::from_str(&value).ok())
+        .unwrap_or_default();
     for feed in &mut feeds {
-        if let Some(genre) = crate::search_plan::resolve_feed_option_genre_json(&feed.to_string(), &addons_json)
-            .and_then(|value| serde_json::from_str(&value).ok()) { feed["genre"] = genre; }
+        if let Some(genre) =
+            crate::search_plan::resolve_feed_option_genre_json(&feed.to_string(), &addons_json)
+                .and_then(|value| serde_json::from_str(&value).ok())
+        {
+            feed["genre"] = genre;
+        }
     }
-    let available = feeds.iter().filter_map(|feed| feed.get("key").and_then(Value::as_str)).map(str::to_string).collect::<Vec<_>>();
+    let available = feeds
+        .iter()
+        .filter_map(|feed| feed.get("key").and_then(Value::as_str))
+        .map(str::to_string)
+        .collect::<Vec<_>>();
     let selected = prefs.get("homeFeedToggles").and_then(Value::as_array);
     let effective = if selected.is_some_and(|values| !values.is_empty()) {
-        crate::content_identity::effective_metadata_feed_selection_json(&Value::Array(selected.cloned().unwrap_or_default()).to_string(), &Value::Array(available.iter().map(|value| json!(value)).collect()).to_string())
-            .and_then(|value| serde_json::from_str::<Vec<String>>(&value).ok()).unwrap_or_else(|| available.clone())
-    } else { available };
-    let visible_feeds = feeds.iter().filter(|feed| feed.get("key").and_then(Value::as_str).is_some_and(|key| effective.iter().any(|value| value == key))).cloned().collect::<Vec<_>>();
+        crate::content_identity::effective_metadata_feed_selection_json(
+            &Value::Array(selected.cloned().unwrap_or_default()).to_string(),
+            &Value::Array(available.iter().map(|value| json!(value)).collect()).to_string(),
+        )
+        .and_then(|value| serde_json::from_str::<Vec<String>>(&value).ok())
+        .unwrap_or_else(|| available.clone())
+    } else {
+        available
+    };
+    let visible_feeds = feeds
+        .iter()
+        .filter(|feed| {
+            feed.get("key")
+                .and_then(Value::as_str)
+                .is_some_and(|key| effective.iter().any(|value| value == key))
+        })
+        .cloned()
+        .collect::<Vec<_>>();
     let shelves: Value = build_home_collection_shelves_json(&profile.to_string(), &addons_json)
-        .and_then(|value| serde_json::from_str(&value).ok()).unwrap_or_else(|| json!({"pinnedShelves": [], "regularShelves": [], "hiddenFolderCategories": []}));
+        .and_then(|value| serde_json::from_str(&value).ok())
+        .unwrap_or_else(
+            || json!({"pinnedShelves": [], "regularShelves": [], "hiddenFolderCategories": []}),
+        );
     serde_json::to_string(&json!({"addons": addons, "continueWatching": continue_watching, "metadataFeeds": feeds, "visibleFeeds": visible_feeds, "shelves": shelves, "feedConcurrency": 6})).ok()
 }
 
@@ -303,12 +373,38 @@ pub(crate) fn home_bootstrap_completion_plan_json(request_json: &str) -> Option<
             "addonName": label.split(" - ").next().unwrap_or(label), "transportUrl": feed.get("transportUrl"), "catalogId": feed.get("id")
         }))
     }).collect::<Vec<_>>();
-    let shelves = preparation.get("shelves").cloned().unwrap_or_else(|| json!({}));
-    let mut all = shelves.get("pinnedShelves").and_then(Value::as_array).cloned().unwrap_or_default();
+    let shelves = preparation
+        .get("shelves")
+        .cloned()
+        .unwrap_or_else(|| json!({}));
+    let mut all = shelves
+        .get("pinnedShelves")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
     all.extend(categories.iter().cloned());
-    all.extend(shelves.get("regularShelves").and_then(Value::as_array).into_iter().flatten().cloned());
-    all.extend(shelves.get("hiddenFolderCategories").and_then(Value::as_array).into_iter().flatten().cloned());
-    let billboard = categories.first().and_then(|category| category.get("items")).and_then(Value::as_array).and_then(|items| items.first()).cloned();
+    all.extend(
+        shelves
+            .get("regularShelves")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .cloned(),
+    );
+    all.extend(
+        shelves
+            .get("hiddenFolderCategories")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .cloned(),
+    );
+    let billboard = categories
+        .first()
+        .and_then(|category| category.get("items"))
+        .and_then(Value::as_array)
+        .and_then(|items| items.first())
+        .cloned();
     serde_json::to_string(&json!({"categories": all, "continueWatching": preparation.get("continueWatching"), "metadataFeeds": preparation.get("metadataFeeds"), "billboard": billboard})).ok()
 }
 
@@ -1427,10 +1523,21 @@ mod tests {
         });
         let args = json!({ "meta": meta, "daysSinceRelease": 10 });
 
-        assert_eq!(billboard_candidate_score_json(&args.to_string()), Some(2127));
+        assert_eq!(
+            billboard_candidate_score_json(&args.to_string()),
+            Some(2127)
+        );
         assert_eq!(billboard_visual_score_json(&args.to_string()), Some(470));
-        assert_eq!(billboard_editorial_match_score_json(&json!({ "meta": args["meta"], "minYear": 2020 }).to_string()), Some(738));
-        assert_eq!(billboard_identity_key_json(&args.to_string()), Some("series:tt1".to_string()));
+        assert_eq!(
+            billboard_editorial_match_score_json(
+                &json!({ "meta": args["meta"], "minYear": 2020 }).to_string()
+            ),
+            Some(738)
+        );
+        assert_eq!(
+            billboard_identity_key_json(&args.to_string()),
+            Some("series:tt1".to_string())
+        );
         assert_eq!(billboard_normalized_title("Çığ Şöw"), "cig sow");
     }
 

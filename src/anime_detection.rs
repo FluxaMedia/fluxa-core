@@ -262,19 +262,28 @@ mod tests {
 
     #[test]
     fn tracking_gate_ignores_movies() {
-        let meta: Value = serde_json::from_str(r#"{"id":"tt1","name":"Anime Movie","type":"movie","genres":["anime"]}"#).unwrap();
+        let meta: Value = serde_json::from_str(
+            r#"{"id":"tt1","name":"Anime Movie","type":"movie","genres":["anime"]}"#,
+        )
+        .unwrap();
         assert!(!should_attempt_anime_tracking(&meta));
     }
 
     #[test]
     fn tracking_gate_accepts_anime_genre_series() {
-        let meta: Value = serde_json::from_str(r#"{"id":"tt1","name":"Some Show","type":"series","genres":["Anime"]}"#).unwrap();
+        let meta: Value = serde_json::from_str(
+            r#"{"id":"tt1","name":"Some Show","type":"series","genres":["Anime"]}"#,
+        )
+        .unwrap();
         assert!(should_attempt_anime_tracking(&meta));
     }
 
     #[test]
     fn tracking_gate_rejects_unrelated_series() {
-        let meta: Value = serde_json::from_str(r#"{"id":"tt1","name":"Some Drama","type":"series","genres":["Drama"]}"#).unwrap();
+        let meta: Value = serde_json::from_str(
+            r#"{"id":"tt1","name":"Some Drama","type":"series","genres":["Drama"]}"#,
+        )
+        .unwrap();
         assert!(!should_attempt_anime_tracking(&meta));
     }
 

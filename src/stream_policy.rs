@@ -634,8 +634,12 @@ fn resolve_profile_audio_language(
         return Some("ja".to_string());
     }
     match preference {
-        Some("original") => original_language.filter(|value| !value.is_empty()).map(str::to_string),
-        Some("device_language") => device_language.filter(|value| !value.is_empty()).map(str::to_string),
+        Some("original") => original_language
+            .filter(|value| !value.is_empty())
+            .map(str::to_string),
+        Some("device_language") => device_language
+            .filter(|value| !value.is_empty())
+            .map(str::to_string),
         Some(value) => Some(value.to_string()),
         None => None,
     }
@@ -795,7 +799,10 @@ pub(crate) fn player_track_state_json(request_json: &str) -> Option<String> {
     let profile_audio_language = resolve_profile_audio_language(
         &request.content_genres,
         request.anime_prefer_japanese_audio,
-        request.profile_audio_language.as_deref().filter(|value| !value.is_empty()),
+        request
+            .profile_audio_language
+            .as_deref()
+            .filter(|value| !value.is_empty()),
         request.original_language.as_deref(),
         request.device_language.as_deref(),
     );
@@ -804,7 +811,11 @@ pub(crate) fn player_track_state_json(request_json: &str) -> Option<String> {
             .last_audio_language
             .as_deref()
             .filter(|value| !value.is_empty()),
-        request.preferred_audio_language.as_deref().filter(|value| !value.is_empty()).or(profile_audio_language.as_deref()),
+        request
+            .preferred_audio_language
+            .as_deref()
+            .filter(|value| !value.is_empty())
+            .or(profile_audio_language.as_deref()),
         request
             .original_language
             .as_deref()

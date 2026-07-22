@@ -193,19 +193,21 @@ pub(crate) fn anilist_search_best_match_json(args_json: &str) -> Option<String> 
     if search_name.is_empty() {
         return None;
     }
-    let year = meta
-        .get("year")
-        .and_then(Value::as_i64)
-        .or_else(|| meta.get("releaseInfo").and_then(Value::as_str).and_then(parse_year_from_text));
+    let year = meta.get("year").and_then(Value::as_i64).or_else(|| {
+        meta.get("releaseInfo")
+            .and_then(Value::as_str)
+            .and_then(parse_year_from_text)
+    });
     let normalized_name = normalize_anime_title(search_name);
 
     let name_matches = |item: &Value| -> bool {
         item.get("title")
             .and_then(Value::as_object)
             .is_some_and(|title| {
-                title
-                    .values()
-                    .any(|t| t.as_str().is_some_and(|s| normalize_anime_title(s) == normalized_name))
+                title.values().any(|t| {
+                    t.as_str()
+                        .is_some_and(|s| normalize_anime_title(s) == normalized_name)
+                })
             })
     };
     let year_ok = |item: &Value| -> bool {
@@ -224,7 +226,10 @@ pub(crate) fn anilist_search_best_match_json(args_json: &str) -> Option<String> 
     serde_json::to_string(&json!({ "anilistId": id, "confidence": "title-year" })).ok()
 }
 
-pub(crate) fn anilist_media_list_status(total_episodes: i64, progress_episode: i64) -> &'static str {
+pub(crate) fn anilist_media_list_status(
+    total_episodes: i64,
+    progress_episode: i64,
+) -> &'static str {
     if total_episodes > 0 && progress_episode >= total_episodes {
         "COMPLETED"
     } else {
@@ -383,4 +388,3 @@ pub(crate) fn merge_library_items_by_id(local: &[Value], incoming: &[Value]) -> 
     let merged: Vec<Value> = order.iter().filter_map(|id| by_id.remove(id)).collect();
     Value::Array(merged)
 }
-

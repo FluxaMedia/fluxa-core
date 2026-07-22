@@ -334,10 +334,12 @@ mod tests {
 
     #[test]
     fn shared_parser_handles_short_vtt_and_timed_text() {
-        let vtt = parse_subtitle_cues_with_text("WEBVTT\n\n01.000 --> 02.500\n<b>Hello</b> &amp; world");
+        let vtt =
+            parse_subtitle_cues_with_text("WEBVTT\n\n01.000 --> 02.500\n<b>Hello</b> &amp; world");
         assert_eq!(vtt[0].start, 1.0);
         assert_eq!(vtt[0].text, "Hello & world");
-        let timed = parse_subtitle_cues_with_text("<timedtext><p d='500' t='1000'>Hi</p></timedtext>");
+        let timed =
+            parse_subtitle_cues_with_text("<timedtext><p d='500' t='1000'>Hi</p></timedtext>");
         assert_eq!(timed[0].end, 1.5);
     }
 }
