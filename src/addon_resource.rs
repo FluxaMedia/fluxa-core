@@ -221,6 +221,87 @@ pub(crate) fn normalize_addon_subtitles_json(subtitles_json: &str, resource_url:
     Value::Array(subtitles).to_string()
 }
 
+pub(crate) fn parse_catalog_items_json(body: &str, fallback_type: &str) -> Option<String> {
+    let root: Value = serde_json::from_str(body).ok()?;
+    let metas = root.get("metas")?.as_array()?;
+    let mut items = Vec::with_capacity(metas.len());
+    for meta in metas {
+        let object = meta.as_object()?;
+        let id = object.get("id")?.as_str()?.to_string();
+        let title = object.get("name")?.as_str()?.to_string();
+        let content_type = object
+            .get("type")
+            .and_then(Value::as_str)
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or(fallback_type)
+            .to_string();
+        items.push(json!({
+            "id": id,
+            "type": content_type,
+            "title": title,
+            "subtitle": object.get("releaseInfo").and_then(Value::as_str).unwrap_or(""),
+            "artworkUrl": object.get("poster").and_then(Value::as_str),
+            "logoUrl": object.get("logo").and_then(Value::as_str),
+            "backgroundUrl": object.get("background").and_then(Value::as_str),
+            "description": object.get("description").and_then(Value::as_str)
+        }));
+    }
+    serde_json::to_string(&items).ok()
+}
+
+pub(crate) fn parse_direct_streams_json(body: &str) -> Option<String> {
+    let root: Value = serde_json::from_str(body).ok()?;
+    let streams = root.get("streams")?.as_array()?;
+    let parsed = streams
+        .iter()
+        .filter_map(|stream| {
+            let object = stream.as_object()?;
+            let playable_url = object
+                .get("url")
+                .and_then(Value::as_str)
+                .filter(|url| {
+                    ["http://", "https://", "magnet://", "stremio://"]
+                        .iter()
+                        .any(|prefix| url.to_ascii_lowercase().starts_with(prefix))
+                })
+                .map(str::to_string)
+                .or_else(|| {
+                    let info_hash = object
+                        .get("infoHash")
+                        .and_then(Value::as_str)
+                        .filter(|value| !value.trim().is_empty())?;
+                    let file_index = object.get("fileIdx").and_then(Value::as_i64);
+                    Some(match file_index {
+                        Some(index) => format!("stremio://torrent/{info_hash}/{index}"),
+                        None => format!("stremio://torrent/{info_hash}"),
+                    })
+                })?;
+            let request_headers = object
+                .get("behaviorHints")
+                .and_then(Value::as_object)
+                .and_then(|hints| hints.get("proxyHeaders"))
+                .and_then(Value::as_object)
+                .and_then(|headers| headers.get("request"))
+                .and_then(Value::as_object)
+                .map(|headers| {
+                    headers
+                        .iter()
+                        .filter_map(|(name, value)| {
+                            value.as_str().map(|value| (name.clone(), Value::String(value.to_string())))
+                        })
+                        .collect::<serde_json::Map<_, _>>()
+                })
+                .unwrap_or_default();
+            Some(json!({
+                "title": object.get("title").and_then(Value::as_str).map(str::trim).filter(|value| !value.is_empty()),
+                "playableUrl": playable_url,
+                "requestHeaders": request_headers
+            }))
+        })
+        .collect::<Vec<_>>();
+    serde_json::to_string(&parsed).ok()
+}
+
 fn resolve_resource_asset_url(asset: Option<String>, resource_url: &str) -> Option<String> {
     let secure = addon_protocol::prefer_https_asset_url(asset?.as_str())?;
     if addon_protocol::is_http_url(&secure) {
@@ -247,7 +328,10 @@ fn resolve_resource_asset_url(asset: Option<String>, resource_url: &str) -> Opti
 
 #[cfg(test)]
 mod tests {
-    use super::{normalize_addon_subtitles_json, parse_addon_resource_result_json};
+    use super::{
+        normalize_addon_subtitles_json, parse_addon_resource_result_json, parse_catalog_items_json,
+        parse_direct_streams_json,
+    };
     use serde_json::Value;
 
     #[test]
@@ -291,6 +375,38 @@ mod tests {
             Some(120)
         );
         assert_eq!(result.get("staleError").and_then(Value::as_i64), Some(60));
+    }
+
+    #[test]
+    fn catalog_items_apply_the_fallback_type() {
+        let items = parse_catalog_items_json(
+            r#"{"metas":[{"id":"tt1","name":"Example","poster":"poster.jpg"}]}"#,
+            "movie",
+        )
+        .and_then(|json| serde_json::from_str::<Value>(&json).ok())
+        .expect("catalog items");
+
+        assert_eq!(items[0]["id"].as_str(), Some("tt1"));
+        assert_eq!(items[0]["type"].as_str(), Some("movie"));
+        assert_eq!(items[0]["artworkUrl"].as_str(), Some("poster.jpg"));
+    }
+
+    #[test]
+    fn direct_streams_accept_torrents_and_proxy_headers() {
+        let streams = parse_direct_streams_json(
+            r#"{"streams":[{"title":"Torrent","infoHash":"abc","fileIdx":2,"behaviorHints":{"proxyHeaders":{"request":{"Authorization":"Bearer token"}}}}]}"#,
+        )
+        .and_then(|json| serde_json::from_str::<Value>(&json).ok())
+        .expect("direct streams");
+
+        assert_eq!(
+            streams[0]["playableUrl"].as_str(),
+            Some("stremio://torrent/abc/2")
+        );
+        assert_eq!(
+            streams[0]["requestHeaders"]["Authorization"].as_str(),
+            Some("Bearer token")
+        );
     }
 
     #[test]

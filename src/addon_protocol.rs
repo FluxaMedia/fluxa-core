@@ -467,6 +467,47 @@ pub(crate) fn parse_catalogs(json: &Value) -> Vec<Value> {
                     if !extra.is_empty() {
                         map.insert("extra".to_string(), Value::Array(extra));
                     }
+                    let extras = map
+                        .get("extra")
+                        .and_then(Value::as_array)
+                        .cloned()
+                        .unwrap_or_default();
+                    let extra_supported = string_array(&Value::Object(map.clone()), "extraSupported");
+                    let supports_initial_load = !extras.iter().any(|extra| {
+                        extra
+                            .get("isRequired")
+                            .and_then(Value::as_bool)
+                            .unwrap_or(false)
+                    });
+                    let supports_search = extra_supported.iter().any(|extra| {
+                        extra
+                            .as_str()
+                            .is_some_and(|name| name.eq_ignore_ascii_case("search"))
+                    }) || extras.iter().any(|extra| {
+                        extra
+                            .get("name")
+                            .and_then(Value::as_str)
+                            .is_some_and(|name| name.eq_ignore_ascii_case("search"))
+                    });
+                    let has_required_extra_except_genre = extras.iter().any(|extra| {
+                        extra
+                            .get("isRequired")
+                            .and_then(Value::as_bool)
+                            .unwrap_or(false)
+                            && !extra
+                                .get("name")
+                                .and_then(Value::as_str)
+                                .is_some_and(|name| name.eq_ignore_ascii_case("genre"))
+                    });
+                    map.insert(
+                        "supportsInitialLoad".to_string(),
+                        Value::Bool(supports_initial_load),
+                    );
+                    map.insert("supportsSearch".to_string(), Value::Bool(supports_search));
+                    map.insert(
+                        "hasRequiredExtraExceptGenre".to_string(),
+                        Value::Bool(has_required_extra_except_genre),
+                    );
                     Some(Value::Object(map))
                 })
                 .collect()
@@ -537,6 +578,23 @@ pub fn parse_manifest(body: &str, transport_url: &str, unknown_name: &str) -> Op
             .unwrap_or(Value::Null),
     );
     manifest.insert("resources".to_string(), Value::Array(resources));
+    manifest.insert(
+        "supportsCatalog".to_string(),
+        Value::Bool(
+            json.get("resources")
+                .and_then(Value::as_array)
+                .is_some_and(|resources| {
+                    resources.iter().any(|resource| match resource {
+                        Value::String(name) => canonical_resource_name(name) == "catalog",
+                        Value::Object(resource) => resource
+                            .get("name")
+                            .and_then(Value::as_str)
+                            .is_some_and(|name| canonical_resource_name(name) == "catalog"),
+                        _ => false,
+                    })
+                }),
+        ),
+    );
     manifest.insert(
         "types".to_string(),
         Value::Array(string_array(&json, "types")),
@@ -977,6 +1035,16 @@ mod tests {
         assert_eq!(
             manifest["background"].as_str(),
             Some("https://addon.example/bg.jpg")
+        );
+        assert_eq!(manifest["supportsCatalog"].as_bool(), Some(true));
+        assert_eq!(
+            manifest["catalogs"][0]["supportsInitialLoad"].as_bool(),
+            Some(true)
+        );
+        assert_eq!(manifest["catalogs"][0]["supportsSearch"].as_bool(), Some(true));
+        assert_eq!(
+            manifest["catalogs"][0]["hasRequiredExtraExceptGenre"].as_bool(),
+            Some(false)
         );
     }
 

@@ -22,6 +22,8 @@ mod action_contract;
 #[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
 mod addon_protocol;
 #[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
+mod addon_uptime;
+#[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
 mod addon_resource;
 #[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
 mod addon_store;

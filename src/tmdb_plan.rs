@@ -679,4 +679,11 @@ mod tests {
         let url = tmdb_builtin_catalog_url("movie", &json!({"skip": 40}), "KEY", "en");
         assert!(url.contains("page=3"));
     }
+
+    #[test]
+    fn tmdb_language_uses_shared_locale_fallbacks() {
+        assert_eq!(tmdb_language(""), "en-US");
+        assert_eq!(tmdb_language("english_us"), "en-US");
+        assert_eq!(tmdb_language("tr_tr"), "tr-TR");
+    }
 }

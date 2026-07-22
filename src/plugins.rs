@@ -1,6 +1,6 @@
 use crate::types::plugin::{PluginManifest, PluginStreamResult, PluginSubtitleResult};
 use crate::types::resource::{Stream, SubtitleTrack};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
 
@@ -19,6 +19,57 @@ pub(crate) fn parse_plugin_manifest_json(payload: &str) -> Result<String, String
     }
 
     serde_json::to_string(&manifest).map_err(|e| format!("failed to encode manifest: {e}"))
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PluginExecutionPlanRequest {
+    scrapers: Vec<Value>,
+    content_id: String,
+    media_type: String,
+    season: Option<i32>,
+    episode: Option<i32>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PluginExecutionPlan {
+    content_id: String,
+    media_type: String,
+    season: Option<i32>,
+    episode: Option<i32>,
+    scrapers: Vec<Value>,
+}
+
+pub(crate) fn plugin_execution_plan_json(payload: &str) -> Option<String> {
+    let request: PluginExecutionPlanRequest = serde_json::from_str(payload).ok()?;
+    let segments: Vec<&str> = request.content_id.split(':').collect();
+    let content_id = segments.first()?.trim().to_string();
+    if content_id.is_empty() || request.media_type.trim().is_empty() {
+        return None;
+    }
+    let season = request.season.or_else(|| segments.get(1)?.parse().ok());
+    let episode = request.episode.or_else(|| segments.get(2)?.parse().ok());
+    let scrapers = request
+        .scrapers
+        .into_iter()
+        .filter(|scraper| {
+            scraper.get("enabled").and_then(Value::as_bool).unwrap_or(true)
+                && scraper.get("id").and_then(Value::as_str).is_some_and(|id| !id.trim().is_empty())
+                && scraper
+                    .get("filename")
+                    .and_then(Value::as_str)
+                    .is_some_and(|filename| !filename.trim().is_empty())
+        })
+        .collect();
+    serde_json::to_string(&PluginExecutionPlan {
+        content_id,
+        media_type: request.media_type,
+        season,
+        episode,
+        scrapers,
+    })
+    .ok()
 }
 
 #[derive(Debug, Deserialize)]
@@ -204,6 +255,19 @@ mod tests {
         let manifest: PluginManifest = serde_json::from_str(&result.unwrap()).unwrap();
         assert_eq!(manifest.scrapers[0].supported_types, vec!["movie", "tv"]);
         assert!(manifest.scrapers[0].enabled);
+    }
+
+    #[test]
+    fn execution_plan_filters_disabled_scrapers_and_parses_episode_locator() {
+        let plan = plugin_execution_plan_json(
+            r#"{"contentId":"tt0944947:2:3","mediaType":"series","scrapers":[{"id":"enabled","filename":"enabled.js","enabled":true},{"id":"disabled","filename":"disabled.js","enabled":false}]}"#,
+        )
+        .unwrap();
+        let value: Value = serde_json::from_str(&plan).unwrap();
+        assert_eq!(value["contentId"], "tt0944947");
+        assert_eq!(value["season"], 2);
+        assert_eq!(value["episode"], 3);
+        assert_eq!(value["scrapers"].as_array().unwrap().len(), 1);
     }
 
     #[test]

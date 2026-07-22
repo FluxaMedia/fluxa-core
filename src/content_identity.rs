@@ -102,6 +102,12 @@ pub(crate) fn is_tmdb_like_content_id(id: &str) -> bool {
     base.to_ascii_lowercase().starts_with(TMDB_ID_PREFIX) || base.parse::<i32>().is_ok()
 }
 
+pub(crate) fn tmdb_numeric_id(id: &str) -> Option<String> {
+    let base = base_content_id(id);
+    let numeric = base.strip_prefix(TMDB_ID_PREFIX).unwrap_or(&base);
+    numeric.parse::<i32>().ok().map(|_| numeric.to_string())
+}
+
 pub(crate) fn episode_id(base_id: &str, season: i32, episode: i32) -> String {
     format!("{base_id}:{season}:{episode}")
 }

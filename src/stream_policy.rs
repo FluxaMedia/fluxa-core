@@ -620,6 +620,27 @@ pub(crate) fn resolve_preferred_audio_language(
     }
 }
 
+fn resolve_profile_audio_language(
+    genres: &[String],
+    anime_preferred: bool,
+    preference: Option<&str>,
+    original_language: Option<&str>,
+    device_language: Option<&str>,
+) -> Option<String> {
+    let is_anime = genres
+        .iter()
+        .any(|genre| genre.to_ascii_lowercase().contains("anime"));
+    if is_anime && anime_preferred {
+        return Some("ja".to_string());
+    }
+    match preference {
+        Some("original") => original_language.filter(|value| !value.is_empty()).map(str::to_string),
+        Some("device_language") => device_language.filter(|value| !value.is_empty()).map(str::to_string),
+        Some(value) => Some(value.to_string()),
+        None => None,
+    }
+}
+
 // The preference string changes once per settings edit, not per stream, so a
 // one-entry cache avoids recompiling the same word-boundary regex on every
 // track in a per-stream ranking loop.
@@ -758,6 +779,12 @@ struct PlayerTrackStateRequest {
     last_audio_language: Option<String>,
     preferred_audio_language: Option<String>,
     original_language: Option<String>,
+    #[serde(default)]
+    content_genres: Vec<String>,
+    profile_audio_language: Option<String>,
+    #[serde(default)]
+    anime_prefer_japanese_audio: bool,
+    device_language: Option<String>,
     last_subtitle_language: Option<String>,
     preferred_subtitle_language: Option<String>,
     secondary_subtitle_language: Option<String>,
@@ -765,15 +792,19 @@ struct PlayerTrackStateRequest {
 
 pub(crate) fn player_track_state_json(request_json: &str) -> Option<String> {
     let request = serde_json::from_str::<PlayerTrackStateRequest>(request_json).ok()?;
+    let profile_audio_language = resolve_profile_audio_language(
+        &request.content_genres,
+        request.anime_prefer_japanese_audio,
+        request.profile_audio_language.as_deref().filter(|value| !value.is_empty()),
+        request.original_language.as_deref(),
+        request.device_language.as_deref(),
+    );
     let preferred_audio_language = resolve_preferred_audio_language(
         request
             .last_audio_language
             .as_deref()
             .filter(|value| !value.is_empty()),
-        request
-            .preferred_audio_language
-            .as_deref()
-            .filter(|value| !value.is_empty()),
+        request.preferred_audio_language.as_deref().filter(|value| !value.is_empty()).or(profile_audio_language.as_deref()),
         request
             .original_language
             .as_deref()

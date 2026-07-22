@@ -27,6 +27,38 @@ pub(crate) fn sort_addons_by_priority_json(args_json: &str) -> Option<String> {
     serde_json::to_string(&addons).ok()
 }
 
+pub(crate) fn addon_state_json(args_json: &str) -> Option<String> {
+    let args = parse(args_json)?;
+    let mut addons = args.get("addons")?.as_array()?.clone();
+    addons.sort_by_key(|addon| {
+        addon
+            .get("sortOrder")
+            .or_else(|| addon.get("sort_order"))
+            .and_then(Value::as_i64)
+            .unwrap_or(0)
+    });
+    let mut installed_urls = Vec::new();
+    let mut disabled_urls = Vec::new();
+    for addon in addons {
+        let Some(url) = addon.get("url").and_then(Value::as_str).filter(|url| !url.is_empty()) else {
+            continue;
+        };
+        if !installed_urls.iter().any(|item| item == url) {
+            installed_urls.push(url.to_string());
+        }
+        if addon.get("enabled").and_then(Value::as_bool) == Some(false)
+            && !disabled_urls.iter().any(|item| item == url)
+        {
+            disabled_urls.push(url.to_string());
+        }
+    }
+    serde_json::to_string(&json!({
+        "installedUrls": installed_urls,
+        "disabledUrls": disabled_urls,
+    }))
+    .ok()
+}
+
 pub(crate) fn export_push_plan_json(args_json: &str) -> Option<String> {
     let args = parse(args_json)?;
     let library = args.get("library")?;
@@ -93,6 +125,73 @@ pub(crate) fn export_push_plan_json(args_json: &str) -> Option<String> {
         "historyItems": history_items,
     }))
     .ok()
+}
+
+pub(crate) fn library_item_request_json(args_json: &str) -> Option<String> {
+    let args: Value = serde_json::from_str(args_json).ok()?;
+    let item = args.get("item")?;
+    let added_at = args.get("addedAt").cloned().unwrap_or(Value::Null);
+    serde_json::to_string(&json!({
+        "content_id": item.get("id").or_else(|| item.get("contentId")),
+        "content_type": item.get("type").or_else(|| item.get("contentType")),
+        "name": item.get("name"), "poster": item.get("poster"), "background": item.get("background"),
+        "description": item.get("description"), "release_info": item.get("releaseInfo"),
+        "imdb_rating": item.get("imdbRating").and_then(Value::as_str).and_then(|v| v.parse::<f64>().ok()).or_else(|| item.get("imdbRating").cloned().and_then(|v| v.as_f64())),
+        "genres": item.get("genres"), "poster_shape": item.get("posterShape").and_then(Value::as_str).unwrap_or("POSTER"),
+        "addon_base_url": item.get("addonBaseUrl"), "added_at": added_at
+    })).ok()
+}
+
+pub(crate) fn watched_items_request_json(args_json: &str) -> Option<String> {
+    let args: Value = serde_json::from_str(args_json).ok()?;
+    let meta = args.get("meta")?;
+    let at = args.get("watchedAt").and_then(Value::as_i64)?;
+    if meta.get("type").and_then(Value::as_str) == Some("movie") { return serde_json::to_string(&json!([{ "content_id": meta.get("id"), "content_type": "movie", "title": meta.get("name"), "watched_at": at }])).ok(); }
+    let items = args.get("episodes").and_then(Value::as_array)?.iter().filter_map(|e| Some(json!({"content_id": meta.get("id"), "content_type": meta.get("type"), "title": meta.get("name"), "season": e.get("season")?.as_i64()?, "episode": e.get("number")?.as_i64()?, "watched_at": at}))).collect::<Vec<_>>();
+    serde_json::to_string(&items).ok()
+}
+
+pub(crate) fn playback_progress_request_json(args_json: &str) -> Option<String> {
+    let args: Value = serde_json::from_str(args_json).ok()?; let meta = args.get("meta")?;
+    let video = args.get("videoId").and_then(Value::as_str).unwrap_or_else(|| meta.get("id").and_then(Value::as_str).unwrap_or(""));
+    let parts: Vec<&str> = video.split(':').collect(); let season = (parts.len() == 3).then(|| parts[1].parse::<i64>().ok()).flatten(); let episode = (parts.len() == 3).then(|| parts[2].parse::<i64>().ok()).flatten();
+    serde_json::to_string(&json!({"content_id": meta.get("id"), "content_type": meta.get("type"), "video_id": video, "position": args.get("position"), "duration": args.get("duration"), "last_watched": args.get("watchedAt"), "season": season, "episode": episode, "progress_key": if let (Some(s), Some(e)) = (season, episode) { format!("{}_s{s}e{e}", meta.get("id").and_then(Value::as_str).unwrap_or("")) } else { meta.get("id").and_then(Value::as_str).unwrap_or("").to_string() }})).ok()
+}
+
+pub(crate) fn collection_request_json(args_json: &str) -> Option<String> {
+    let collection: Value = serde_json::from_str(args_json).ok()?;
+    let folders = collection.get("folders").and_then(Value::as_array).cloned().unwrap_or_default().into_iter().map(|folder| {
+        let sources = folder.get("sources").and_then(Value::as_array).cloned().filter(|items| !items.is_empty()).unwrap_or_else(|| folder.get("catalogSources").and_then(Value::as_array).cloned().unwrap_or_default().into_iter().map(|source| json!({"provider":"addon","addonId":source.get("addonId"),"catalogId":source.get("catalogId"),"type":source.get("type"),"genre":source.get("genre")})).collect());
+        json!({"id":folder.get("id"),"title":folder.get("title"),"coverImageUrl":folder.get("coverImageUrl").or_else(|| folder.get("imageUrl")),"coverEmoji":folder.get("coverEmoji"),"focusGifUrl":folder.get("focusGifUrl"),"focusGifEnabled":folder.get("focusGifEnabled"),"titleLogoUrl":folder.get("titleLogoUrl"),"heroBackdropUrl":folder.get("heroBackdropUrl"),"heroVideoUrl":folder.get("heroVideoUrl"),"tileShape":folder.get("shape"),"hideTitle":folder.get("hideTitle"),"sources":sources})
+    }).collect::<Vec<_>>();
+    serde_json::to_string(&json!({"id":collection.get("id"),"title":collection.get("title"),"backdropImageUrl":collection.get("imageUrl"),"showOnHome":collection.get("showOnHome"),"pinToTop":collection.get("pinToTop"),"viewMode":collection.get("viewMode"),"showAllTab":collection.get("showAllTab"),"focusGlowEnabled":collection.get("focusGlowEnabled"),"community":collection.get("community"),"folders":folders})).ok()
+}
+
+pub(crate) fn addon_reconciliation_plan_json(args_json: &str) -> Option<String> {
+    let args: Value = serde_json::from_str(args_json).ok()?;
+    let current = args.get("current")?.as_array()?;
+    let desired = args.get("desired")?.as_array()?;
+    let user_id = args.get("userId").and_then(Value::as_str).unwrap_or("");
+    let profile_id = args.get("profileId").and_then(Value::as_i64).unwrap_or_default();
+    let desired_by_url: std::collections::BTreeMap<String, Value> = desired.iter().enumerate().filter_map(|(index, addon)| {
+        let url = addon.get("url")?.as_str()?.trim();
+        (!url.is_empty()).then(|| (url.to_string(), json!({"url":url,"name":addon.get("name").and_then(Value::as_str),"enabled":addon.get("enabled").and_then(Value::as_bool).unwrap_or(true),"sort_order":addon.get("sort_order").and_then(Value::as_i64).unwrap_or(index as i64)})))
+    }).collect();
+    let delete_ids = current.iter().filter_map(|addon| {
+        let url = addon.get("url")?.as_str()?;
+        (!desired_by_url.contains_key(url)).then(|| addon.get("id").cloned()).flatten()
+    }).collect::<Vec<_>>();
+    let updates = current.iter().filter_map(|addon| {
+        let url = addon.get("url")?.as_str()?;
+        Some(json!({"id":addon.get("id")?,"payload":desired_by_url.get(url)?}))
+    }).collect::<Vec<_>>();
+    let creates = desired_by_url.iter().filter(|(url, _)| !current.iter().any(|addon| addon.get("url").and_then(Value::as_str) == Some(url.as_str()))).map(|(_, payload)| {
+        let mut payload = payload.as_object().cloned().unwrap_or_default();
+        payload.insert("user_id".into(), Value::String(user_id.to_string()));
+        payload.insert("profile_id".into(), json!(profile_id));
+        Value::Object(payload)
+    }).collect::<Vec<_>>();
+    serde_json::to_string(&json!({"deleteIds":delete_ids,"updates":updates,"creates":creates})).ok()
 }
 
 pub(crate) fn library_mutation_plan_json(args_json: &str) -> Option<String> {
@@ -891,5 +990,25 @@ mod tests {
         assert_eq!(entry["timeOffset"], json!(600));
         assert_eq!(entry["meta"]["name"], json!("Show"));
         assert_eq!(entry["meta"]["poster"], json!("p.jpg"));
+    }
+
+    #[test]
+    fn request_payloads_preserve_episode_progress_and_catalog_sources() {
+        let progress: Value = serde_json::from_str(&playback_progress_request_json(&json!({"meta":{"id":"tt1","type":"series"},"videoId":"tt1:2:3","position":400,"duration":1000,"watchedAt":42}).to_string()).unwrap()).unwrap();
+        assert_eq!(progress["progress_key"], "tt1_s2e3");
+        let collection: Value = serde_json::from_str(&collection_request_json(&json!({"id":"c","title":"C","folders":[{"id":"f","title":"F","catalogSources":[{"addonId":"a","catalogId":"top","type":"movie"}]}]}).to_string()).unwrap()).unwrap();
+        assert_eq!(collection["folders"][0]["sources"][0]["provider"], "addon");
+    }
+
+    #[test]
+    fn addon_reconciliation_preserves_core_addon_state_rules() {
+        let plan: Value = serde_json::from_str(&addon_reconciliation_plan_json(&json!({
+            "current": [{"id":"old","url":"https://old"},{"id":"keep","url":"https://keep"}],
+            "desired": [{"url":"https://keep","enabled":false},{"url":"https://new"}],
+            "userId":"user", "profileId":2,
+        }).to_string()).unwrap()).unwrap();
+        assert_eq!(plan["deleteIds"], json!(["old"]));
+        assert_eq!(plan["updates"][0]["payload"]["enabled"], false);
+        assert_eq!(plan["creates"][0]["profile_id"], 2);
     }
 }

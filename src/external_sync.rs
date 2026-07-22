@@ -3,6 +3,121 @@ use crate::content_identity::{
 };
 use serde_json::{json, Map, Value};
 
+pub(crate) fn external_sync_response_action(provider: &str, status_code: i64) -> &'static str {
+    if (200..300).contains(&status_code) {
+        "stamp_success"
+    } else if status_code == 401 && provider == "mal" {
+        "refresh_credentials"
+    } else if status_code == 401 {
+        "clear_credentials"
+    } else {
+        "keep_credentials"
+    }
+}
+
+pub(crate) fn external_sync_refresh_retry_action(status_code: Option<i64>) -> &'static str {
+    match status_code {
+        Some(code) if (200..300).contains(&code) => "stamp_success",
+        Some(401) => "clear_credentials",
+        _ => "keep_credentials",
+    }
+}
+
+pub(crate) fn simkl_history_request_json(args_json: &str) -> Option<String> {
+    let args: Value = serde_json::from_str(args_json).ok()?;
+    let imdb_id = args.get("imdbId")?.as_str()?.trim();
+    if imdb_id.is_empty() {
+        return None;
+    }
+    let is_series = args.get("isSeries")?.as_bool()?;
+    let ids = json!({ "imdb": imdb_id });
+    if !is_series {
+        return serde_json::to_string(&json!({ "movies": [{ "ids": ids }] })).ok();
+    }
+    let seasons = args
+        .get("episodesBySeasonNumber")
+        .and_then(Value::as_object)
+        .map(|seasons| {
+            seasons
+                .iter()
+                .filter_map(|(season, episodes)| {
+                    let season = season.parse::<i64>().ok()?;
+                    let episodes = episodes.as_array()?.iter().filter_map(Value::as_i64).map(|number| json!({ "number": number })).collect::<Vec<_>>();
+                    Some(json!({ "number": season, "episodes": episodes }))
+                })
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    serde_json::to_string(&json!({ "shows": [{ "ids": ids, "seasons": seasons }] })).ok()
+}
+
+pub(crate) fn simkl_watchlist_request_json(args_json: &str, remove: bool) -> Option<String> {
+    let args: Value = serde_json::from_str(args_json).ok()?;
+    let imdb_id = args.get("imdbId")?.as_str()?.trim();
+    if imdb_id.is_empty() {
+        return None;
+    }
+    let is_series = args.get("isSeries")?.as_bool()?;
+    let item = if remove {
+        json!({ "ids": { "imdb": imdb_id } })
+    } else {
+        json!({ "ids": { "imdb": imdb_id }, "to": "plantowatch" })
+    };
+    serde_json::to_string(&if is_series {
+        json!({ "shows": [item] })
+    } else {
+        json!({ "movies": [item] })
+    })
+    .ok()
+}
+
+pub(crate) fn trakt_sync_item_to_meta_json(args_json: &str) -> Option<String> {
+    let args: Value = serde_json::from_str(args_json).ok()?;
+    let item = args.get("item")?;
+    let summary = item.get("movie").or_else(|| item.get("show"))?;
+    let id = trakt_content_id_from_ids_json(&summary.get("ids")?.to_string())?;
+    let year = summary.get("year").and_then(Value::as_i64);
+    serde_json::to_string(&json!({"id":id,"name":summary.get("title").and_then(Value::as_str).filter(|name| !name.trim().is_empty()).unwrap_or_else(|| args.get("unknownName").and_then(Value::as_str).unwrap_or("Unknown")),"type":args.get("type")?.as_str()?,"poster":Value::Null,"releaseInfo":year.map(|year| year.to_string()),"released":year.map(|year| format!("{year}-01-01"))})).ok()
+}
+
+pub(crate) fn mal_list_update_json(args_json: &str, watched: bool) -> Option<String> {
+    let args: Value = serde_json::from_str(args_json).ok()?;
+    let meta = args.get("meta")?;
+    if meta.get("type").and_then(Value::as_str) != Some("series") {
+        return None;
+    }
+    let mal_id = meta
+        .get("id")
+        .and_then(Value::as_str)
+        .and_then(|id| id.strip_prefix("mal:"))
+        .filter(|id| !id.is_empty() && id.chars().all(|ch| ch.is_ascii_digit()))
+        .and_then(|id| id.parse::<i64>().ok())?;
+    if !watched {
+        return serde_json::to_string(&json!({
+            "malId": mal_id,
+            "watchedEpisodes": Value::Null,
+            "status": "plan_to_watch",
+        }))
+        .ok();
+    }
+    let highest_episode = args
+        .get("episodes")
+        .and_then(Value::as_array)?
+        .iter()
+        .filter_map(|episode| episode.get("number").and_then(Value::as_i64))
+        .max()?;
+    let completed = meta
+        .get("episodesCount")
+        .and_then(Value::as_i64)
+        .is_some_and(|count| highest_episode >= count);
+    serde_json::to_string(&json!({
+        "malId": mal_id,
+        "watchedEpisodes": highest_episode,
+        "status": if completed { "completed" } else { "watching" },
+    }))
+    .ok()
+}
+
 pub(crate) fn provider_calendar_items_json(args_json: &str) -> Option<String> {
     let args: Value = serde_json::from_str(args_json).ok()?;
     let provider = args.get("provider")?.as_str()?;
@@ -662,6 +777,16 @@ fn trakt_id_from_source(source: &Value) -> Option<String> {
                 .and_then(Value::as_i64)
                 .map(|n| format!("tmdb:{n}"))
         })
+}
+
+pub(crate) fn trakt_playback_delete_ids_json(args_json: &str) -> Option<String> {
+    let args: Value = serde_json::from_str(args_json).ok()?;
+    let content_id = args.get("contentId")?.as_str()?;
+    let ids = args.get("items")?.as_array()?.iter().filter_map(|item| {
+        let source = item.get("show").or_else(|| item.get("movie"))?;
+        (trakt_id_from_source(source).as_deref() == Some(content_id)).then(|| item.get("id")?.as_i64())
+    }).collect::<Vec<_>>();
+    serde_json::to_string(&ids).ok()
 }
 
 pub(crate) fn trakt_playback_items_to_library_json(items_json: &str) -> Option<String> {
@@ -2418,5 +2543,72 @@ mod tests {
         let result: Value =
             serde_json::from_str(&merge_watchlist_timestamped_json(&local, &remote)).unwrap();
         assert_eq!(result["toApplyLocal"]["add"], json!(["a"]));
+    }
+
+    #[test]
+    fn mal_sync_policy_maps_auth_and_episode_updates() {
+        assert_eq!(external_sync_response_action("mal", 401), "refresh_credentials");
+        assert_eq!(external_sync_response_action("simkl", 401), "clear_credentials");
+        assert_eq!(external_sync_refresh_retry_action(Some(401)), "clear_credentials");
+        let watched = mal_list_update_json(
+            &json!({
+                "meta": { "id": "mal:42", "type": "series", "episodesCount": 12 },
+                "episodes": [{ "number": 12 }],
+            })
+            .to_string(),
+            true,
+        )
+        .and_then(|value| serde_json::from_str::<Value>(&value).ok())
+        .unwrap();
+        assert_eq!(watched["status"], "completed");
+    }
+
+    #[test]
+    fn simkl_request_policy_builds_series_history_and_watchlist_removal() {
+        let history = simkl_history_request_json(
+            &json!({
+                "imdbId": "tt1",
+                "isSeries": true,
+                "episodesBySeasonNumber": { "2": [3, 4] },
+            })
+            .to_string(),
+        )
+        .and_then(|value| serde_json::from_str::<Value>(&value).ok())
+        .unwrap();
+        assert_eq!(history["shows"][0]["seasons"][0]["number"], 2);
+        assert_eq!(history["shows"][0]["seasons"][0]["episodes"].as_array().map(Vec::len), Some(2));
+
+        let removal = simkl_watchlist_request_json(
+            &json!({ "imdbId": "tt1", "isSeries": false }).to_string(),
+            true,
+        )
+        .and_then(|value| serde_json::from_str::<Value>(&value).ok())
+        .unwrap();
+        assert!(removal["movies"][0].get("to").is_none());
+    }
+
+    #[test]
+    fn trakt_sync_item_policy_normalizes_identity_and_release_date() {
+        let meta = trakt_sync_item_to_meta_json(
+            &json!({
+                "item": { "show": { "title": "Show", "year": 2025, "ids": { "imdb": "tt1" } } },
+                "type": "series",
+                "unknownName": "Unknown",
+            })
+            .to_string(),
+        )
+        .and_then(|value| serde_json::from_str::<Value>(&value).ok())
+        .unwrap();
+        assert_eq!(meta["id"], "tt1");
+        assert_eq!(meta["released"], "2025-01-01");
+    }
+
+    #[test]
+    fn trakt_playback_deletion_matches_shared_content_identity() {
+        let ids: Value = serde_json::from_str(&trakt_playback_delete_ids_json(&json!({
+            "contentId":"tmdb:42",
+            "items":[{"id":1,"show":{"ids":{"tmdb":42}}},{"id":2,"movie":{"ids":{"imdb":"tt1"}}}],
+        }).to_string()).unwrap()).unwrap();
+        assert_eq!(ids, json!([1]));
     }
 }

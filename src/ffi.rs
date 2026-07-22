@@ -3,8 +3,8 @@ use serde_json::{json, Value};
 #[cfg(feature = "native")]
 use crate::dolby_vision_rpu;
 use crate::{
-    addon_protocol, addon_resource, addon_store, anime_detection, app_state, calendar_plan,
-    content_identity, core_contract, data_policy, discovery_plan, external_sync,
+    addon_protocol, addon_resource, addon_store, addon_uptime, anime_detection, app_state, calendar_plan,
+    content_identity, core_contract, data_policy, desktop_playback, discovery_plan, external_sync,
     headless_adapter_plan, headless_engine, home_ranking, intro_segments, library_state,
     nuvio_sync, offline_download, platform_plan, player_flow, player_policy, player_scrobble,
     plugins, profile_avatar_pack, profile_contract, profile_prefs, repository_flow, search_plan,
@@ -73,6 +73,7 @@ pub fn core_invoke(method: &str, args_json: &str) -> String {
 const ROUTERS: &[fn(&str, &str) -> Outcome] = &[
     route_engine_lifecycle,
     route_addon_protocol,
+    route_addon_uptime,
     route_addon_resource,
     route_resource_plan,
     route_stream_policy,
@@ -303,6 +304,16 @@ fn route_addon_protocol(method: &str, args_json: &str) -> Outcome {
     }
 }
 
+fn route_addon_uptime(method: &str, args_json: &str) -> Outcome {
+    match method {
+        "addonUptimeMatchPlan" => opt_json(addon_uptime::addon_uptime_match_plan_json(args_json)),
+        _ => Err(fail(
+            ErrorKind::UnknownMethod,
+            "unknown addon uptime method",
+        )),
+    }
+}
+
 fn route_addon_resource(method: &str, args_json: &str) -> Outcome {
     match method {
         "parseAddonResourceResult" => {
@@ -340,6 +351,13 @@ fn route_addon_resource(method: &str, args_json: &str) -> Outcome {
                 field_str(&args, "resourceUrl")?,
             ))
         }
+        "parseCatalogItems" => opt_json(addon_resource::parse_catalog_items_json(
+            &arg_str(args_json, "body")?,
+            &arg_str(args_json, "fallbackType")?,
+        )),
+        "parseDirectStreams" => opt_json(addon_resource::parse_direct_streams_json(&arg_str(
+            args_json, "body",
+        )?)),
 
         _ => Err(fail(
             ErrorKind::UnknownMethod,
@@ -609,6 +627,13 @@ fn route_player_policy(method: &str, args_json: &str) -> Outcome {
                 field_str(&args, "nextVideoId")?,
             ))
         }
+        "chapterSkipSegments" => {
+            let args = object(args_json)?;
+            into_json(desktop_playback::chapter_skip_segments_json(field_str(
+                &args,
+                "chaptersJson",
+            )?))
+        }
 
         _ => Err(fail(
             ErrorKind::UnknownMethod,
@@ -691,6 +716,11 @@ fn route_offline(method: &str, args_json: &str) -> Outcome {
 
 fn route_content_identity(method: &str, args_json: &str) -> Outcome {
     match method {
+        "contentImdbId" => Ok(json!(content_identity::imdb_id(&arg_str(args_json, "id")?))),
+        "contentBaseId" => Ok(Value::String(content_identity::base_content_id(&arg_str(args_json, "id")?))),
+        "normalizeSeriesLookupId" => Ok(Value::String(content_identity::normalize_series_lookup_id(&arg_str(args_json, "id")?))),
+        "isTmdbLikeContentId" => Ok(json!(content_identity::is_tmdb_like_content_id(&arg_str(args_json, "id")?))),
+        "tmdbNumericId" => Ok(json!(content_identity::tmdb_numeric_id(&arg_str(args_json, "id")?))),
         "parseVideoId" => into_json(content_identity::parse_video_id_json(&arg_str(
             args_json, "id",
         )?)),
@@ -988,6 +1018,30 @@ fn route_calendar(method: &str, args_json: &str) -> Outcome {
 
 fn route_external_sync_trakt(method: &str, args_json: &str) -> Outcome {
     match method {
+        "externalSyncResponseAction" => {
+            let args = object(args_json)?;
+            let status_code = field(&args, "statusCode")?
+                .as_i64()
+                .ok_or_else(|| fail(ErrorKind::InvalidArgs, "statusCode must be a number"))?;
+            Ok(Value::String(
+                external_sync::external_sync_response_action(
+                    field_str(&args, "provider")?,
+                    status_code,
+                )
+                .to_string(),
+            ))
+        }
+        "externalSyncRefreshRetryAction" => {
+            let args = object(args_json)?;
+            Ok(Value::String(
+                external_sync::external_sync_refresh_retry_action(
+                    args.get("statusCode").and_then(Value::as_i64),
+                )
+                .to_string(),
+            ))
+        }
+        "malWatchedUpdate" => opt_json(external_sync::mal_list_update_json(args_json, true)),
+        "malWatchlistUpdate" => opt_json(external_sync::mal_list_update_json(args_json, false)),
         "providerCalendarItems" => opt_json(external_sync::provider_calendar_items_json(args_json)),
         "providerPaginationPlan" => {
             opt_json(external_sync::provider_pagination_plan_json(args_json))
@@ -1025,6 +1079,8 @@ fn route_external_sync_trakt(method: &str, args_json: &str) -> Outcome {
         "traktContentIdFromIds" => opt_str(external_sync::trakt_content_id_from_ids_json(
             &arg_str(args_json, "idsJson")?,
         )),
+        "traktSyncItemToMeta" => opt_json(external_sync::trakt_sync_item_to_meta_json(args_json)),
+        "traktPlaybackDeleteIds" => opt_json(external_sync::trakt_playback_delete_ids_json(args_json)),
         "traktIdsFromContentId" => opt_json(external_sync::trakt_ids_from_content_id_json(
             &arg_str(args_json, "rawId")?,
         )),
@@ -1181,6 +1237,9 @@ fn route_external_sync_trakt(method: &str, args_json: &str) -> Outcome {
 
 fn route_external_sync_simkl(method: &str, args_json: &str) -> Outcome {
     match method {
+        "simklHistoryRequest" => opt_json(external_sync::simkl_history_request_json(args_json)),
+        "simklWatchlistRequest" => opt_json(external_sync::simkl_watchlist_request_json(args_json, false)),
+        "simklWatchlistRemovalRequest" => opt_json(external_sync::simkl_watchlist_request_json(args_json, true)),
         "simklMarkWatchedBody" => opt_json(external_sync::simkl_mark_watched_body_json(args_json)),
         "simklWatchlistBody" => opt_json(external_sync::simkl_watchlist_body_json(args_json)),
         "simklWatchingToItems" => {
@@ -1570,6 +1629,12 @@ fn route_library_state(method: &str, args_json: &str) -> Outcome {
         "folderPageState" => opt_json(home_ranking::folder_page_state_json(args_json)),
         "folderSourcePagePlan" => opt_json(home_ranking::folder_source_page_plan_json(args_json)),
         "homeHeroPlan" => opt_json(home_ranking::home_hero_plan_json(args_json)),
+        "homeBillboardCandidateScore" => Ok(json!(home_ranking::billboard_candidate_score_json(args_json))),
+        "homeBillboardVisualScore" => Ok(json!(home_ranking::billboard_visual_score_json(args_json))),
+        "homeBillboardHasBackdrop" => Ok(json!(home_ranking::billboard_has_backdrop_json(args_json))),
+        "homeBillboardEditorialMatchScore" => Ok(json!(home_ranking::billboard_editorial_match_score_json(args_json))),
+        "homeBillboardIdentityKey" => Ok(json!(home_ranking::billboard_identity_key_json(args_json))),
+        "homeBillboardNormalizedTitle" => Ok(Value::String(home_ranking::billboard_normalized_title(&arg_str(args_json, "value")?))),
         "mergeFolderSources" => opt_json(home_ranking::merge_folder_sources_json(args_json)),
         "watchedMapDiff" => {
             let args = object(args_json)?;
@@ -1620,6 +1685,12 @@ fn route_nuvio_sync(method: &str, args_json: &str) -> Outcome {
         "nuvioSortAddonsByPriority" => {
             opt_json(nuvio_sync::sort_addons_by_priority_json(args_json))
         }
+        "nuvioAddonState" => opt_json(nuvio_sync::addon_state_json(args_json)),
+        "nuvioAddonReconciliationPlan" => opt_json(nuvio_sync::addon_reconciliation_plan_json(args_json)),
+        "nuvioLibraryItemRequest" => opt_json(nuvio_sync::library_item_request_json(args_json)),
+        "nuvioWatchedItemsRequest" => opt_json(nuvio_sync::watched_items_request_json(args_json)),
+        "nuvioPlaybackProgressRequest" => opt_json(nuvio_sync::playback_progress_request_json(args_json)),
+        "nuvioCollectionRequest" => opt_json(nuvio_sync::collection_request_json(args_json)),
 
         _ => Err(fail(
             ErrorKind::UnknownMethod,
@@ -1783,6 +1854,7 @@ fn route_plugins(method: &str, args_json: &str) -> Outcome {
                 .map_err(|message| fail(ErrorKind::InvalidArgs, message))?;
             into_json(normalized)
         }
+        "pluginExecutionPlan" => opt_json(plugins::plugin_execution_plan_json(args_json)),
         "pluginStreamResultsParse" => {
             into_json(plugins::parse_plugin_stream_results_json(args_json))
         }

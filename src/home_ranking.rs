@@ -980,6 +980,45 @@ fn billboard_visual_score(meta: &Value) -> i32 {
     score
 }
 
+pub(crate) fn billboard_candidate_score_json(args_json: &str) -> Option<i32> {
+    let args: Value = serde_json::from_str(args_json).ok()?;
+    let meta = args.get("meta")?;
+    let days_since_release = args.get("daysSinceRelease").and_then(Value::as_i64);
+    Some(score_candidate(meta, days_since_release))
+}
+
+pub(crate) fn billboard_visual_score_json(args_json: &str) -> Option<i32> {
+    let args: Value = serde_json::from_str(args_json).ok()?;
+    Some(billboard_visual_score(args.get("meta")?))
+}
+
+pub(crate) fn billboard_has_backdrop_json(args_json: &str) -> Option<bool> {
+    let args: Value = serde_json::from_str(args_json).ok()?;
+    Some(has_backdrop_candidate(args.get("meta")?))
+}
+
+pub(crate) fn billboard_editorial_match_score_json(args_json: &str) -> Option<i32> {
+    let args: Value = serde_json::from_str(args_json).ok()?;
+    let meta = args.get("meta")?;
+    let min_year = args.get("minYear")?.as_i64()? as i32;
+    let release_year = meta_text(meta, "releaseInfo").parse::<i32>().unwrap_or(0);
+    let year_boost = if release_year >= min_year { 400 } else { 0 };
+    let rating_boost = (meta_text(meta, "imdbRating").parse::<f32>().unwrap_or(0.0) * 20.0) as i32;
+    let rank_boost = meta_i64(meta, "rank")
+        .map(|rank| (180 - rank as i32 * 12).max(0))
+        .unwrap_or(0);
+    Some(year_boost + rating_boost + rank_boost)
+}
+
+pub(crate) fn billboard_identity_key_json(args_json: &str) -> Option<String> {
+    let args: Value = serde_json::from_str(args_json).ok()?;
+    Some(billboard_key_value(args.get("meta")?))
+}
+
+pub(crate) fn billboard_normalized_title(value: &str) -> String {
+    normalized_billboard_title(value)
+}
+
 pub(crate) fn build_billboard_pool_json(
     enriched_json: &str,
     candidates_json: &str,
@@ -1371,6 +1410,29 @@ fn folder_tile(folder_id: &str, folder_title: &str, folder: &Map<String, Value>)
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn billboard_policy_scores_match_the_shared_rules() {
+        let meta = json!({
+            "id": "tt1",
+            "type": "series",
+            "rank": 1,
+            "imdbRating": "8.5",
+            "reason": "EDITORIAL_SPOTLIGHT",
+            "poster": "https://image.example/poster.jpg",
+            "background": "https://image.example/background.jpg",
+            "logo": "https://image.example/logo.png",
+            "description": "Description",
+            "releaseInfo": "2025",
+        });
+        let args = json!({ "meta": meta, "daysSinceRelease": 10 });
+
+        assert_eq!(billboard_candidate_score_json(&args.to_string()), Some(2127));
+        assert_eq!(billboard_visual_score_json(&args.to_string()), Some(470));
+        assert_eq!(billboard_editorial_match_score_json(&json!({ "meta": args["meta"], "minYear": 2020 }).to_string()), Some(738));
+        assert_eq!(billboard_identity_key_json(&args.to_string()), Some("series:tt1".to_string()));
+        assert_eq!(billboard_normalized_title("Çığ Şöw"), "cig sow");
+    }
 
     #[test]
     fn home_collection_shelves_filter_hidden_collections_and_resolve_catalog_sources() {
