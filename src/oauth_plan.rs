@@ -30,6 +30,10 @@ pub(crate) fn oauth_request_plan_json(request_json: &str) -> Option<String> {
             "https://api.trakt.tv/oauth/token",
             json!({"code": code, "client_id": client_id, "client_secret": client_secret, "redirect_uri": "fluxa://oauth/trakt", "grant_type": "authorization_code"}),
         ),
+        ("trakt", "refresh") => (
+            "https://api.trakt.tv/oauth/token",
+            json!({"refresh_token": refresh_token, "client_id": client_id, "client_secret": client_secret, "redirect_uri": "fluxa://oauth/trakt", "grant_type": "refresh_token"}),
+        ),
         ("anilist", "exchange") => (
             "https://anilist.co/api/v2/oauth/token",
             json!({"grant_type": "authorization_code", "client_id": client_id, "client_secret": client_secret, "redirect_uri": "fluxa://oauth/anilist", "code": code}),

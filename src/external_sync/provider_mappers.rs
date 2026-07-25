@@ -389,7 +389,11 @@ pub(crate) fn simkl_watchlist_body_json(args_json: &str) -> Option<String> {
                 .and_then(|id| id.parse::<i64>().ok())
                 .map(|id| json!({"tmdb": id}))
         })?;
-    let entry = json!({"ids": ids, "to": "plantowatch"});
+    let entry = if args.get("command").and_then(Value::as_str) == Some("remove") {
+        json!({"ids": ids})
+    } else {
+        json!({"ids": ids, "to": "plantowatch"})
+    };
     let body = if args.get("contentType").and_then(Value::as_str) == Some("series") {
         json!({"shows": [entry]})
     } else {

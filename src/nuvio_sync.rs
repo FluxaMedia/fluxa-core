@@ -3,8 +3,7 @@ use serde_json::{json, Map, Value};
 const RESOLVED_LOW_RATIO: f64 = 0.005;
 const RESOLVED_HIGH_RATIO: f64 = 0.995;
 const RESOLVED_MAX_POSITION_MS: f64 = 1000.0;
-const AVATAR_STORAGE_BASE: &str =
-    "https://dpyhjjcoabcglfmgecug.supabase.co/storage/v1/object/public/avatars/";
+const AVATAR_STORAGE_BASE: &str = "https://api.nuvio.tv/storage/v1/object/public/avatars/";
 
 fn parse(args_json: &str) -> Option<Value> {
     serde_json::from_str(args_json).ok()
@@ -1045,5 +1044,16 @@ mod tests {
         assert_eq!(plan["deleteIds"], json!(["old"]));
         assert_eq!(plan["updates"][0]["payload"]["enabled"], false);
         assert_eq!(plan["creates"][0]["profile_id"], 2);
+    }
+
+    #[test]
+    fn imported_profile_uses_its_nuvio_avatar_catalog_entry() {
+        let result: Value = serde_json::from_str(&build_local_profiles_json(&json!({
+            "sessionProfile": {"id":"local","nuvioUserId":"user","nuvioEmail":"user@example.com","nuvioAccessToken":"token"},
+            "nuvioProfiles": [{"profile_index":1,"name":"Primary","avatar_id":"avatar-1","avatar_url":null}],
+            "avatarCatalog": [{"id":"avatar-1","storage_path":"profiles/avatar-1.png"}],
+            "existingProfiles": [{"id":"local","nuvioUserId":"user","nuvioProfileIndex":1}],
+        }).to_string()).unwrap()).unwrap();
+        assert_eq!(result[0]["avatarUrl"], json!("https://api.nuvio.tv/storage/v1/object/public/avatars/profiles/avatar-1.png"));
     }
 }
