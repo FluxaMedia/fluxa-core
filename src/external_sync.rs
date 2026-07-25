@@ -1,4 +1,5 @@
 use crate::content_identity::{base_content_id, imdb_regex, parse_episode_locator};
+use crate::integration_settings::{accepts_progress_source, integration_settings_from_value};
 use serde_json::{json, Map, Value};
 
 pub(crate) fn external_sync_response_action(provider: &str, status_code: i64) -> &'static str {
@@ -492,6 +493,7 @@ pub(crate) fn external_provider_action_plan_json(args_json: &str) -> Option<Stri
     let anilist = has("anilistAccessToken");
     let stremio = has("stremioAuthKey");
     let nuvio = has("nuvioAccessToken");
+    let integration_settings = integration_settings_from_value(args.get("integrationSettings"));
     match kind {
         "markWatched" => {
             let watched = args.get("watched").and_then(Value::as_bool).unwrap_or(true);
@@ -515,7 +517,7 @@ pub(crate) fn external_provider_action_plan_json(args_json: &str) -> Option<Stri
             let progress_entry = args.get("progressInfo").filter(|value| value.get("contentId").is_some() && value.get("videoId").is_some() && value.get("durationSeconds").and_then(Value::as_f64).unwrap_or(0.0) > 0.0).map(progress_to_nuvio);
             let anime_episode = episode_infos.last().cloned().unwrap_or(Value::Null);
             Some(json!({
-                "trakt": trakt, "simkl": simkl, "anilist": anilist && watched, "stremio": stremio, "nuvio": nuvio,
+                "trakt": trakt && accepts_progress_source(&integration_settings, "trakt"), "simkl": simkl && accepts_progress_source(&integration_settings, "simkl"), "anilist": anilist && watched, "stremio": stremio && accepts_progress_source(&integration_settings, "stremio"), "nuvio": nuvio && accepts_progress_source(&integration_settings, "nuvio"),
                 "animeEpisode": anime_episode, "animeProgressEpisode": args.pointer("/progressInfo/episode").cloned().or_else(|| anime_episode.get("episode").cloned()),
                 "episodes": episode_infos, "watchedKeys": watched_keys, "historyItems": history_items, "progressEntry": progress_entry,
             }).to_string())
@@ -1198,6 +1200,7 @@ pub(crate) use provider_mappers::{
     simkl_recommendation_to_meta_json, simkl_watched_to_ids_json, simkl_watching_to_items_json,
     simkl_watchlist_body_json, simkl_watchlist_to_items_json, trakt_mark_watched_body_json,
     trakt_playback_items_dedup_json, trakt_related_items_to_metas_json, trakt_related_lookup_slug,
+    trakt_watched_shows_to_items_json,
 };
 mod anilist;
 
@@ -1223,6 +1226,7 @@ mod tests {
             "[]",
             Some("Nuvio"),
             &items.to_string(),
+            None,
             None,
             None,
         );
@@ -1500,6 +1504,80 @@ mod tests {
     }
 
     #[test]
+    fn trakt_watched_shows_create_continue_watching_items() {
+        let watched = json!([{
+            "last_watched_at": "2026-07-21T00:00:00.000Z",
+            "completed": 4,
+            "show": {"title": "Example", "aired_episodes": 8, "ids": {"imdb": "tt42"}},
+            "seasons": [{"number": 1, "episodes": [
+                {"number": 4, "last_watched_at": "2026-07-21T00:00:00.000Z"}
+            ]}]
+        }]);
+        let items: Value = serde_json::from_str(
+            &trakt_watched_shows_to_items_json(&watched.to_string()).expect("items"),
+        )
+        .unwrap();
+        assert_eq!(items[0]["id"], "tt42");
+        assert_eq!(items[0]["lastVideoId"], "tt42:1:4");
+        assert_eq!(items[0]["timeOffset"], 1);
+    }
+
+    #[test]
+    fn trakt_watched_shows_without_episode_timestamps_use_latest_episode() {
+        let watched = json!([{
+            "last_watched_at": "2026-07-21T00:00:00.000Z",
+            "completed": 3,
+            "show": {"title": "Example", "aired_episodes": 12, "ids": {"imdb": "tt42"}},
+            "seasons": [
+                {"number": 1, "episodes": [{"number": 3}]},
+                {"number": 9, "episodes": [{"number": 3}]}
+            ]
+        }]);
+        let items: Value = serde_json::from_str(
+            &trakt_watched_shows_to_items_json(&watched.to_string()).expect("items"),
+        )
+        .unwrap();
+        assert_eq!(items[0]["lastVideoId"], "tt42:9:3");
+    }
+
+    #[test]
+    fn trakt_watched_shows_use_furthest_episode_over_newer_earlier_rewatch() {
+        let watched = json!([{
+            "last_watched_at": "2026-07-21T00:00:00.000Z",
+            "completed": 3,
+            "show": {"title": "Example", "aired_episodes": 12, "ids": {"imdb": "tt42"}},
+            "seasons": [
+                {"number": 1, "episodes": [{"number": 2, "last_watched_at": "2026-07-21T00:00:00.000Z"}]},
+                {"number": 9, "episodes": [{"number": 2, "last_watched_at": "2026-07-01T00:00:00.000Z"}]}
+            ]
+        }]);
+        let items: Value = serde_json::from_str(
+            &trakt_watched_shows_to_items_json(&watched.to_string()).expect("items"),
+        )
+        .unwrap();
+        assert_eq!(items[0]["lastVideoId"], "tt42:9:2");
+    }
+
+    #[test]
+    fn simkl_watching_items_are_kept_for_continue_watching() {
+        let items = simkl_watching_to_items_json(
+            r#"[{"show":{"title":"Example","ids":{"imdb":"tt42"}},"last_watched":"2026-07-21T00:00:00.000Z"}]"#,
+            "[]",
+        )
+        .expect("items");
+        let replaced: Value = serde_json::from_str(&replace_external_continue_watching_json(
+            "[]",
+            Some("simkl"),
+            &items,
+            None,
+            None,
+            None,
+        ))
+        .unwrap();
+        assert_eq!(replaced[0]["id"], "tt42");
+    }
+
+    #[test]
     fn external_list_mappers_skip_invalid_records_and_keep_valid_ones() {
         let trakt: Vec<Value> = serde_json::from_str(
             &trakt_watchlist_to_items_json(
@@ -1514,14 +1592,14 @@ mod tests {
 
         let simkl: Vec<Value> = serde_json::from_str(
             &simkl_watchlist_to_items_json(
-                r#"[{"show":{"title":"Valid","ids":{"imdb":"tt7"}}},{"show":{"title":"Invalid","ids":{}}}]"#,
+                r#"[{"show":{"title":"Valid","ids":{"tmdb":7}}},{"show":{"title":"Invalid","ids":{}}}]"#,
                 "[]",
             )
             .expect("simkl items"),
         )
         .unwrap();
         assert_eq!(simkl.len(), 1);
-        assert_eq!(simkl[0]["id"], "tt7");
+        assert_eq!(simkl[0]["id"], "tmdb:7");
     }
 
     #[test]

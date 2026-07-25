@@ -689,6 +689,8 @@ fn apply_next_episode_badge(
         "continueWatchingBadge": badge,
         "newEpisodeReleasedAt": released_str,
         "savedAt": saved_at_new,
+        "source": candidate.get("source").cloned().unwrap_or(Value::Null),
+        "reason": candidate.get("reason").cloned().unwrap_or(Value::Null),
         "unwatchedAhead": unwatched_ahead,
     });
 }
@@ -1177,6 +1179,7 @@ mod tests {
             "timeOffset": 1,
             "duration": 99999,
             "savedAt": "2020-02-01T00:00:00Z",
+            "reason": "simkl",
         }]);
         let videos_by_series = json!({
             "s1": [
@@ -1233,6 +1236,7 @@ mod tests {
             "continueWatchingBadge": "upNext",
             "continueWatchingEpisodeResolved": true,
             "savedAt": "2020-02-01T00:00:00Z",
+            "reason": "simkl",
         }]);
         let videos_by_series = json!({
             "s1": [
@@ -1258,6 +1262,7 @@ mod tests {
         assert_eq!(result[0]["lastVideoId"], "s1:2:3");
         assert_eq!(result[0]["lastEpisodeNumber"], 3);
         assert_eq!(result[0]["continueWatchingBadge"], "upNext");
+        assert_eq!(result[0]["reason"], "simkl");
     }
 
     #[test]
@@ -1272,6 +1277,7 @@ mod tests {
             "timeOffset": 1,
             "duration": 99999,
             "savedAt": "2020-02-01T00:00:00Z",
+            "reason": "simkl",
         }]);
         let videos_by_series = json!({
             "s1": [
@@ -1297,5 +1303,6 @@ mod tests {
 
         assert_eq!(result[0]["lastVideoId"], "s1:1:3");
         assert_eq!(result[0]["unwatchedAhead"], 1);
+        assert_eq!(result[0]["reason"], "simkl");
     }
 }

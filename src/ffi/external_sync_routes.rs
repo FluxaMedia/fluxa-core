@@ -99,6 +99,9 @@ pub(super) fn route_external_sync_trakt(method: &str, args_json: &str) -> Outcom
         "traktPlaybackItemsToLibrary" => opt_json(
             external_sync::trakt_playback_items_to_library_json(args_json),
         ),
+        "traktWatchedShowsToItems" => {
+            opt_json(external_sync::trakt_watched_shows_to_items_json(args_json))
+        }
         "traktWatchlistToItems" => {
             let args = object(args_json)?;
             opt_json(external_sync::trakt_watchlist_to_items_json(
@@ -187,6 +190,7 @@ pub(super) fn route_external_sync_trakt(method: &str, args_json: &str) -> Outcom
                 field_str(&args, "itemsJson")?,
                 args.get("sourceOfTruth").and_then(Value::as_str),
                 args.get("rankingMode").and_then(Value::as_str),
+                args.get("continueWatchingDays").and_then(Value::as_i64),
             ))
         }
         "promoteExternalProgressPlan" => opt_json(

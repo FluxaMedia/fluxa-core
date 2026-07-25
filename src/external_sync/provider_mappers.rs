@@ -10,12 +10,7 @@ pub(crate) fn simkl_watching_to_items_json(shows_json: &str, movies_json: &str) 
         let Some(show) = entry.get("show") else {
             continue;
         };
-        let Some(ids) = show.get("ids") else { continue };
-        let Some(imdb) = ids
-            .get("imdb")
-            .and_then(Value::as_str)
-            .filter(|s| !s.is_empty())
-        else {
+        let Some(id) = trakt_id_from_source(show) else {
             continue;
         };
         let title = show.get("title").and_then(Value::as_str).unwrap_or("");
@@ -28,8 +23,9 @@ pub(crate) fn simkl_watching_to_items_json(shows_json: &str, movies_json: &str) 
             .and_then(Value::as_str)
             .unwrap_or_default();
         items.push(json!({
-            "id": imdb, "type": "series", "name": title,
+            "id": id, "type": "series", "name": title,
             "poster": poster, "continueWatchingBadge": "upNext",
+            "timeOffset": 1, "duration": 1,
             "savedAt": saved_at, "reason": "simkl"
         }));
     }
@@ -37,14 +33,7 @@ pub(crate) fn simkl_watching_to_items_json(shows_json: &str, movies_json: &str) 
         let Some(movie) = entry.get("movie") else {
             continue;
         };
-        let Some(ids) = movie.get("ids") else {
-            continue;
-        };
-        let Some(imdb) = ids
-            .get("imdb")
-            .and_then(Value::as_str)
-            .filter(|s| !s.is_empty())
-        else {
+        let Some(id) = trakt_id_from_source(movie) else {
             continue;
         };
         let title = movie.get("title").and_then(Value::as_str).unwrap_or("");
@@ -57,10 +46,93 @@ pub(crate) fn simkl_watching_to_items_json(shows_json: &str, movies_json: &str) 
             .and_then(Value::as_str)
             .unwrap_or_default();
         items.push(json!({
-            "id": imdb, "type": "movie", "name": title,
-            "poster": poster, "savedAt": saved_at, "reason": "simkl"
+            "id": id, "type": "movie", "name": title,
+            "poster": poster, "timeOffset": 1, "duration": 1,
+            "savedAt": saved_at, "reason": "simkl"
         }));
     }
+    serde_json::to_string(&items).ok()
+}
+
+pub(crate) fn trakt_watched_shows_to_items_json(shows_json: &str) -> Option<String> {
+    let shows: Vec<Value> = serde_json::from_str(shows_json).unwrap_or_default();
+    let mut items = Vec::new();
+
+    for entry in shows {
+        let Some(show) = entry.get("show") else {
+            continue;
+        };
+        let Some(id) = trakt_id_from_source(show) else {
+            continue;
+        };
+        let aired_episodes = show.get("aired_episodes").and_then(Value::as_i64);
+        let completed = entry.get("completed").and_then(Value::as_i64);
+        if aired_episodes.is_some_and(|aired| completed.unwrap_or(0) >= aired) {
+            continue;
+        }
+
+        let mut last_episode: Option<(i64, i64, Option<String>)> = None;
+        for season in entry
+            .get("seasons")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+        {
+            let season_number = season.get("number").and_then(Value::as_i64).unwrap_or(0);
+            if season_number <= 0 {
+                continue;
+            }
+            for episode in season
+                .get("episodes")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+            {
+                let number = episode.get("number").and_then(Value::as_i64).unwrap_or(0);
+                if number <= 0 {
+                    continue;
+                }
+                let watched_at = episode
+                    .get("last_watched_at")
+                    .or_else(|| episode.get("watched_at"))
+                    .and_then(Value::as_str)
+                    .filter(|value| !value.is_empty())
+                    .map(str::to_string);
+                let rank = (season_number, number);
+                let replace = last_episode
+                    .as_ref()
+                    .is_none_or(|(previous_season, previous_number, _)| {
+                        rank > (*previous_season, *previous_number)
+                    });
+                if replace {
+                    last_episode = Some((season_number, number, watched_at));
+                }
+            }
+        }
+        let Some((season, number, watched_at)) = last_episode else {
+            continue;
+        };
+        let saved_at = entry
+            .get("last_watched_at")
+            .and_then(Value::as_str)
+            .or(watched_at.as_deref())
+            .unwrap_or("");
+        let title = show.get("title").and_then(Value::as_str).unwrap_or("");
+        items.push(json!({
+            "id": id,
+            "type": "series",
+            "name": title,
+            "continueWatchingBadge": "upNext",
+            "lastVideoId": format!("{id}:{season}:{number}"),
+            "lastEpisodeSeason": season,
+            "lastEpisodeNumber": number,
+            "timeOffset": 1,
+            "duration": 1,
+            "savedAt": saved_at,
+            "reason": "trakt"
+        }));
+    }
+
     serde_json::to_string(&items).ok()
 }
 
@@ -72,12 +144,7 @@ pub(crate) fn simkl_watchlist_to_items_json(shows_json: &str, movies_json: &str)
         let Some(show) = entry.get("show") else {
             continue;
         };
-        let Some(ids) = show.get("ids") else { continue };
-        let Some(imdb) = ids
-            .get("imdb")
-            .and_then(Value::as_str)
-            .filter(|s| !s.is_empty())
-        else {
+        let Some(id) = trakt_id_from_source(show) else {
             continue;
         };
         let title = show.get("title").and_then(Value::as_str).unwrap_or("");
@@ -85,20 +152,13 @@ pub(crate) fn simkl_watchlist_to_items_json(shows_json: &str, movies_json: &str)
             .get("poster")
             .and_then(Value::as_str)
             .map(|p| format!("https://simkl.in/posters/{p}_m.jpg"));
-        items.push(json!({ "id": imdb, "name": title, "type": "series", "source": "simkl", "poster": poster }));
+        items.push(json!({ "id": id, "name": title, "type": "series", "source": "simkl", "poster": poster }));
     }
     for entry in &movies {
         let Some(movie) = entry.get("movie") else {
             continue;
         };
-        let Some(ids) = movie.get("ids") else {
-            continue;
-        };
-        let Some(imdb) = ids
-            .get("imdb")
-            .and_then(Value::as_str)
-            .filter(|s| !s.is_empty())
-        else {
+        let Some(id) = trakt_id_from_source(movie) else {
             continue;
         };
         let title = movie.get("title").and_then(Value::as_str).unwrap_or("");
@@ -106,7 +166,7 @@ pub(crate) fn simkl_watchlist_to_items_json(shows_json: &str, movies_json: &str)
             .get("poster")
             .and_then(Value::as_str)
             .map(|p| format!("https://simkl.in/posters/{p}_m.jpg"));
-        items.push(json!({ "id": imdb, "name": title, "type": "movie", "source": "simkl", "poster": poster }));
+        items.push(json!({ "id": id, "name": title, "type": "movie", "source": "simkl", "poster": poster }));
     }
     serde_json::to_string(&items).ok()
 }
@@ -137,6 +197,7 @@ pub(crate) fn replace_external_continue_watching_json(
     items_json: &str,
     source_of_truth: Option<&str>,
     ranking_mode: Option<&str>,
+    continue_watching_days: Option<i64>,
 ) -> String {
     let existing: Vec<Value> = serde_json::from_str(existing_json).unwrap_or_default();
     let incoming: Vec<Value> = serde_json::from_str(items_json).unwrap_or_default();
@@ -150,7 +211,10 @@ pub(crate) fn replace_external_continue_watching_json(
                 .and_then(Value::as_f64)
                 .unwrap_or(0.0);
             let duration = item.get("duration").and_then(Value::as_f64).unwrap_or(0.0);
-            !id.is_empty() && offset > 0.0 && duration > 0.0
+            let within_window = continue_watching_days
+                .filter(|days| *days > 0)
+                .is_none_or(|days| saved_at_ms(item) >= chrono::Utc::now().timestamp_millis() - days * 86_400_000);
+            !id.is_empty() && offset > 0.0 && duration > 0.0 && within_window
         })
         .collect();
 
