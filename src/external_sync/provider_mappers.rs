@@ -2,9 +2,21 @@ use super::{ranked_winner, saved_at_ms, trakt_id_from_source, trakt_ids_from_con
 use crate::content_identity::parse_video_id_json;
 use serde_json::{json, Value};
 
+fn simkl_entries(json: &str, key: &str) -> Vec<Value> {
+    match serde_json::from_str::<Value>(json).ok() {
+        Some(Value::Array(entries)) => entries,
+        Some(Value::Object(response)) => response
+            .get(key)
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default(),
+        _ => Vec::new(),
+    }
+}
+
 pub(crate) fn simkl_watching_to_items_json(shows_json: &str, movies_json: &str) -> Option<String> {
-    let shows: Vec<Value> = serde_json::from_str(shows_json).unwrap_or_default();
-    let movies: Vec<Value> = serde_json::from_str(movies_json).unwrap_or_default();
+    let shows = simkl_entries(shows_json, "shows");
+    let movies = simkl_entries(movies_json, "movies");
     let mut items: Vec<Value> = Vec::new();
     for entry in &shows {
         let Some(show) = entry.get("show") else {
@@ -137,8 +149,8 @@ pub(crate) fn trakt_watched_shows_to_items_json(shows_json: &str) -> Option<Stri
 }
 
 pub(crate) fn simkl_watchlist_to_items_json(shows_json: &str, movies_json: &str) -> Option<String> {
-    let shows: Vec<Value> = serde_json::from_str(shows_json).unwrap_or_default();
-    let movies: Vec<Value> = serde_json::from_str(movies_json).unwrap_or_default();
+    let shows = simkl_entries(shows_json, "shows");
+    let movies = simkl_entries(movies_json, "movies");
     let mut items: Vec<Value> = Vec::new();
     for entry in &shows {
         let Some(show) = entry.get("show") else {
@@ -172,8 +184,8 @@ pub(crate) fn simkl_watchlist_to_items_json(shows_json: &str, movies_json: &str)
 }
 
 pub(crate) fn simkl_watched_to_ids_json(shows_json: &str, movies_json: &str) -> Option<String> {
-    let shows: Vec<Value> = serde_json::from_str(shows_json).unwrap_or_default();
-    let movies: Vec<Value> = serde_json::from_str(movies_json).unwrap_or_default();
+    let shows = simkl_entries(shows_json, "shows");
+    let movies = simkl_entries(movies_json, "movies");
     let mut ids: serde_json::Map<String, Value> = serde_json::Map::new();
     for entry in &shows {
         if let Some(id) = entry.get("show").and_then(trakt_id_from_source) {

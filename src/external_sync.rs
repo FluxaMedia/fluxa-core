@@ -1561,7 +1561,7 @@ mod tests {
     #[test]
     fn simkl_watching_items_are_kept_for_continue_watching() {
         let items = simkl_watching_to_items_json(
-            r#"[{"show":{"title":"Example","ids":{"imdb":"tt42"}},"last_watched":"2026-07-21T00:00:00.000Z"}]"#,
+            r#"{"shows":[{"show":{"title":"Example","ids":{"imdb":"tt42"}},"last_watched":"2026-07-21T00:00:00.000Z"}]}"#,
             "[]",
         )
         .expect("items");
