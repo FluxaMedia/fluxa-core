@@ -97,10 +97,22 @@ fn has_token(token: Option<&str>) -> bool {
 pub(crate) fn lifecycle_action_json(args_json: &str) -> Option<String> {
     let args: serde_json::Value = serde_json::from_str(args_json).ok()?;
     let event = args.get("event")?.as_str()?;
-    let has_started = args.get("hasStarted").and_then(serde_json::Value::as_bool).unwrap_or(false);
-    let has_paused = args.get("hasPaused").and_then(serde_json::Value::as_bool).unwrap_or(false);
-    let has_stopped = args.get("hasStopped").and_then(serde_json::Value::as_bool).unwrap_or(false);
-    let progress = args.get("progress").and_then(serde_json::Value::as_f64).unwrap_or(0.0) as f32;
+    let has_started = args
+        .get("hasStarted")
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(false);
+    let has_paused = args
+        .get("hasPaused")
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(false);
+    let has_stopped = args
+        .get("hasStopped")
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(false);
+    let progress = args
+        .get("progress")
+        .and_then(serde_json::Value::as_f64)
+        .unwrap_or(0.0) as f32;
     let token = args.get("token").and_then(serde_json::Value::as_str);
     let action = match event {
         "start" if should_send_start(token, true, !has_paused && has_started, progress) => "start",

@@ -165,7 +165,12 @@ pub(crate) fn provider_calendar_items_json(args_json: &str) -> Option<String> {
         }
         return serde_json::to_string(&items).ok();
     }
-    if provider == "simkl" && args.get("shows").and_then(|value| value.get("calendar")).is_some() {
+    if provider == "simkl"
+        && args
+            .get("shows")
+            .and_then(|value| value.get("calendar"))
+            .is_some()
+    {
         let allowed_content_ids: std::collections::HashSet<&str> = args
             .get("allowedContentIds")
             .and_then(Value::as_array)
@@ -175,31 +180,63 @@ pub(crate) fn provider_calendar_items_json(args_json: &str) -> Option<String> {
             .collect();
         for (calendar, metadata, is_movie) in [
             (
-                args.get("shows").and_then(|value| value.get("calendar")).and_then(Value::as_array),
-                args.get("shows").and_then(|value| value.get("metadata")).and_then(Value::as_object),
+                args.get("shows")
+                    .and_then(|value| value.get("calendar"))
+                    .and_then(Value::as_array),
+                args.get("shows")
+                    .and_then(|value| value.get("metadata"))
+                    .and_then(Value::as_object),
                 false,
             ),
             (
-                args.get("movies").and_then(|value| value.get("calendar")).and_then(Value::as_array),
-                args.get("movies").and_then(|value| value.get("metadata")).and_then(Value::as_object),
+                args.get("movies")
+                    .and_then(|value| value.get("calendar"))
+                    .and_then(Value::as_array),
+                args.get("movies")
+                    .and_then(|value| value.get("metadata"))
+                    .and_then(Value::as_object),
                 true,
             ),
         ] {
             for entry in calendar.into_iter().flatten() {
-                let Some(simkl_id) = entry.get("simkl_id") else { continue };
-                let simkl_key = simkl_id.as_str().map(str::to_string).or_else(|| simkl_id.as_i64().map(|value| value.to_string()));
-                let Some(media) = simkl_key.as_deref().and_then(|key| metadata.and_then(|value| value.get(key))) else { continue };
+                let Some(simkl_id) = entry.get("simkl_id") else {
+                    continue;
+                };
+                let simkl_key = simkl_id
+                    .as_str()
+                    .map(str::to_string)
+                    .or_else(|| simkl_id.as_i64().map(|value| value.to_string()));
+                let Some(media) = simkl_key
+                    .as_deref()
+                    .and_then(|key| metadata.and_then(|value| value.get(key)))
+                else {
+                    continue;
+                };
                 let ids = media.get("ids").unwrap_or(&Value::Null);
-                let content_id = ids.get("imdb").and_then(Value::as_str).map(str::to_string).or_else(|| {
-                    ids.get("tmdb").and_then(Value::as_i64).map(|id| format!("tmdb:{id}")).or_else(|| {
-                        ids.get("tmdb").and_then(Value::as_str).filter(|id| !id.is_empty()).map(|id| format!("tmdb:{id}"))
-                    })
-                });
-                let Some(content_id) = content_id else { continue };
+                let content_id = ids
+                    .get("imdb")
+                    .and_then(Value::as_str)
+                    .map(str::to_string)
+                    .or_else(|| {
+                        ids.get("tmdb")
+                            .and_then(Value::as_i64)
+                            .map(|id| format!("tmdb:{id}"))
+                            .or_else(|| {
+                                ids.get("tmdb")
+                                    .and_then(Value::as_str)
+                                    .filter(|id| !id.is_empty())
+                                    .map(|id| format!("tmdb:{id}"))
+                            })
+                    });
+                let Some(content_id) = content_id else {
+                    continue;
+                };
                 if !allowed_content_ids.contains(content_id.as_str()) {
                     continue;
                 }
-                let Some(date) = entry.get("date").and_then(Value::as_str) else { continue };
+                let Some(date) = entry.get("date").and_then(Value::as_str) else {
+                    continue;
+                };
                 if is_movie {
                     items.push(json!({
                         "id": content_id,
@@ -333,7 +370,12 @@ fn provider_image_url(media: &Value, image_type: &str) -> Option<String> {
     let image = media
         .get("images")?
         .get(image_type)
-        .and_then(|value| value.as_array().and_then(|images| images.first()).or(Some(value)))
+        .and_then(|value| {
+            value
+                .as_array()
+                .and_then(|images| images.first())
+                .or(Some(value))
+        })
         .and_then(Value::as_str)?;
     if image.starts_with("https://") || image.starts_with("http://") {
         Some(image.to_string())
@@ -765,9 +807,21 @@ pub(crate) fn trakt_comments_request_json(args_json: &str) -> Option<String> {
         .get("imdb")
         .and_then(Value::as_str)
         .map(|value| ("imdb", value.to_string()))
-        .or_else(|| ids.get("tmdb").and_then(Value::as_i64).map(|value| ("tmdb", value.to_string())))
-        .or_else(|| ids.get("tvdb").and_then(Value::as_i64).map(|value| ("tvdb", value.to_string())))
-        .or_else(|| ids.get("trakt").and_then(Value::as_i64).map(|value| ("trakt", value.to_string())))?;
+        .or_else(|| {
+            ids.get("tmdb")
+                .and_then(Value::as_i64)
+                .map(|value| ("tmdb", value.to_string()))
+        })
+        .or_else(|| {
+            ids.get("tvdb")
+                .and_then(Value::as_i64)
+                .map(|value| ("tvdb", value.to_string()))
+        })
+        .or_else(|| {
+            ids.get("trakt")
+                .and_then(Value::as_i64)
+                .map(|value| ("trakt", value.to_string()))
+        })?;
     serde_json::to_string(&json!({ "resource": resource, "id": id, "lookupType": lookup_type, "wantType": if resource == "shows" { "show" } else { "movie" } })).ok()
 }
 
@@ -1362,7 +1416,10 @@ mod tests {
         assert_eq!(result[0]["seasonNumber"], 9);
         assert_eq!(result[0]["episodeNumber"], 10);
         assert_eq!(result[0]["metaType"], "series");
-        assert_eq!(result[0]["episodePoster"], "https://walter-r2.trakt.tv/images/episodes/screenshot.webp");
+        assert_eq!(
+            result[0]["episodePoster"],
+            "https://walter-r2.trakt.tv/images/episodes/screenshot.webp"
+        );
     }
 
     #[test]

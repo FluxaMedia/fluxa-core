@@ -13,7 +13,10 @@ pub(crate) fn oauth_request_plan_json(request_json: &str) -> Option<String> {
         .and_then(Value::as_str)
         .unwrap_or("");
     let code = request.get("code").and_then(Value::as_str).unwrap_or("");
-    let code_verifier = request.get("codeVerifier").and_then(Value::as_str).unwrap_or("");
+    let code_verifier = request
+        .get("codeVerifier")
+        .and_then(Value::as_str)
+        .unwrap_or("");
     let refresh_token = request
         .get("refreshToken")
         .and_then(Value::as_str)

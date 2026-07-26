@@ -360,17 +360,18 @@ pub(crate) fn trakt_playback_items_dedup_json(items_json: &str) -> Option<String
             Some(existing) => {
                 let incoming_rank = episode_rank(&item);
                 let existing_rank = episode_rank(existing);
-                let incoming_is_watched = item
-                    .get("continueWatchingBadge")
-                    .and_then(Value::as_str)
-                    == Some("upNext");
+                let incoming_is_watched =
+                    item.get("continueWatchingBadge").and_then(Value::as_str) == Some("upNext");
                 let existing_is_watched = existing
                     .get("continueWatchingBadge")
                     .and_then(Value::as_str)
                     == Some("upNext");
                 let incoming_wins = match (incoming_rank, existing_rank) {
                     (Some(incoming_rank), Some(existing_rank))
-                        if incoming_is_watched || existing_is_watched => incoming_rank > existing_rank,
+                        if incoming_is_watched || existing_is_watched =>
+                    {
+                        incoming_rank > existing_rank
+                    }
                     _ => cur.as_str() > saved_at_str(existing),
                 };
                 if incoming_wins {
@@ -387,10 +388,21 @@ pub(crate) fn trakt_playback_items_dedup_json(items_json: &str) -> Option<String
 
 pub(crate) fn trakt_mark_watched_body_json(request_json: &str) -> Option<String> {
     let request: Value = serde_json::from_str(request_json).ok()?;
-    let video_ids: Vec<String> = request.as_array().cloned().and_then(|value| serde_json::from_value(Value::Array(value)).ok())
-        .or_else(|| request.get("videoIds").cloned().and_then(|value| serde_json::from_value(value).ok()))?;
-    let watched_at = request.get("watchedAtMs").and_then(Value::as_i64)
-        .and_then(chrono::DateTime::from_timestamp_millis).map(|value| value.to_rfc3339());
+    let video_ids: Vec<String> = request
+        .as_array()
+        .cloned()
+        .and_then(|value| serde_json::from_value(Value::Array(value)).ok())
+        .or_else(|| {
+            request
+                .get("videoIds")
+                .cloned()
+                .and_then(|value| serde_json::from_value(value).ok())
+        })?;
+    let watched_at = request
+        .get("watchedAtMs")
+        .and_then(Value::as_i64)
+        .and_then(chrono::DateTime::from_timestamp_millis)
+        .map(|value| value.to_rfc3339());
     let mut movie_ids: Vec<Value> = Vec::new();
     let mut shows: std::collections::HashMap<
         String,
@@ -475,8 +487,11 @@ pub(crate) fn simkl_mark_watched_body_json(args_json: &str) -> Option<String> {
         .pointer("/meta/type")
         .and_then(Value::as_str)
         .unwrap_or("movie");
-    let watched_at = args.get("watchedAtMs").and_then(Value::as_i64)
-        .and_then(chrono::DateTime::from_timestamp_millis).map(|value| value.to_rfc3339());
+    let watched_at = args
+        .get("watchedAtMs")
+        .and_then(Value::as_i64)
+        .and_then(chrono::DateTime::from_timestamp_millis)
+        .map(|value| value.to_rfc3339());
     let mut movies = Vec::new();
     let mut shows: std::collections::HashMap<
         String,
@@ -512,9 +527,13 @@ pub(crate) fn simkl_mark_watched_body_json(args_json: &str) -> Option<String> {
             movies.push(json!({"ids": ids, "watched_at": watched_at.clone().unwrap_or_else(|| "now".to_string())}));
         }
     }
-    let show_values = shows.into_values().map(|(ids, seasons)| {
-        if seasons.is_empty() { return json!({"ids": ids}); }
-        json!({"ids": ids, "seasons": seasons.into_iter().map(|(number, mut episodes)| {
+    let show_values = shows
+        .into_values()
+        .map(|(ids, seasons)| {
+            if seasons.is_empty() {
+                return json!({"ids": ids});
+            }
+            json!({"ids": ids, "seasons": seasons.into_iter().map(|(number, mut episodes)| {
             episodes.sort_unstable(); episodes.dedup();
             let episodes = episodes.into_iter().map(|number| {
                 let mut episode = json!({"number": number});
@@ -525,7 +544,8 @@ pub(crate) fn simkl_mark_watched_body_json(args_json: &str) -> Option<String> {
             }).collect::<Vec<_>>();
             json!({"number": number, "episodes": episodes})
         }).collect::<Vec<_>>()})
-    }).collect::<Vec<_>>();
+        })
+        .collect::<Vec<_>>();
     if movies.is_empty() && show_values.is_empty() {
         return None;
     }
