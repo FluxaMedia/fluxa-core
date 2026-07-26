@@ -516,7 +516,14 @@ pub(crate) fn simkl_mark_watched_body_json(args_json: &str) -> Option<String> {
         if seasons.is_empty() { return json!({"ids": ids}); }
         json!({"ids": ids, "seasons": seasons.into_iter().map(|(number, mut episodes)| {
             episodes.sort_unstable(); episodes.dedup();
-            json!({"number": number, "episodes": episodes.into_iter().map(|number| json!({"number": number, "watched_at": watched_at})).collect::<Vec<_>>()})
+            let episodes = episodes.into_iter().map(|number| {
+                let mut episode = json!({"number": number});
+                if let Some(timestamp) = watched_at.as_ref() {
+                    episode["watched_at"] = Value::String(timestamp.clone());
+                }
+                episode
+            }).collect::<Vec<_>>();
+            json!({"number": number, "episodes": episodes})
         }).collect::<Vec<_>>()})
     }).collect::<Vec<_>>();
     if movies.is_empty() && show_values.is_empty() {
