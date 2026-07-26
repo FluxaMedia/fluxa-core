@@ -195,21 +195,25 @@ pub(crate) fn provider_calendar_items_json(args_json: &str) -> Option<String> {
         else {
             continue;
         };
-        let season = episode.get("season").and_then(Value::as_i64);
+        let season = episode
+            .get("season")
+            .or_else(|| episode.get("season_number"))
+            .and_then(Value::as_i64);
         let number = episode
-            .get(if provider == "trakt" {
-                "number"
-            } else {
-                "episode"
-            })
+            .get("number")
+            .or_else(|| episode.get("episode"))
+            .or_else(|| episode.get("episode_number"))
             .and_then(Value::as_i64);
         items.push(json!({
             "id": format!("{series_id}:{}:{}", season.unwrap_or_default(), number.unwrap_or_default()),
             "title": show.get("title"),
             "episodeTitle": episode.get("title"),
+            "seasonNumber": season,
+            "episodeNumber": number,
             "dateIso": date,
             "contentId": series_id,
             "seriesId": series_id,
+            "metaType": "series",
         }));
     }
     for entry in movies.into_iter().flatten() {
@@ -1214,6 +1218,59 @@ mod tests {
     use super::*;
     use crate::player_scrobble;
     use serde_json::Value;
+
+    #[test]
+    fn trakt_calendar_items_include_episode_identity() {
+        let request = json!({
+            "provider": "trakt",
+            "shows": [{
+                "first_aired": "2026-07-27T03:00:00Z",
+                "show": {
+                    "title": "Rick and Morty",
+                    "ids": {"imdb": "tt2861424"}
+                },
+                "episode": {
+                    "season": 9,
+                    "number": 10,
+                    "title": "Episode Title"
+                }
+            }],
+            "movies": []
+        });
+        let result: Value = serde_json::from_str(
+            &provider_calendar_items_json(&request.to_string()).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(result[0]["seasonNumber"], 9);
+        assert_eq!(result[0]["episodeNumber"], 10);
+        assert_eq!(result[0]["metaType"], "series");
+    }
+
+    #[test]
+    fn simkl_calendar_items_accept_number_field_variants() {
+        let request = json!({
+            "provider": "simkl",
+            "shows": [{
+                "date": "2026-07-27T03:00:00Z",
+                "show": {
+                    "title": "Rick and Morty",
+                    "ids": {"imdb": "tt2861424"}
+                },
+                "episode": {
+                    "season_number": 9,
+                    "episode_number": 10,
+                    "title": "Episode Title"
+                }
+            }],
+            "movies": []
+        });
+        let result: Value = serde_json::from_str(
+            &provider_calendar_items_json(&request.to_string()).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(result[0]["seasonNumber"], 9);
+        assert_eq!(result[0]["episodeNumber"], 10);
+    }
 
     #[test]
     fn replace_external_continue_watching_sorts_by_saved_at_descending() {

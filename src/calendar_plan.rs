@@ -7,10 +7,22 @@ pub(crate) fn calendar_visibility_plan_json(request_json: &str) -> Option<String
     if request.get("showCompleted").and_then(Value::as_bool) == Some(true) {
         return serde_json::to_string(items).ok();
     }
+    let today_iso = request
+        .get("todayIso")
+        .and_then(Value::as_str)
+        .unwrap_or("");
     let completed = request.get("completedItems")?.as_array()?;
     let visible: Vec<&Value> = items
         .iter()
         .filter(|item| {
+            if !today_iso.is_empty()
+                && item
+                    .get("dateIso")
+                    .and_then(Value::as_str)
+                    .is_some_and(|date| date.get(..10).unwrap_or(date) >= today_iso)
+            {
+                return true;
+            }
             let ids: Vec<&str> = ["contentId", "seriesId", "id"]
                 .iter()
                 .filter_map(|key| item.get(*key).and_then(Value::as_str))
@@ -692,6 +704,26 @@ pub(crate) fn calendar_item_matches_month_json(item_json: &str, month_prefix: &s
 mod tests {
     use super::*;
     use serde_json::Value;
+
+    #[test]
+    fn visibility_keeps_new_episodes_for_completed_series() {
+        let request = json!({
+            "items": [
+                {"contentId":"tt2861424","title":"Rick and Morty","dateIso":"2026-07-25T03:00:00Z"},
+                {"contentId":"tt2861424","title":"Rick and Morty","dateIso":"2026-07-27T03:00:00Z"}
+            ],
+            "completedItems": [{"id":"tt2861424","name":"Rick and Morty"}],
+            "showCompleted": false,
+            "todayIso": "2026-07-26"
+        });
+        let result: Value = serde_json::from_str(
+            &calendar_visibility_plan_json(&request.to_string()).unwrap(),
+        )
+        .unwrap();
+        let items = result.as_array().unwrap();
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0]["dateIso"], "2026-07-27T03:00:00Z");
+    }
 
     #[test]
     fn candidate_plan_merges_groups_and_deduplicates_content() {
