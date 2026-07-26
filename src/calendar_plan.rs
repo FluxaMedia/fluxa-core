@@ -4,17 +4,18 @@ use serde_json::{json, Value};
 pub(crate) fn calendar_visibility_plan_json(request_json: &str) -> Option<String> {
     let request: Value = serde_json::from_str(request_json).ok()?;
     let items = request.get("items")?.as_array()?;
-    if request.get("showCompleted").and_then(Value::as_bool) == Some(true) {
-        return serde_json::to_string(items).ok();
-    }
     let today_iso = request
         .get("todayIso")
         .and_then(Value::as_str)
         .unwrap_or("");
     let completed = request.get("completedItems")?.as_array()?;
+    let show_completed = request.get("showCompleted").and_then(Value::as_bool) == Some(true);
     let visible: Vec<&Value> = items
         .iter()
         .filter(|item| {
+            if show_completed {
+                return true;
+            }
             if !today_iso.is_empty()
                 && item
                     .get("dateIso")
@@ -46,7 +47,68 @@ pub(crate) fn calendar_visibility_plan_json(request_json: &str) -> Option<String
             })
         })
         .collect();
-    serde_json::to_string(&visible).ok()
+    let mut seen = std::collections::HashMap::new();
+    let mut unique = Vec::new();
+    for item in visible {
+        let key = calendar_item_identity(item);
+        let score = calendar_item_detail_score(item);
+        if let Some((index, current_score)) = seen.get_mut(&key) {
+            if score > *current_score {
+                unique[*index] = item;
+                *current_score = score;
+            }
+        } else {
+            seen.insert(key, (unique.len(), score));
+            unique.push(item);
+        }
+    }
+    serde_json::to_string(&unique).ok()
+}
+
+fn calendar_item_identity(item: &Value) -> String {
+    let date = item
+        .get("dateIso")
+        .and_then(Value::as_str)
+        .map(|value| value.get(..10).unwrap_or(value))
+        .unwrap_or("");
+    let content = item
+        .get("title")
+        .and_then(Value::as_str)
+        .or_else(|| item.get("name").and_then(Value::as_str))
+        .or_else(|| {
+            ["contentId", "seriesId"]
+                .iter()
+                .find_map(|key| item.get(*key).and_then(Value::as_str))
+        })
+        .or_else(|| item.get("id").and_then(Value::as_str))
+        .unwrap_or("");
+    let season = ["seasonNumber", "season"]
+        .iter()
+        .find_map(|key| item.get(*key).and_then(Value::as_i64))
+        .unwrap_or_default();
+    let episode = ["episodeNumber", "episode", "number"]
+        .iter()
+        .find_map(|key| item.get(*key).and_then(Value::as_i64))
+        .unwrap_or_default();
+    format!("{date}:{content}:{season}:{episode}")
+}
+
+fn calendar_item_detail_score(item: &Value) -> usize {
+    [
+        "poster",
+        "seriesPoster",
+        "episodePoster",
+        "episodeTitle",
+        "airTime",
+        "releaseTime",
+    ]
+    .iter()
+    .filter(|key| {
+        item.get(**key)
+            .and_then(Value::as_str)
+            .is_some_and(|value| !value.is_empty())
+    })
+    .count()
 }
 
 #[derive(Debug, Deserialize)]
@@ -590,6 +652,9 @@ pub(crate) fn calendar_items_from_meta_json(meta_json: &str, month_prefix: &str)
             "subtitle": subtitle,
             "dateIso": date_iso,
             "poster": poster,
+            "contentId": meta_id,
+            "seriesId": meta_id,
+            "metaType": meta.get("type"),
         }));
     }
     serde_json::to_string(&items).ok()
@@ -722,6 +787,41 @@ mod tests {
         let items = result.as_array().unwrap();
         assert_eq!(items.len(), 1);
         assert_eq!(items[0]["dateIso"], "2026-07-27T03:00:00Z");
+    }
+
+    #[test]
+    fn visibility_deduplicates_provider_copies_of_the_same_episode() {
+        let request = json!({
+            "items": [
+                {"id":"tt2861424:episode-10:2026-07-27","title":"Rick and Morty","dateIso":"2026-07-27T03:00:00Z","seasonNumber":9,"episodeNumber":10,"poster":"poster.jpg"},
+                {"contentId":"tt2861424","title":"Rick and Morty","dateIso":"2026-07-27T00:00:00Z","seasonNumber":9,"episodeNumber":10,"episodeTitle":"Field of Dreams"},
+                {"contentId":"tt2861424","title":"Rick and Morty","dateIso":"2026-07-27T00:00:00Z","seasonNumber":9,"episodeNumber":10,"poster":"poster.jpg","episodeTitle":"Field of Dreams"}
+            ],
+            "completedItems": [],
+            "showCompleted": true,
+            "todayIso": "2026-07-26"
+        });
+        let result: Value =
+            serde_json::from_str(&calendar_visibility_plan_json(&request.to_string()).unwrap())
+                .unwrap();
+        let items = result.as_array().unwrap();
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0]["episodeTitle"], "Field of Dreams");
+    }
+
+    #[test]
+    fn items_from_meta_keep_calendar_identity_for_deduplication() {
+        let result: Value = serde_json::from_str(
+            &calendar_items_from_meta_json(
+                r#"{"id":"tt2861424","type":"series","name":"Rick and Morty","videos":[{"released":"2026-08-02T00:00:00Z","season":9,"episode":11,"name":"Episode"}]}"#,
+                "2026-08",
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(result[0]["contentId"], "tt2861424");
+        assert_eq!(result[0]["seriesId"], "tt2861424");
+        assert_eq!(result[0]["metaType"], "series");
     }
 
     #[test]

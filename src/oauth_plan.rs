@@ -13,6 +13,7 @@ pub(crate) fn oauth_request_plan_json(request_json: &str) -> Option<String> {
         .and_then(Value::as_str)
         .unwrap_or("");
     let code = request.get("code").and_then(Value::as_str).unwrap_or("");
+    let code_verifier = request.get("codeVerifier").and_then(Value::as_str).unwrap_or("");
     let refresh_token = request
         .get("refreshToken")
         .and_then(Value::as_str)
@@ -38,13 +39,9 @@ pub(crate) fn oauth_request_plan_json(request_json: &str) -> Option<String> {
             "https://anilist.co/api/v2/oauth/token",
             json!({"grant_type": "authorization_code", "client_id": client_id, "client_secret": client_secret, "redirect_uri": "fluxa://oauth/anilist", "code": code}),
         ),
-        ("anilist", "refresh") => (
-            "https://anilist.co/api/v2/oauth/token",
-            json!({"grant_type": "refresh_token", "client_id": client_id, "client_secret": client_secret, "refresh_token": refresh_token}),
-        ),
         ("simkl", "exchange") => (
             "https://api.simkl.com/oauth/token",
-            json!({"code": code, "client_id": client_id, "client_secret": client_secret, "redirect_uri": "fluxa://oauth/simkl", "grant_type": "authorization_code"}),
+            json!({"code": code, "client_id": client_id, "code_verifier": code_verifier, "redirect_uri": "fluxa://oauth/simkl", "grant_type": "authorization_code"}),
         ),
         _ => return None,
     };

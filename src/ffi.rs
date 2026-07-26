@@ -1403,6 +1403,7 @@ fn route_player_flow(method: &str, args_json: &str) -> Outcome {
 
 fn route_player_scrobble(method: &str, args_json: &str) -> Outcome {
     match method {
+        "playerScrobbleLifecycleAction" => opt_json(player_scrobble::lifecycle_action_json(args_json)),
         "scrobbleMediaContext" => opt_json(player_scrobble::scrobble_media_context_json(args_json)),
         "playerProgressPercent" => {
             let args = object(args_json)?;

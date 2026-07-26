@@ -179,6 +179,7 @@ pub(super) fn route_external_sync_trakt(method: &str, args_json: &str) -> Outcom
                 ep_number,
                 time_pos,
                 duration,
+                args.get("action").and_then(Value::as_str),
             ))
         }
         "replaceExternalContinueWatching" => {

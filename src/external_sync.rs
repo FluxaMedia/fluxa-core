@@ -165,6 +165,72 @@ pub(crate) fn provider_calendar_items_json(args_json: &str) -> Option<String> {
         }
         return serde_json::to_string(&items).ok();
     }
+    if provider == "simkl" && args.get("shows").and_then(|value| value.get("calendar")).is_some() {
+        let allowed_content_ids: std::collections::HashSet<&str> = args
+            .get("allowedContentIds")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+            .collect();
+        for (calendar, metadata, is_movie) in [
+            (
+                args.get("shows").and_then(|value| value.get("calendar")).and_then(Value::as_array),
+                args.get("shows").and_then(|value| value.get("metadata")).and_then(Value::as_object),
+                false,
+            ),
+            (
+                args.get("movies").and_then(|value| value.get("calendar")).and_then(Value::as_array),
+                args.get("movies").and_then(|value| value.get("metadata")).and_then(Value::as_object),
+                true,
+            ),
+        ] {
+            for entry in calendar.into_iter().flatten() {
+                let Some(simkl_id) = entry.get("simkl_id") else { continue };
+                let simkl_key = simkl_id.as_str().map(str::to_string).or_else(|| simkl_id.as_i64().map(|value| value.to_string()));
+                let Some(media) = simkl_key.as_deref().and_then(|key| metadata.and_then(|value| value.get(key))) else { continue };
+                let ids = media.get("ids").unwrap_or(&Value::Null);
+                let content_id = ids.get("imdb").and_then(Value::as_str).map(str::to_string).or_else(|| {
+                    ids.get("tmdb").and_then(Value::as_i64).map(|id| format!("tmdb:{id}")).or_else(|| {
+                        ids.get("tmdb").and_then(Value::as_str).filter(|id| !id.is_empty()).map(|id| format!("tmdb:{id}"))
+                    })
+                });
+                let Some(content_id) = content_id else { continue };
+                if !allowed_content_ids.contains(content_id.as_str()) {
+                    continue;
+                }
+                let Some(date) = entry.get("date").and_then(Value::as_str) else { continue };
+                if is_movie {
+                    items.push(json!({
+                        "id": content_id,
+                        "title": media.get("title"),
+                        "dateIso": date,
+                        "contentId": content_id,
+                        "metaType": "movie",
+                        "poster": media.get("poster"),
+                    }));
+                    continue;
+                }
+                let episode = entry.get("episode").unwrap_or(&Value::Null);
+                let season = episode.get("season").and_then(Value::as_i64);
+                let number = episode.get("episode").and_then(Value::as_i64);
+                items.push(json!({
+                    "id": format!("{content_id}:{}:{}", season.unwrap_or_default(), number.unwrap_or_default()),
+                    "title": media.get("title"),
+                    "episodeTitle": episode.get("title"),
+                    "seasonNumber": season,
+                    "episodeNumber": number,
+                    "dateIso": date,
+                    "contentId": content_id,
+                    "seriesId": content_id,
+                    "metaType": "series",
+                    "poster": media.get("poster"),
+                    "seriesPoster": media.get("poster"),
+                }));
+            }
+        }
+        return serde_json::to_string(&items).ok();
+    }
     for entry in shows.into_iter().flatten() {
         let Some(show) = entry.get("show") else {
             continue;
@@ -204,6 +270,8 @@ pub(crate) fn provider_calendar_items_json(args_json: &str) -> Option<String> {
             .or_else(|| episode.get("episode"))
             .or_else(|| episode.get("episode_number"))
             .and_then(Value::as_i64);
+        let episode_poster = provider_image_url(episode, "screenshot");
+        let series_poster = provider_image_url(show, "poster");
         items.push(json!({
             "id": format!("{series_id}:{}:{}", season.unwrap_or_default(), number.unwrap_or_default()),
             "title": show.get("title"),
@@ -214,6 +282,9 @@ pub(crate) fn provider_calendar_items_json(args_json: &str) -> Option<String> {
             "contentId": series_id,
             "seriesId": series_id,
             "metaType": "series",
+            "poster": episode_poster.as_ref().or(series_poster.as_ref()),
+            "episodePoster": episode_poster,
+            "seriesPoster": series_poster,
         }));
     }
     for entry in movies.into_iter().flatten() {
@@ -245,9 +316,30 @@ pub(crate) fn provider_calendar_items_json(args_json: &str) -> Option<String> {
         else {
             continue;
         };
-        items.push(json!({"id": content_id, "title": movie.get("title"), "dateIso": date, "contentId": content_id}));
+        let poster = provider_image_url(movie, "poster");
+        items.push(json!({
+            "id": content_id,
+            "title": movie.get("title"),
+            "dateIso": date,
+            "contentId": content_id,
+            "metaType": "movie",
+            "poster": poster,
+        }));
     }
     serde_json::to_string(&items).ok()
+}
+
+fn provider_image_url(media: &Value, image_type: &str) -> Option<String> {
+    let image = media
+        .get("images")?
+        .get(image_type)
+        .and_then(|value| value.as_array().and_then(|images| images.first()).or(Some(value)))
+        .and_then(Value::as_str)?;
+    if image.starts_with("https://") || image.starts_with("http://") {
+        Some(image.to_string())
+    } else {
+        Some(format!("https://{image}"))
+    }
 }
 
 pub(crate) fn provider_pagination_plan_json(args_json: &str) -> Option<String> {
@@ -559,8 +651,12 @@ pub(crate) fn trakt_bearer(token: &str) -> String {
 }
 
 pub(crate) fn trakt_scrobble_url(action: &str) -> Option<String> {
-    matches!(action.trim(), "start" | "pause" | "stop")
-        .then(|| format!("{TRAKT_API_BASE_URL}/scrobble/{}", action.trim()))
+    match action.trim() {
+        "start" => Some(format!("{TRAKT_API_BASE_URL}/scrobble/start")),
+        "pause" => Some(format!("{TRAKT_API_BASE_URL}/scrobble/pause")),
+        "stop" => Some(format!("{TRAKT_API_BASE_URL}/scrobble/stop")),
+        _ => None,
+    }
 }
 
 pub(crate) fn trakt_playback_url(content_type: Option<&str>) -> Option<String> {
@@ -1227,12 +1323,14 @@ mod tests {
                 "first_aired": "2026-07-27T03:00:00Z",
                 "show": {
                     "title": "Rick and Morty",
-                    "ids": {"imdb": "tt2861424"}
+                    "ids": {"imdb": "tt2861424"},
+                    "images": {"poster": ["walter-r2.trakt.tv/images/shows/poster.webp"]}
                 },
                 "episode": {
                     "season": 9,
                     "number": 10,
-                    "title": "Episode Title"
+                    "title": "Episode Title",
+                    "images": {"screenshot": ["walter-r2.trakt.tv/images/episodes/screenshot.webp"]}
                 }
             }],
             "movies": []
@@ -1243,6 +1341,7 @@ mod tests {
         assert_eq!(result[0]["seasonNumber"], 9);
         assert_eq!(result[0]["episodeNumber"], 10);
         assert_eq!(result[0]["metaType"], "series");
+        assert_eq!(result[0]["episodePoster"], "https://walter-r2.trakt.tv/images/episodes/screenshot.webp");
     }
 
     #[test]
@@ -1268,6 +1367,26 @@ mod tests {
                 .unwrap();
         assert_eq!(result[0]["seasonNumber"], 9);
         assert_eq!(result[0]["episodeNumber"], 10);
+    }
+
+    #[test]
+    fn simkl_calendar_items_accept_v2_cdn_payloads() {
+        let request = json!({
+            "provider": "simkl",
+            "shows": {
+                "calendar": [{"simkl_id": 3437, "date": "2026-07-27T04:00:00Z", "episode": {"season": 15, "episode": 10, "title": "Propane Recall"}}],
+                "metadata": {"3437": {"title": "King of the Hill", "poster": "https://example.test/poster.jpg", "ids": {"imdb": "tt0118375"}}}
+            },
+            "movies": {"calendar": [], "metadata": {}},
+            "allowedContentIds": ["tt0118375"]
+        });
+        let result: Value =
+            serde_json::from_str(&provider_calendar_items_json(&request.to_string()).unwrap())
+                .unwrap();
+        assert_eq!(result[0]["contentId"], "tt0118375");
+        assert_eq!(result[0]["seasonNumber"], 15);
+        assert_eq!(result[0]["episodeNumber"], 10);
+        assert_eq!(result[0]["poster"], "https://example.test/poster.jpg");
     }
 
     #[test]
@@ -1497,6 +1616,7 @@ mod tests {
                 None,
                 trakt_input["timePosSec"].as_f64().unwrap(),
                 trakt_input["durationSec"].as_f64().unwrap(),
+                None,
             )
             .unwrap(),
         )

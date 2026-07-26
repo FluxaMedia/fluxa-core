@@ -94,6 +94,23 @@ fn has_token(token: Option<&str>) -> bool {
     token.is_some_and(|value| !value.trim().is_empty())
 }
 
+pub(crate) fn lifecycle_action_json(args_json: &str) -> Option<String> {
+    let args: serde_json::Value = serde_json::from_str(args_json).ok()?;
+    let event = args.get("event")?.as_str()?;
+    let has_started = args.get("hasStarted").and_then(serde_json::Value::as_bool).unwrap_or(false);
+    let has_paused = args.get("hasPaused").and_then(serde_json::Value::as_bool).unwrap_or(false);
+    let has_stopped = args.get("hasStopped").and_then(serde_json::Value::as_bool).unwrap_or(false);
+    let progress = args.get("progress").and_then(serde_json::Value::as_f64).unwrap_or(0.0) as f32;
+    let token = args.get("token").and_then(serde_json::Value::as_str);
+    let action = match event {
+        "start" if should_send_start(token, true, !has_paused && has_started, progress) => "start",
+        "pause" if should_queue_pause(token, true, has_started, has_stopped) => "pause",
+        "stop" if has_started && !has_stopped => "stop",
+        _ => return None,
+    };
+    serde_json::to_string(&serde_json::json!({ "action": action })).ok()
+}
+
 pub(crate) fn scrobble_media_context_json(args_json: &str) -> Option<String> {
     let args: serde_json::Value = serde_json::from_str(args_json).ok()?;
     let meta = args.get("meta")?;
@@ -141,16 +158,19 @@ pub(crate) fn trakt_scrobble_plan_json(
     ep_number: Option<i64>,
     time_pos_sec: f64,
     duration_sec: f64,
+    requested_action: Option<&str>,
 ) -> Option<String> {
     let ids: serde_json::Value = serde_json::from_str(ids_json).ok()?;
     if duration_sec <= 0.0 {
         return None;
     }
     let progress = ((time_pos_sec / duration_sec) * 100.0).clamp(0.0, 100.0);
-    let action = if progress as f32 >= SCROBBLE_STOP_PROGRESS_PERCENT {
-        "stop"
-    } else {
-        "pause"
+    let action = match requested_action {
+        Some("start") => "start",
+        Some("pause") => "pause",
+        Some("stop") => "stop",
+        _ if progress as f32 >= SCROBBLE_STOP_PROGRESS_PERCENT => "stop",
+        _ => "pause",
     };
     let body = if is_episode {
         serde_json::json!({
@@ -207,6 +227,14 @@ mod tests {
         assert!(!should_send_start(Some("token"), true, true, 1.0));
         assert!(!should_send_start(Some("token"), true, false, 0.1));
         assert!(should_send_start(Some("token"), true, false, 0.3));
+    }
+
+    #[test]
+    fn lifecycle_actions_follow_start_pause_stop_order() {
+        assert_eq!(lifecycle_action_json(r#"{"event":"start","token":"token","hasStarted":false,"hasStopped":false,"progress":1}"#).as_deref(), Some(r#"{"action":"start"}"#));
+        assert_eq!(lifecycle_action_json(r#"{"event":"start","token":"token","hasStarted":true,"hasPaused":true,"hasStopped":false,"progress":1}"#).as_deref(), Some(r#"{"action":"start"}"#));
+        assert_eq!(lifecycle_action_json(r#"{"event":"pause","token":"token","hasStarted":true,"hasStopped":false,"progress":1}"#).as_deref(), Some(r#"{"action":"pause"}"#));
+        assert_eq!(lifecycle_action_json(r#"{"event":"stop","token":"token","hasStarted":true,"hasStopped":false,"progress":1}"#).as_deref(), Some(r#"{"action":"stop"}"#));
     }
 
     #[test]
