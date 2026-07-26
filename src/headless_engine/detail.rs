@@ -128,6 +128,7 @@ struct FetchDetailSecondaryPayload {
     id: String,
     language: String,
     profile: Value,
+    similar_titles_source: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -260,6 +261,7 @@ pub(super) fn dispatch_secondary(
     id: String,
     language: Option<String>,
     profile: Option<Value>,
+    similar_titles_source: Option<String>,
 ) -> Vec<EffectEnvelope> {
     let generation = engine
         .state
@@ -274,6 +276,7 @@ pub(super) fn dispatch_secondary(
             id,
             language: language.unwrap_or_else(|| "en".to_string()),
             profile: profile.unwrap_or(Value::Null),
+            similar_titles_source,
         },
     )]
 }

@@ -498,12 +498,14 @@ fn stream_dvcc_strip(upstream: &mut reqwest::blocking::Response, downstream: &mu
 /// Returns the number of four-character codes that were replaced.
 /// Parse the start offset from an HTTP `Content-Range: bytes START-END/TOTAL` header.
 // dvcC box parser
+#[cfg(test)]
 #[derive(Debug, Clone, Copy)]
 struct DvContainerInfo {
     profile: u8,
     compat_id: u8,
 }
 
+#[cfg(test)]
 impl DvContainerInfo {
     /// Mirrors Kodi's `notHasHDR10fallback` check
     /// (DVDVideoCodecAndroidMediaCodec.cpp:543-544 and 698-700):
@@ -520,6 +522,7 @@ impl DvContainerInfo {
 }
 
 /// Scan `data` for a `dvcC` ISO-BMFF box and return the parsed DV profile info.
+#[cfg(test)]
 fn scan_dvcc_info(data: &[u8]) -> Option<DvContainerInfo> {
     for i in 0..data.len().saturating_sub(8) {
         if data[i..i + 4] == *b"dvcC" {
@@ -540,6 +543,7 @@ fn scan_dvcc_info(data: &[u8]) -> Option<DvContainerInfo> {
 ///   byte[3][7:3]   dv_level low 5 bits
 ///   byte[3][2:0]   rpu/el/bl_present_flags
 ///   byte[4][7:4]   dv_bl_signal_compatibility_id  (4 bits)
+#[cfg(test)]
 fn parse_dvcc_payload(data: &[u8]) -> Option<DvContainerInfo> {
     if data.len() < 5 {
         return None;

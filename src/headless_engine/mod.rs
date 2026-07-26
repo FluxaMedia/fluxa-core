@@ -176,7 +176,8 @@ impl HeadlessEngine {
                 id,
                 language,
                 profile,
-            } => detail::dispatch_secondary(self, content_type, id, language, profile),
+                similar_titles_source,
+            } => detail::dispatch_secondary(self, content_type, id, language, profile, similar_titles_source),
             AppAction::DetailPrefetchRequested {
                 content_type,
                 id,

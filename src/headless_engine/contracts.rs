@@ -38,6 +38,7 @@ pub(super) enum AppAction {
         id: String,
         language: Option<String>,
         profile: Option<Value>,
+        similar_titles_source: Option<String>,
     },
     #[serde(rename = "detailPrefetchRequested")]
     DetailPrefetchRequested {

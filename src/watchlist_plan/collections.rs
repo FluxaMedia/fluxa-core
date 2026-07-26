@@ -306,9 +306,18 @@ pub(crate) fn library_view_plan_json(args_json: &str) -> Option<String> {
             .partial_cmp(&rating(a))
             .unwrap_or(std::cmp::Ordering::Equal)
     });
+    let watching_ids: std::collections::HashSet<&str> = watching
+        .iter()
+        .filter_map(|item| item.get("id").and_then(Value::as_str))
+        .collect();
     let mut history = all;
-    history.retain(|item| activity_time(item) > 0);
-    history.sort_by_key(|item| std::cmp::Reverse(activity_time(item)));
+    history.retain(|item| {
+        item.get("id")
+            .and_then(Value::as_str)
+            .is_none_or(|id| !watching_ids.contains(id))
+            && playback_time(item) > 0
+    });
+    history.sort_by_key(|item| std::cmp::Reverse(playback_time(item)));
     let tab = args.get("tab").and_then(Value::as_str).unwrap_or("");
     let mut items = match tab {
         "watchlist" => watchlist.clone(),
@@ -495,9 +504,23 @@ fn rating(item: &Value) -> f64 {
 }
 fn timestamp(item: &Value, key: &str) -> i64 {
     item.get(key)
-        .and_then(Value::as_str)
-        .and_then(|value| chrono::DateTime::parse_from_rfc3339(value).ok())
-        .map(|value| value.timestamp_millis())
+        .and_then(|value| {
+            value
+                .as_i64()
+                .map(|value| {
+                    if value < 10_000_000_000 {
+                        value * 1_000
+                    } else {
+                        value
+                    }
+                })
+                .or_else(|| {
+                    value
+                        .as_str()
+                        .and_then(|value| chrono::DateTime::parse_from_rfc3339(value).ok())
+                        .map(|value| value.timestamp_millis())
+                })
+        })
         .unwrap_or(0)
 }
 fn status_changed_at(item: &Value) -> &str {
@@ -505,19 +528,61 @@ fn status_changed_at(item: &Value) -> &str {
         .and_then(Value::as_str)
         .unwrap_or("")
 }
-fn activity_time(item: &Value) -> i64 {
-    [
-        "savedAt",
-        "lastWatchedAt",
-        "statusChangedAt",
-        "newEpisodeReleasedAt",
-        "lastAirDateCheckedAt",
-        "updatedAt",
-    ]
-    .iter()
-    .map(|key| timestamp(item, key))
-    .find(|value| *value > 0)
-    .unwrap_or(0)
+fn playback_time(item: &Value) -> i64 {
+    let last_watched = timestamp(item, "lastWatchedAt");
+    if last_watched > 0 {
+        return last_watched;
+    }
+    let has_playback_state = item
+        .get("timeOffset")
+        .and_then(Value::as_i64)
+        .is_some_and(|value| value > 0)
+        || item
+            .get("lastVideoId")
+            .and_then(Value::as_str)
+            .is_some_and(|value| !value.is_empty());
+    if has_playback_state {
+        timestamp(item, "savedAt")
+    } else {
+        0
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn history_excludes_active_watching_and_non_playback_changes() {
+        let plan = library_view_plan_json(
+            &json!({
+                "watchlist": [
+                    {"id": "saved", "savedAt": "2026-07-01T00:00:00Z"},
+                    {"id": "played", "lastVideoId": "played:1:1", "savedAt": "2026-07-02T00:00:00Z"}
+                ],
+                "watching": [
+                    {"id": "active", "lastVideoId": "active:1:1", "savedAt": "2026-07-03T00:00:00Z"}
+                ],
+                "completed": [],
+                "dropped": [],
+                "progress": {},
+                "tab": "history"
+            })
+            .to_string(),
+        )
+        .unwrap();
+        let items = serde_json::from_str::<Value>(&plan).unwrap()["items"]
+            .as_array()
+            .unwrap()
+            .clone();
+
+        assert_eq!(
+            items,
+            vec![
+                json!({"id": "played", "lastVideoId": "played:1:1", "savedAt": "2026-07-02T00:00:00Z"})
+            ]
+        );
+    }
 }
 fn air_time(item: &Value) -> i64 {
     let value = timestamp(item, "nextEpisodeAirDate").max(timestamp(item, "newEpisodeReleasedAt"));
