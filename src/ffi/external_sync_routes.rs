@@ -218,6 +218,7 @@ pub(super) fn route_external_sync_trakt(method: &str, args_json: &str) -> Outcom
                 field_str(&args, "contentType")?,
             ))
         }
+        "traktCommentsRequest" => opt_json(external_sync::trakt_comments_request_json(args_json)),
 
         _ => Err(fail(
             ErrorKind::UnknownMethod,

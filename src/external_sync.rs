@@ -750,6 +750,27 @@ pub(super) fn trakt_ids_from_content_id_json(raw_id: &str) -> Option<String> {
     }
 }
 
+pub(crate) fn trakt_comments_request_json(args_json: &str) -> Option<String> {
+    let args: Value = serde_json::from_str(args_json).ok()?;
+    let content_id = args.get("contentId")?.as_str()?;
+    let content_type = args.get("contentType")?.as_str()?;
+    let resource = match content_type {
+        "movie" => "movies",
+        "series" => "shows",
+        _ => return None,
+    };
+    let ids_json = trakt_ids_from_content_id_json(content_id)?;
+    let ids: Value = serde_json::from_str(&ids_json).ok()?;
+    let (lookup_type, id) = ids
+        .get("imdb")
+        .and_then(Value::as_str)
+        .map(|value| ("imdb", value.to_string()))
+        .or_else(|| ids.get("tmdb").and_then(Value::as_i64).map(|value| ("tmdb", value.to_string())))
+        .or_else(|| ids.get("tvdb").and_then(Value::as_i64).map(|value| ("tvdb", value.to_string())))
+        .or_else(|| ids.get("trakt").and_then(Value::as_i64).map(|value| ("trakt", value.to_string())))?;
+    serde_json::to_string(&json!({ "resource": resource, "id": id, "lookupType": lookup_type, "wantType": if resource == "shows" { "show" } else { "movie" } })).ok()
+}
+
 pub(crate) fn trakt_episode_locator_json(video_id: &str) -> Option<String> {
     let (_, season, episode) = parse_episode_locator(video_id)?;
     serde_json::to_string(&json!({
