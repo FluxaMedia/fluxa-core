@@ -14,6 +14,41 @@ fn simkl_entries(json: &str, key: &str) -> Vec<Value> {
     }
 }
 
+fn simkl_last_watched_episode(entry: &Value) -> Option<(i64, i64)> {
+    let from_code = entry
+        .get("last_watched")
+        .and_then(Value::as_str)
+        .and_then(|value| value.strip_prefix('S'))
+        .and_then(|value| value.split_once('E'))
+        .and_then(|(season, episode)| {
+            Some((season.parse::<i64>().ok()?, episode.parse::<i64>().ok()?))
+        })
+        .filter(|(season, episode)| *season > 0 && *episode > 0);
+    if from_code.is_some() {
+        return from_code;
+    }
+
+    entry
+        .get("seasons")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .flat_map(|season| {
+            let season_number = season.get("number").and_then(Value::as_i64).unwrap_or(0);
+            season
+                .get("episodes")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .filter_map(move |episode| {
+                    let episode_number = episode.get("number").and_then(Value::as_i64)?;
+                    (season_number > 0 && episode_number > 0)
+                        .then_some((season_number, episode_number))
+                })
+        })
+        .max()
+}
+
 pub(crate) fn simkl_watching_to_items_json(shows_json: &str, movies_json: &str) -> Option<String> {
     let shows = simkl_entries(shows_json, "shows");
     let movies = simkl_entries(movies_json, "movies");
@@ -31,13 +66,19 @@ pub(crate) fn simkl_watching_to_items_json(shows_json: &str, movies_json: &str) 
             .and_then(Value::as_str)
             .map(|p| format!("https://simkl.in/posters/{p}_m.jpg"));
         let saved_at = entry
-            .get("last_watched")
+            .get("last_watched_at")
             .and_then(Value::as_str)
             .unwrap_or_default();
+        let last_episode = simkl_last_watched_episode(entry);
+        let last_video_id =
+            last_episode.map(|(season, episode)| format!("{id}:{season}:{episode}"));
         items.push(json!({
             "id": id, "type": "series", "name": title,
             "poster": poster, "continueWatchingBadge": "upNext",
             "timeOffset": 1, "duration": 1,
+            "lastVideoId": last_video_id,
+            "lastEpisodeSeason": last_episode.map(|(season, _)| season),
+            "lastEpisodeNumber": last_episode.map(|(_, episode)| episode),
             "savedAt": saved_at, "reason": "simkl"
         }));
     }
@@ -294,6 +335,13 @@ pub(crate) fn trakt_playback_items_dedup_json(items_json: &str) -> Option<String
         item.get("savedAt").and_then(Value::as_str).unwrap_or("")
     }
 
+    fn episode_rank(item: &Value) -> Option<(i64, i64)> {
+        Some((
+            item.get("lastEpisodeSeason").and_then(Value::as_i64)?,
+            item.get("lastEpisodeNumber").and_then(Value::as_i64)?,
+        ))
+    }
+
     let mut best: std::collections::HashMap<String, Value> = std::collections::HashMap::new();
     for item in items {
         let id = item
@@ -309,10 +357,26 @@ pub(crate) fn trakt_playback_items_dedup_json(items_json: &str) -> Option<String
             None => {
                 best.insert(id, item);
             }
-            Some(existing) if cur.as_str() > saved_at_str(existing) => {
-                best.insert(id, item);
+            Some(existing) => {
+                let incoming_rank = episode_rank(&item);
+                let existing_rank = episode_rank(existing);
+                let incoming_is_watched = item
+                    .get("continueWatchingBadge")
+                    .and_then(Value::as_str)
+                    == Some("upNext");
+                let existing_is_watched = existing
+                    .get("continueWatchingBadge")
+                    .and_then(Value::as_str)
+                    == Some("upNext");
+                let incoming_wins = match (incoming_rank, existing_rank) {
+                    (Some(incoming_rank), Some(existing_rank))
+                        if incoming_is_watched || existing_is_watched => incoming_rank > existing_rank,
+                    _ => cur.as_str() > saved_at_str(existing),
+                };
+                if incoming_wins {
+                    best.insert(id, item);
+                }
             }
-            _ => {}
         }
     }
 
@@ -321,8 +385,12 @@ pub(crate) fn trakt_playback_items_dedup_json(items_json: &str) -> Option<String
     serde_json::to_string(&deduped).ok()
 }
 
-pub(crate) fn trakt_mark_watched_body_json(video_ids_json: &str) -> Option<String> {
-    let video_ids: Vec<String> = serde_json::from_str(video_ids_json).ok()?;
+pub(crate) fn trakt_mark_watched_body_json(request_json: &str) -> Option<String> {
+    let request: Value = serde_json::from_str(request_json).ok()?;
+    let video_ids: Vec<String> = request.as_array().cloned().and_then(|value| serde_json::from_value(Value::Array(value)).ok())
+        .or_else(|| request.get("videoIds").cloned().and_then(|value| serde_json::from_value(value).ok()))?;
+    let watched_at = request.get("watchedAtMs").and_then(Value::as_i64)
+        .and_then(chrono::DateTime::from_timestamp_millis).map(|value| value.to_rfc3339());
     let mut movie_ids: Vec<Value> = Vec::new();
     let mut shows: std::collections::HashMap<
         String,
@@ -365,7 +433,7 @@ pub(crate) fn trakt_mark_watched_body_json(video_ids_json: &str) -> Option<Strin
                 .or_insert_with(|| (ids, std::collections::BTreeMap::new()));
             entry.1.entry(season).or_default().push(episode);
         } else {
-            movie_ids.push(json!({ "ids": ids }));
+            movie_ids.push(json!({ "ids": ids, "watched_at": watched_at }));
         }
     }
 
@@ -379,7 +447,7 @@ pub(crate) fn trakt_mark_watched_body_json(video_ids_json: &str) -> Option<Strin
                     episodes.dedup();
                     json!({
                         "number": season,
-                        "episodes": episodes.into_iter().map(|n| json!({ "number": n })).collect::<Vec<_>>()
+                        "episodes": episodes.into_iter().map(|n| json!({ "number": n, "watched_at": watched_at })).collect::<Vec<_>>()
                     })
                 })
                 .collect();
@@ -407,6 +475,8 @@ pub(crate) fn simkl_mark_watched_body_json(args_json: &str) -> Option<String> {
         .pointer("/meta/type")
         .and_then(Value::as_str)
         .unwrap_or("movie");
+    let watched_at = args.get("watchedAtMs").and_then(Value::as_i64)
+        .and_then(chrono::DateTime::from_timestamp_millis).map(|value| value.to_rfc3339());
     let mut movies = Vec::new();
     let mut shows: std::collections::HashMap<
         String,
@@ -439,14 +509,14 @@ pub(crate) fn simkl_mark_watched_body_json(args_json: &str) -> Option<String> {
                 .entry(ids.to_string())
                 .or_insert_with(|| (ids, std::collections::BTreeMap::new()));
         } else {
-            movies.push(json!({"ids": ids, "watched_at": "now"}));
+            movies.push(json!({"ids": ids, "watched_at": watched_at.clone().unwrap_or_else(|| "now".to_string())}));
         }
     }
     let show_values = shows.into_values().map(|(ids, seasons)| {
         if seasons.is_empty() { return json!({"ids": ids}); }
         json!({"ids": ids, "seasons": seasons.into_iter().map(|(number, mut episodes)| {
             episodes.sort_unstable(); episodes.dedup();
-            json!({"number": number, "episodes": episodes.into_iter().map(|number| json!({"number": number})).collect::<Vec<_>>()})
+            json!({"number": number, "episodes": episodes.into_iter().map(|number| json!({"number": number, "watched_at": watched_at})).collect::<Vec<_>>()})
         }).collect::<Vec<_>>()})
     }).collect::<Vec<_>>();
     if movies.is_empty() && show_values.is_empty() {

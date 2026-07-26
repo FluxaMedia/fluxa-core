@@ -1734,9 +1734,22 @@ mod tests {
     }
 
     #[test]
+    fn trakt_playback_dedup_keeps_the_furthest_watched_episode() {
+        let items = json!([
+            {"id": "tt42", "lastEpisodeSeason": 1, "lastEpisodeNumber": 1, "savedAt": "2026-07-22T00:00:00.000Z"},
+            {"id": "tt42", "lastEpisodeSeason": 1, "lastEpisodeNumber": 2, "savedAt": "2026-07-21T00:00:00.000Z", "continueWatchingBadge": "upNext"}
+        ]);
+        let result: Value = serde_json::from_str(
+            &trakt_playback_items_dedup_json(&items.to_string()).expect("deduped items"),
+        )
+        .unwrap();
+        assert_eq!(result[0]["lastEpisodeNumber"], 2);
+    }
+
+    #[test]
     fn simkl_watching_items_are_kept_for_continue_watching() {
         let items = simkl_watching_to_items_json(
-            r#"{"shows":[{"show":{"title":"Example","ids":{"imdb":"tt42"}},"last_watched":"2026-07-21T00:00:00.000Z"}]}"#,
+            r#"{"shows":[{"show":{"title":"Example","ids":{"imdb":"tt42"}},"last_watched":"S01E02","last_watched_at":"2026-07-21T00:00:00.000Z","seasons":[{"number":1,"episodes":[{"number":2}]}]}]}"#,
             "[]",
         )
         .expect("items");
@@ -1750,6 +1763,9 @@ mod tests {
         ))
         .unwrap();
         assert_eq!(replaced[0]["id"], "tt42");
+        assert_eq!(replaced[0]["lastVideoId"], "tt42:1:2");
+        assert_eq!(replaced[0]["lastEpisodeSeason"], 1);
+        assert_eq!(replaced[0]["lastEpisodeNumber"], 2);
     }
 
     #[test]

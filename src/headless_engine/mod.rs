@@ -1232,7 +1232,7 @@ mod tests {
     }
 
     #[test]
-    fn home_load_refreshes_continue_watching_badges_without_blocking_bootstrap() {
+    fn home_load_delivers_continue_watching_in_its_single_bootstrap_effect() {
         let handle = create_headless_engine("{}");
         let requested: Value = serde_json::from_str(
             &headless_engine_dispatch_json(
@@ -1243,9 +1243,10 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(requested["effects"][1]["type"], "refreshContinueWatching");
-        assert_eq!(requested["effects"][1]["payload"]["profileId"], "p1");
-        assert_eq!(requested["effects"][1]["payload"]["language"], "tr");
+        assert_eq!(requested["effects"].as_array().unwrap().len(), 1);
+        assert_eq!(requested["effects"][0]["type"], "readHomeBootstrap");
+        assert_eq!(requested["effects"][0]["payload"]["profileId"], "p1");
+        assert_eq!(requested["effects"][0]["payload"]["language"], "tr");
 
         let bootstrap_id = requested["effects"][0]["id"].as_str().unwrap();
         let bootstrap_completed: Value = serde_json::from_str(
@@ -1254,7 +1255,7 @@ mod tests {
                 &json!({
                     "effectId": bootstrap_id,
                     "status": "ok",
-                    "value": { "continueWatching": [{ "id": "tt1", "continueWatchingBadge": null }] }
+                    "value": { "continueWatching": [{ "id": "tt1", "continueWatchingBadge": "newEpisode" }] }
                 })
                 .to_string(),
             )
@@ -1264,27 +1265,10 @@ mod tests {
         assert_eq!(bootstrap_completed["state"]["home"]["isLoading"], false);
         assert_eq!(
             bootstrap_completed["state"]["home"]["continueWatching"][0]["continueWatchingBadge"],
-            Value::Null
+            "newEpisode"
         );
-
-        let refresh_id = requested["effects"][1]["id"].as_str().unwrap();
-        let refreshed: Value = serde_json::from_str(
-            &headless_engine_complete_effect_json(
-                handle,
-                &json!({
-                    "effectId": refresh_id,
-                    "status": "ok",
-                    "value": {
-                        "continueWatching": [{ "id": "tt1", "continueWatchingBadge": "newEpisode" }]
-                    }
-                })
-                .to_string(),
-            )
-            .unwrap(),
-        )
-        .unwrap();
         assert_eq!(
-            refreshed["state"]["home"]["continueWatching"][0]["continueWatchingBadge"],
+            bootstrap_completed["state"]["home"]["continueWatching"][0]["continueWatchingBadge"],
             "newEpisode"
         );
         assert!(destroy_headless_engine(handle));
