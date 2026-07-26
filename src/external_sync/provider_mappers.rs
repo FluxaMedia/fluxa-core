@@ -111,11 +111,12 @@ pub(crate) fn trakt_watched_shows_to_items_json(shows_json: &str) -> Option<Stri
                     .filter(|value| !value.is_empty())
                     .map(str::to_string);
                 let rank = (season_number, number);
-                let replace = last_episode
-                    .as_ref()
-                    .is_none_or(|(previous_season, previous_number, _)| {
-                        rank > (*previous_season, *previous_number)
-                    });
+                let replace =
+                    last_episode
+                        .as_ref()
+                        .is_none_or(|(previous_season, previous_number, _)| {
+                            rank > (*previous_season, *previous_number)
+                        });
                 if replace {
                     last_episode = Some((season_number, number, watched_at));
                 }
@@ -223,9 +224,13 @@ pub(crate) fn replace_external_continue_watching_json(
                 .and_then(Value::as_f64)
                 .unwrap_or(0.0);
             let duration = item.get("duration").and_then(Value::as_f64).unwrap_or(0.0);
-            let within_window = continue_watching_days
-                .filter(|days| *days > 0)
-                .is_none_or(|days| saved_at_ms(item) >= chrono::Utc::now().timestamp_millis() - days * 86_400_000);
+            let within_window =
+                continue_watching_days
+                    .filter(|days| *days > 0)
+                    .is_none_or(|days| {
+                        saved_at_ms(item)
+                            >= chrono::Utc::now().timestamp_millis() - days * 86_400_000
+                    });
             !id.is_empty() && offset > 0.0 && duration > 0.0 && within_window
         })
         .collect();

@@ -62,9 +62,9 @@ mod headless_engine;
 #[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
 mod home_ranking;
 #[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
-mod intro_segments;
-#[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
 mod integration_settings;
+#[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
+mod intro_segments;
 #[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
 mod library_persistence;
 #[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]

@@ -1054,6 +1054,9 @@ mod tests {
             "avatarCatalog": [{"id":"avatar-1","storage_path":"profiles/avatar-1.png"}],
             "existingProfiles": [{"id":"local","nuvioUserId":"user","nuvioProfileIndex":1}],
         }).to_string()).unwrap()).unwrap();
-        assert_eq!(result[0]["avatarUrl"], json!("https://api.nuvio.tv/storage/v1/object/public/avatars/profiles/avatar-1.png"));
+        assert_eq!(
+            result[0]["avatarUrl"],
+            json!("https://api.nuvio.tv/storage/v1/object/public/avatars/profiles/avatar-1.png")
+        );
     }
 }

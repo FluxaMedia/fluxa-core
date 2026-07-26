@@ -1237,10 +1237,9 @@ mod tests {
             }],
             "movies": []
         });
-        let result: Value = serde_json::from_str(
-            &provider_calendar_items_json(&request.to_string()).unwrap(),
-        )
-        .unwrap();
+        let result: Value =
+            serde_json::from_str(&provider_calendar_items_json(&request.to_string()).unwrap())
+                .unwrap();
         assert_eq!(result[0]["seasonNumber"], 9);
         assert_eq!(result[0]["episodeNumber"], 10);
         assert_eq!(result[0]["metaType"], "series");
@@ -1264,10 +1263,9 @@ mod tests {
             }],
             "movies": []
         });
-        let result: Value = serde_json::from_str(
-            &provider_calendar_items_json(&request.to_string()).unwrap(),
-        )
-        .unwrap();
+        let result: Value =
+            serde_json::from_str(&provider_calendar_items_json(&request.to_string()).unwrap())
+                .unwrap();
         assert_eq!(result[0]["seasonNumber"], 9);
         assert_eq!(result[0]["episodeNumber"], 10);
     }

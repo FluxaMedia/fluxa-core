@@ -12,9 +12,9 @@ use crate::dolby_vision_rpu;
 use crate::{
     addon_protocol, addon_resource, addon_store, addon_uptime, anime_detection, app_state,
     calendar_plan, content_identity, core_contract, data_policy, desktop_playback, discovery_plan,
-    external_sync, headless_adapter_plan, headless_engine, home_ranking, integration_settings, intro_segments,
-    library_state, nuvio_sync, offline_download, platform_plan, player_flow, player_policy,
-    player_scrobble, plugins, profile_avatar_pack, profile_contract, profile_prefs,
+    external_sync, headless_adapter_plan, headless_engine, home_ranking, integration_settings,
+    intro_segments, library_state, nuvio_sync, offline_download, platform_plan, player_flow,
+    player_policy, player_scrobble, plugins, profile_avatar_pack, profile_contract, profile_prefs,
     repository_flow, search_plan, stream_policy, tmdb_plan, trailer_subtitles, watchlist_plan,
 };
 
@@ -280,7 +280,9 @@ fn route_resource_plan(method: &str, args_json: &str) -> Outcome {
         }
         "preferencesSchema" => into_json(platform_plan::preferences_schema_json()),
         "applyPreferenceUpdate" => opt_json(platform_plan::apply_preference_update_json(args_json)),
-        "integrationSettingsPlan" => opt_json(integration_settings::integration_settings_plan_json(args_json)),
+        "integrationSettingsPlan" => opt_json(
+            integration_settings::integration_settings_plan_json(args_json),
+        ),
         "addonCollectionMutationPlan" => opt_json(
             platform_plan::addon_collection_mutation_plan_json(args_json),
         ),

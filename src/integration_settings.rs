@@ -32,14 +32,26 @@ pub(crate) fn integration_settings_from_value(value: Option<&Value>) -> Integrat
             .to_string()
     };
     IntegrationSettings {
-        library_source: enum_value("librarySource", &["local", "trakt", "simkl", "nuvio", "anilist", "stremio"], "local"),
-        watch_progress_source: enum_value("watchProgressSource", &["all", "trakt", "simkl", "nuvio", "stremio"], "all"),
+        library_source: enum_value(
+            "librarySource",
+            &["local", "trakt", "simkl", "nuvio", "anilist", "stremio"],
+            "local",
+        ),
+        watch_progress_source: enum_value(
+            "watchProgressSource",
+            &["all", "trakt", "simkl", "nuvio", "stremio"],
+            "all",
+        ),
         continue_watching_days: value
             .and_then(|object| object.get("continueWatchingDays"))
             .and_then(Value::as_i64)
             .filter(|days| *days == 0 || (1..=365).contains(days))
             .unwrap_or(0),
-        similar_titles_source: enum_value("similarTitlesSource", &["auto", "trakt", "simkl", "tmdb"], "auto"),
+        similar_titles_source: enum_value(
+            "similarTitlesSource",
+            &["auto", "trakt", "simkl", "tmdb"],
+            "auto",
+        ),
         trakt_comments_enabled: value
             .and_then(|object| object.get("traktCommentsEnabled"))
             .and_then(Value::as_bool)
@@ -81,7 +93,9 @@ mod tests {
 
     #[test]
     fn rejects_invalid_integration_settings() {
-        let settings = integration_settings_from_value(Some(&json!({"watchProgressSource":"invalid","continueWatchingDays":366})));
+        let settings = integration_settings_from_value(Some(
+            &json!({"watchProgressSource":"invalid","continueWatchingDays":366}),
+        ));
         assert_eq!(settings, IntegrationSettings::default());
     }
 }

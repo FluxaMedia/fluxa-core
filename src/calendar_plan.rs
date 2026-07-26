@@ -716,10 +716,9 @@ mod tests {
             "showCompleted": false,
             "todayIso": "2026-07-26"
         });
-        let result: Value = serde_json::from_str(
-            &calendar_visibility_plan_json(&request.to_string()).unwrap(),
-        )
-        .unwrap();
+        let result: Value =
+            serde_json::from_str(&calendar_visibility_plan_json(&request.to_string()).unwrap())
+                .unwrap();
         let items = result.as_array().unwrap();
         assert_eq!(items.len(), 1);
         assert_eq!(items[0]["dateIso"], "2026-07-27T03:00:00Z");
