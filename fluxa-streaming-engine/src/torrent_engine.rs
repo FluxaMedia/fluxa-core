@@ -62,7 +62,7 @@ struct EngineState {
     output_dir: PathBuf,
     preload_size: Arc<Mutex<u64>>,
     known_links: Arc<Mutex<HashMap<String, usize>>>,
-    prioritized_files: Arc<Mutex<HashMap<usize, usize>>>,
+    prioritized_files: Arc<Mutex<HashMap<usize, HashSet<usize>>>>,
     pending_adds: Arc<Mutex<HashSet<String>>>,
     stream_progress: Arc<Mutex<HashMap<String, u64>>>,
     access_token: Arc<String>,

@@ -54,21 +54,25 @@ pub(super) fn largest_file_id(details: &TorrentDetailsResponse) -> Option<usize>
 }
 
 pub(super) async fn prioritize_stream_file(state: &EngineState, torrent_id: usize, file_id: usize) {
-    let should_update = state
+    // Adds file_id to the torrent's active set rather than replacing it, so
+    // fetching a sibling subtitle file doesn't evict the video file that's
+    // already streaming (which would stall playback).
+    let only_files = state
         .prioritized_files
         .lock()
-        .map(|mut files| match files.get(&torrent_id) {
-            Some(current) if *current == file_id => false,
-            _ => {
-                files.insert(torrent_id, file_id);
-                true
+        .map(|mut files| {
+            let entry = files.entry(torrent_id).or_default();
+            let inserted = entry.insert(file_id);
+            if !inserted {
+                None
+            } else {
+                Some(entry.clone())
             }
         })
-        .unwrap_or(true);
-    if !should_update {
+        .unwrap_or(None);
+    let Some(only_files) = only_files else {
         return;
-    }
-    let only_files = HashSet::from([file_id]);
+    };
     let _ = state
         .api
         .api_torrent_action_update_only_files(TorrentIdOrHash::Id(torrent_id), &only_files)
