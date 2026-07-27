@@ -238,11 +238,7 @@ pub(super) fn dispatch_local_state(
     content_type: String,
     profile: Option<Value>,
 ) -> Vec<EffectEnvelope> {
-    let generation = engine
-        .state
-        .runtime
-        .get(GenerationKey::Detail)
-        .max(engine.bump_generation(GenerationKey::Detail));
+    let generation = engine.state.runtime.get(GenerationKey::Detail);
     vec![engine.effect(
         EffectKind::ReadDetailLocalState,
         generation,
@@ -263,11 +259,7 @@ pub(super) fn dispatch_secondary(
     profile: Option<Value>,
     similar_titles_source: Option<String>,
 ) -> Vec<EffectEnvelope> {
-    let generation = engine
-        .state
-        .runtime
-        .get(GenerationKey::Detail)
-        .max(engine.bump_generation(GenerationKey::Detail));
+    let generation = engine.state.runtime.get(GenerationKey::Detail);
     vec![engine.effect(
         EffectKind::FetchDetailSecondary,
         generation,
@@ -447,11 +439,7 @@ pub(super) fn dispatch_season(
     profile: Option<Value>,
     language: Option<String>,
 ) -> Vec<EffectEnvelope> {
-    let generation = engine
-        .state
-        .runtime
-        .get(GenerationKey::Detail)
-        .max(engine.bump_generation(GenerationKey::Detail));
+    let generation = engine.state.runtime.get(GenerationKey::Detail);
     let profile_value = profile.unwrap_or_else(|| engine.state.profile.active.clone());
     let profile_id = active_profile_id(&engine.state, &profile_value);
     engine.state.detail.season_loading = Value::from(season);

@@ -811,6 +811,48 @@ mod tests {
     }
 
     #[test]
+    fn concurrent_local_state_request_does_not_drop_meta_detail_completion() {
+        let handle = create_headless_engine("{}");
+        let load: Value = serde_json::from_str(
+            &headless_engine_dispatch_json(
+                handle,
+                r#"{"type":"detailLoadRequested","contentType":"series","id":"tt1"}"#,
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        let effect_id = load["effects"][0]["id"].as_str().unwrap().to_string();
+
+        headless_engine_dispatch_json(
+            handle,
+            r#"{"type":"detailLocalStateRequested","primaryId":"tt1","contentType":"series"}"#,
+        )
+        .unwrap();
+
+        let completed: Value = serde_json::from_str(
+            &headless_engine_complete_effect_json(
+                handle,
+                &json!({
+                    "effectId": effect_id,
+                    "status": "ok",
+                    "value": {
+                        "id": "tt1",
+                        "name": "Rick and Morty",
+                        "videos": [{"id": "tt1:1:1", "season": 1, "episode": 1}]
+                    }
+                })
+                .to_string(),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+
+        assert_eq!(completed["state"]["detail"]["meta"]["name"], "Rick and Morty");
+        assert_eq!(completed["state"]["detail"]["meta"]["videos"].as_array().unwrap().len(), 1);
+        assert!(destroy_headless_engine(handle));
+    }
+
+    #[test]
     fn detail_meta_trailers_are_normalized_in_core_before_tmdb_fallback() {
         let handle = create_headless_engine("{}");
         let requested: Value = serde_json::from_str(
