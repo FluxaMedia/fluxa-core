@@ -150,10 +150,14 @@ pub(crate) fn profile_avatar_pack_json(request_json: &str) -> Option<String> {
     let mut avatars = Vec::new();
     let mut seen_urls = HashSet::new();
     for image in images {
-        let Some(url) = image.get("url").and_then(Value::as_str).map(str::trim) else {
+        let Some(raw_url) = image.get("url").and_then(Value::as_str).map(str::trim) else {
             continue;
         };
-        if !is_https_url(url) || !seen_urls.insert(url.to_string()) {
+        if !is_https_url(raw_url) {
+            continue;
+        }
+        let url = normalize_avatar_url(raw_url);
+        if !seen_urls.insert(url.clone()) {
             continue;
         }
         let name = image
@@ -246,6 +250,34 @@ fn percent_encode(value: &str) -> String {
         .collect()
 }
 
+fn normalize_avatar_url(url: &str) -> String {
+    let Some(rest) = url.strip_prefix("https://github.com/") else {
+        return url.to_string();
+    };
+    let mut blob_segments = rest.splitn(2, "/blob/");
+    let Some(owner_repo) = blob_segments.next() else {
+        return url.to_string();
+    };
+    let Some(ref_and_path) = blob_segments.next() else {
+        return url.to_string();
+    };
+    let mut owner_repo_parts = owner_repo.splitn(2, '/');
+    let (Some(owner), Some(repo)) = (owner_repo_parts.next(), owner_repo_parts.next()) else {
+        return url.to_string();
+    };
+    if owner.is_empty() || repo.is_empty() {
+        return url.to_string();
+    }
+    let ref_and_path = ref_and_path.split('?').next().unwrap_or(ref_and_path);
+    let Some((reference, path)) = ref_and_path.split_once('/') else {
+        return url.to_string();
+    };
+    if reference.is_empty() || path.is_empty() {
+        return url.to_string();
+    }
+    format!("https://raw.githubusercontent.com/{owner}/{repo}/{reference}/{path}")
+}
+
 fn is_https_url(value: &str) -> bool {
     let value = value.trim();
     let Some(rest) = value.strip_prefix("https://") else {
@@ -319,5 +351,25 @@ mod tests {
         .unwrap();
         assert_eq!(output["avatars"].as_array().unwrap().len(), 1);
         assert_eq!(output["avatars"][0]["name"], "A");
+    }
+
+    #[test]
+    fn pack_parser_rewrites_github_blob_urls_to_raw() {
+        let output: Value = serde_json::from_str(
+            &profile_avatar_pack_json(
+                r#"{
+                    "manifestUrl":"https://example.com/pack.json",
+                    "pack":{"title":"Hell's Paradise","images":[
+                        {"name":"Choubei","url":"https://github.com/eueueue292/Fusion-Profile-Avatars/blob/main/Hells%20Paradise/Choubei.PNG?raw=true&v=3"}
+                    ]}
+                }"#,
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            output["avatars"][0]["url"],
+            "https://raw.githubusercontent.com/eueueue292/Fusion-Profile-Avatars/main/Hells%20Paradise/Choubei.PNG"
+        );
     }
 }
