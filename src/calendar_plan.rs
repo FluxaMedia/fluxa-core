@@ -272,7 +272,8 @@ pub(crate) fn calendar_content_plan_json(request_json: &str) -> Option<String> {
                 "artworkUrl": item.artwork_url,
                 "meta": item.meta,
                 "poster": item.poster,
-                "episodePoster": item.episode_poster
+                "episodePoster": item.episode_poster,
+                "resolvedArtworkUrl": resolve_calendar_artwork(item)
             })
         })
         .collect();
@@ -302,6 +303,12 @@ pub(crate) fn desktop_calendar_read_plan_json(request_json: &str) -> Option<Stri
             if !seen.insert(key.clone()) {
                 return None;
             }
+            let episode_poster = item.get("nextEpisodePoster").and_then(Value::as_str);
+            let series_poster = item.get("poster").and_then(Value::as_str);
+            let resolved_artwork = [episode_poster, series_poster]
+                .into_iter()
+                .find_map(usable_artwork)
+                .map(str::to_string);
             Some(json!({
                 "id": key,
                 "title": item.get("name"),
@@ -316,6 +323,7 @@ pub(crate) fn desktop_calendar_read_plan_json(request_json: &str) -> Option<Stri
                 "contentId": id,
                 "seriesId": id,
                 "metaType": item.get("type"),
+                "resolvedArtworkUrl": resolved_artwork,
             }))
         })
         .collect();
@@ -456,7 +464,27 @@ fn usable_artwork(url: Option<&str>) -> Option<&str> {
             && normalized != "null"
             && !normalized.contains("default-poster")
             && !normalized.contains("placeholder")
+            && !normalized.contains("no-image")
+            && !normalized.contains("no_image")
     })
+}
+
+fn resolve_calendar_artwork(item: &CalendarItemInput) -> Option<String> {
+    [
+        item.episode_poster.as_deref(),
+        item.poster.as_deref(),
+        item.meta.get("poster").and_then(Value::as_str),
+        item.meta
+            .get("continueWatchingPoster")
+            .and_then(Value::as_str),
+        item.meta.get("background").and_then(Value::as_str),
+        item.meta
+            .get("continueWatchingBackground")
+            .and_then(Value::as_str),
+    ]
+    .into_iter()
+    .find_map(usable_artwork)
+    .map(str::to_string)
 }
 
 pub(crate) fn calendar_season_candidates_json(request_json: &str) -> Option<String> {
