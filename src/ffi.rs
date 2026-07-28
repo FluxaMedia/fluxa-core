@@ -1198,6 +1198,12 @@ fn route_addon_store(method: &str, args_json: &str) -> Outcome {
             args_json, "text",
         )?)),
         "filterEnabledAddons" => opt_json(addon_store::filter_enabled_addons_json(args_json)),
+        // args_json IS the { profiles, activeProfileId } request object
+        "effectiveAddonsOwnerId" => opt_str(addon_store::effective_addons_owner_id_json(args_json)),
+        "effectivePluginsOwnerId" => {
+            opt_str(addon_store::effective_plugins_owner_id_json(args_json))
+        }
+        "pluginStorageFallback" => opt_json(addon_store::plugin_storage_fallback_json(args_json)),
 
         _ => Err(fail(
             ErrorKind::UnknownMethod,
@@ -1244,6 +1250,8 @@ fn route_profile_contract(method: &str, args_json: &str) -> Outcome {
         }
         "profileMutationPlan" => opt_json(profile_contract::profile_mutation_plan_json(args_json)),
         "createProfilePlan" => opt_json(profile_contract::create_profile_plan_json(args_json)),
+        // args_json IS the profiles array
+        "primaryProfileId" => opt_str(profile_contract::primary_profile_id_json(args_json)),
         "profilePinHash" => Ok(Value::String(profile_contract::profile_pin_hash(&arg_str(
             args_json, "pin",
         )?))),

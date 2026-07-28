@@ -111,6 +111,15 @@ pub(crate) fn active_profile_plan_json(request_json: &str) -> Option<String> {
     .ok()
 }
 
+pub(crate) fn primary_profile_id_json(profiles_json: &str) -> Option<String> {
+    let profiles: Vec<Value> = serde_json::from_str(profiles_json).ok()?;
+    profiles
+        .first()?
+        .get("id")
+        .and_then(Value::as_str)
+        .map(str::to_string)
+}
+
 pub(crate) fn token_merge_plan_json(request_json: &str) -> Option<String> {
     let request = serde_json::from_str::<TokenMergeRequest>(request_json).ok()?;
     let mut profile = request.profile.clone();
@@ -490,6 +499,15 @@ mod tests {
         .unwrap();
         assert_eq!(result["activeId"], "p1");
         assert_eq!(result["shouldCreateDefault"], false);
+    }
+
+    #[test]
+    fn primary_profile_id_returns_first_profile() {
+        assert_eq!(
+            primary_profile_id_json(r#"[{"id":"p1"},{"id":"p2"}]"#),
+            Some("p1".to_string())
+        );
+        assert_eq!(primary_profile_id_json(r#"[]"#), None);
     }
 
     #[test]

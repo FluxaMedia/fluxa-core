@@ -98,6 +98,59 @@ pub(crate) fn profile_local_addons_key_json(profile_json: &str) -> Option<String
     ))
 }
 
+fn effective_shared_owner_id(profiles_json: &str, active_profile_id: &str, flag_field: &str) -> Option<String> {
+    let profiles: Vec<Value> = serde_json::from_str(profiles_json).ok()?;
+    let active = profiles
+        .iter()
+        .find(|p| string_field(p, "id").as_deref() == Some(active_profile_id));
+    let uses_primary = active
+        .and_then(|p| p.get(flag_field))
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    if !uses_primary {
+        return Some(active_profile_id.to_string());
+    }
+    profiles
+        .first()
+        .and_then(|p| string_field(p, "id"))
+        .or_else(|| Some(active_profile_id.to_string()))
+}
+
+pub(crate) fn effective_addons_owner_id_json(args_json: &str) -> Option<String> {
+    let args: Value = serde_json::from_str(args_json).ok()?;
+    let profiles_json = args.get("profiles")?.to_string();
+    let active_profile_id = args.get("activeProfileId").and_then(Value::as_str)?;
+    effective_shared_owner_id(&profiles_json, active_profile_id, "usesPrimaryAddons")
+}
+
+pub(crate) fn effective_plugins_owner_id_json(args_json: &str) -> Option<String> {
+    let args: Value = serde_json::from_str(args_json).ok()?;
+    let profiles_json = args.get("profiles")?.to_string();
+    let active_profile_id = args.get("activeProfileId").and_then(Value::as_str)?;
+    effective_shared_owner_id(&profiles_json, active_profile_id, "usesPrimaryPlugins")
+}
+
+pub(crate) fn plugin_storage_fallback_json(args_json: &str) -> Option<String> {
+    let args: Value = serde_json::from_str(args_json).ok()?;
+    let repository_urls = args
+        .get("scopedRepositoryUrls")
+        .filter(|v| !v.is_null())
+        .or_else(|| args.get("legacyRepositoryUrls"))
+        .cloned()
+        .unwrap_or_else(|| json!([]));
+    let scraper_overrides = args
+        .get("scopedScraperOverrides")
+        .filter(|v| !v.is_null())
+        .or_else(|| args.get("legacyScraperOverrides"))
+        .cloned()
+        .unwrap_or_else(|| json!({}));
+    serde_json::to_string(&json!({
+        "repositoryUrls": repository_urls,
+        "scraperOverrides": scraper_overrides,
+    }))
+    .ok()
+}
+
 pub(crate) fn sanitize_profile_json(
     profile_json: &str,
     mirrored_addons_json: &str,
@@ -578,6 +631,38 @@ mod tests {
                 .and_then(Value::as_str),
             Some("tr")
         );
+    }
+
+    #[test]
+    fn effective_owner_id_falls_back_to_primary_only_when_flag_set() {
+        let profiles = r#"[{"id":"p1"},{"id":"p2","usesPrimaryAddons":true},{"id":"p3"}]"#;
+        assert_eq!(
+            effective_shared_owner_id(profiles, "p1", "usesPrimaryAddons"),
+            Some("p1".to_string())
+        );
+        assert_eq!(
+            effective_shared_owner_id(profiles, "p2", "usesPrimaryAddons"),
+            Some("p1".to_string())
+        );
+        assert_eq!(
+            effective_shared_owner_id(profiles, "p3", "usesPrimaryAddons"),
+            Some("p3".to_string())
+        );
+    }
+
+    #[test]
+    fn plugin_storage_fallback_prefers_scoped_over_legacy() {
+        let result = plugin_storage_fallback_json(
+            r#"{"scopedRepositoryUrls":["https://a.example/repo.json"],"legacyRepositoryUrls":["https://legacy.example/repo.json"],"scopedScraperOverrides":null,"legacyScraperOverrides":{"s1":true}}"#,
+        )
+        .and_then(|json| serde_json::from_str::<Value>(&json).ok())
+        .expect("result");
+
+        assert_eq!(
+            result["repositoryUrls"],
+            json!(["https://a.example/repo.json"])
+        );
+        assert_eq!(result["scraperOverrides"], json!({"s1": true}));
     }
 
     #[test]

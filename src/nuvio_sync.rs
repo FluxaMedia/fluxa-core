@@ -398,6 +398,12 @@ pub(crate) fn build_local_profiles_json(args_json: &str) -> Option<String> {
             }
         }
         out.insert("nuvioProfileIndex".into(), json!(index));
+        if let Some(v) = remote.get("uses_primary_addons") {
+            out.insert("usesPrimaryAddons".into(), v.clone());
+        }
+        if let Some(v) = remote.get("uses_primary_plugins") {
+            out.insert("usesPrimaryPlugins".into(), v.clone());
+        }
         imported.push(Value::Object(out));
     }
 
