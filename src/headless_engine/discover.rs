@@ -167,7 +167,7 @@ pub(super) fn dispatch_catalog_filters(
     profile: Option<Value>,
     language: Option<String>,
 ) -> Vec<EffectEnvelope> {
-    let generation = engine.bump_generation(GenerationKey::Discover);
+    let generation = engine.bump_generation(GenerationKey::DiscoverFilters);
     let profile_value = profile.unwrap_or_else(|| engine.state.profile.active.clone());
     let profile_id = active_profile_id(&engine.state, &profile_value);
     engine.state.discover.content_type = content_type.clone();
@@ -272,7 +272,7 @@ pub(super) fn complete(
             }
         }
         "readDiscoverCatalogFilters" => {
-            if generation == engine.state.runtime.get(GenerationKey::Discover) {
+            if generation == engine.state.runtime.get(GenerationKey::DiscoverFilters) {
                 engine.state.discover.catalogs_loading = false;
                 if result.status.is_ok() {
                     engine.state.discover.catalogs = result

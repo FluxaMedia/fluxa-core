@@ -1621,6 +1621,43 @@ mod tests {
     }
 
     #[test]
+    fn concurrent_catalog_filters_request_does_not_drop_discover_results() {
+        let handle = create_headless_engine("{}");
+        let discover: Value = serde_json::from_str(
+            &headless_engine_dispatch_json(
+                handle,
+                r#"{"type":"discoverRequested","contentType":"movie","filters":{"catalogKey":"top"}}"#,
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        let effect_id = discover["effects"][0]["id"].as_str().unwrap().to_string();
+
+        headless_engine_dispatch_json(
+            handle,
+            r#"{"type":"discoverCatalogFiltersRequested","contentType":"movie","selectedCatalogKey":"top"}"#,
+        )
+        .unwrap();
+
+        let completed: Value = serde_json::from_str(
+            &headless_engine_complete_effect_json(
+                handle,
+                &json!({
+                    "effectId": effect_id,
+                    "status": "ok",
+                    "value": { "results": [{"id": "tt1", "type": "movie", "name": "A Movie"}] }
+                })
+                .to_string(),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+
+        assert_eq!(completed["state"]["discover"]["results"][0]["id"], "tt1");
+        assert!(destroy_headless_engine(handle));
+    }
+
+    #[test]
     fn discover_prefetches_two_pages_in_one_round_trip() {
         let handle = create_headless_engine(
             r#"{"discover":{"catalogs":[{"key":"top","transportUrl":"https://addon.example/manifest.json","id":"top","type":"movie"}]}}"#,
