@@ -1,4 +1,4 @@
-use criterion::{black_box, criterion_group, criterion_main, BatchSize, Criterion};
+use criterion::{BatchSize, Criterion, black_box, criterion_group, criterion_main};
 use fluxa_core::bench_targets::{
     create_headless_engine, destroy_headless_engine, headless_engine_dispatch_json,
 };

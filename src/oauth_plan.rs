@@ -1,4 +1,4 @@
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 pub(crate) fn oauth_request_plan_json(request_json: &str) -> Option<String> {
     let request: Value = serde_json::from_str(request_json).ok()?;

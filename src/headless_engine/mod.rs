@@ -106,7 +106,7 @@ pub fn headless_engine_dispatch_json(handle: u64, action_json: &str) -> Option<S
                 return CoreError::NotFound {
                     context: "headless_engine_dispatch_json",
                 }
-                .log_and_none()
+                .log_and_none();
             }
         };
         engine.expire_stale_pending_effects(Instant::now());
@@ -132,7 +132,7 @@ pub fn headless_engine_complete_effect_json(handle: u64, result_json: &str) -> O
                 return CoreError::NotFound {
                     context: "headless_engine_complete_effect_json",
                 }
-                .log_and_none()
+                .log_and_none();
             }
         };
         engine.expire_stale_pending_effects(Instant::now());
@@ -847,8 +847,17 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(completed["state"]["detail"]["meta"]["name"], "Rick and Morty");
-        assert_eq!(completed["state"]["detail"]["meta"]["videos"].as_array().unwrap().len(), 1);
+        assert_eq!(
+            completed["state"]["detail"]["meta"]["name"],
+            "Rick and Morty"
+        );
+        assert_eq!(
+            completed["state"]["detail"]["meta"]["videos"]
+                .as_array()
+                .unwrap()
+                .len(),
+            1
+        );
         assert!(destroy_headless_engine(handle));
     }
 

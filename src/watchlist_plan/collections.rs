@@ -586,11 +586,7 @@ mod tests {
 }
 fn air_time(item: &Value) -> i64 {
     let value = timestamp(item, "nextEpisodeAirDate").max(timestamp(item, "newEpisodeReleasedAt"));
-    if value > 0 {
-        value
-    } else {
-        i64::MAX
-    }
+    if value > 0 { value } else { i64::MAX }
 }
 
 pub(crate) fn air_date_refresh_plan_json(args_json: &str) -> Option<String> {

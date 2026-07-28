@@ -2,10 +2,10 @@
 
 use crate::app_state::*;
 use crate::headless_engine::*;
+pub(crate) use jni::JNIEnv;
 use jni::objects::JClass;
 pub(crate) use jni::objects::JString;
 use jni::sys::{jboolean, jlong, jstring};
-pub(crate) use jni::JNIEnv;
 use std::ptr;
 
 pub(crate) type JBoolean = jboolean;

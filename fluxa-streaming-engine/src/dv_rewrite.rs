@@ -107,14 +107,14 @@ use serde_json::json;
 use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
-use std::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
 use std::thread;
 use std::time::Duration;
 
 use crate::local_stream::{
-    build_proxy_client, local_stream_servers, next_local_stream_id, parse_request,
-    send_upstream_request, write_simple_response, LocalStreamConfig, LocalStreamHandle,
+    LocalStreamConfig, LocalStreamHandle, build_proxy_client, local_stream_servers,
+    next_local_stream_id, parse_request, send_upstream_request, write_simple_response,
 };
 
 // Public config
@@ -1266,7 +1266,7 @@ fn nal_is_hdr10plus_sei(nal: &[u8]) -> bool {
         i += 1;
     }
     i += 1; // skip final size byte
-            // Check ITU-T T35 header: country=0xB5, provider=0x003C, oriented=0x0001
+    // Check ITU-T T35 header: country=0xB5, provider=0x003C, oriented=0x0001
     i + 5 <= nal.len()
         && nal[i] == 0xB5
         && nal[i + 1] == 0x00
@@ -2211,7 +2211,7 @@ mod tests {
     fn make_ebml_header() -> Vec<u8> {
         // EBML element (0x1A45DFA3) with minimal content.
         let content = make_ebml_elem(0x4286u64, &[0x01]); // EBMLVersion = 1
-                                                          // EBML ID = 0x1A45DFA3 (4 bytes) + vint size + content.
+        // EBML ID = 0x1A45DFA3 (4 bytes) + vint size + content.
         let id_bytes = [0x1Au8, 0x45, 0xDF, 0xA3];
         let size_bytes = encode_ebml_vint(content.len() as u64);
         let mut v = Vec::new();

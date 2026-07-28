@@ -1,5 +1,5 @@
 use crate::subtitle_sync::parse_subtitle_cues_with_text;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 fn language(value: Option<&str>) -> Option<String> {
     let value = value?.trim().to_lowercase();

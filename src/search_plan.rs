@@ -1,6 +1,6 @@
 use crate::{addon_protocol, content_identity};
 use serde::Deserialize;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::collections::HashSet;
 
 // Discover aggregates results from every installed addon's catalogs — with enough
@@ -589,13 +589,15 @@ pub(crate) fn discover_selection_plan_json(request_json: &str) -> Option<String>
         .and_then(Value::as_bool)
         .unwrap_or(false);
     let requested_extra = request.get("extraValue").and_then(Value::as_str);
-    let extra_value = requested_extra.filter(|value| extra_options_contains(value)).or_else(|| {
-        extra
-            .as_ref()
-            .and_then(|extra| extra.get("default"))
-            .and_then(Value::as_str)
-            .filter(|value| extra_required && extra_options_contains(value))
-    });
+    let extra_value = requested_extra
+        .filter(|value| extra_options_contains(value))
+        .or_else(|| {
+            extra
+                .as_ref()
+                .and_then(|extra| extra.get("default"))
+                .and_then(Value::as_str)
+                .filter(|value| extra_required && extra_options_contains(value))
+        });
     let extra_name = extra
         .as_ref()
         .and_then(|value| value.get("name"))
@@ -1219,7 +1221,8 @@ mod tests {
         }]);
         let optional_result: Value = serde_json::from_str(
             &discover_selection_plan_json(
-                &serde_json::json!({"contentType": "movie", "catalogs": optional_catalogs}).to_string(),
+                &serde_json::json!({"contentType": "movie", "catalogs": optional_catalogs})
+                    .to_string(),
             )
             .unwrap(),
         )

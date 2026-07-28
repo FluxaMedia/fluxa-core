@@ -1,5 +1,5 @@
 use serde::Deserialize;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::collections::HashSet;
 
 #[derive(Debug, Deserialize)]
@@ -143,11 +143,13 @@ pub(crate) fn profile_avatar_pack_json(request_json: &str) -> Option<String> {
     if !is_https_url(&request.manifest_url) {
         return None;
     }
-    let images = request
-        .pack
-        .as_array()
-        .cloned()
-        .or_else(|| request.pack.get("images").and_then(Value::as_array).cloned())?;
+    let images = request.pack.as_array().cloned().or_else(|| {
+        request
+            .pack
+            .get("images")
+            .and_then(Value::as_array)
+            .cloned()
+    })?;
     let title = request
         .pack
         .get("title")
@@ -320,10 +322,12 @@ mod tests {
         .unwrap();
         assert_eq!(output["owner"], "eueueue292");
         assert_eq!(output["repository"], "Fusion-Profile-Avatars");
-        assert!(profile_avatar_pack_repository_plan_json(
-            r#"{"repositoryUrl":"https://github.com.evil/a/b"}"#
-        )
-        .is_none());
+        assert!(
+            profile_avatar_pack_repository_plan_json(
+                r#"{"repositoryUrl":"https://github.com.evil/a/b"}"#
+            )
+            .is_none()
+        );
     }
 
     #[test]

@@ -1,6 +1,6 @@
 use regex::Regex;
 use serde::Deserialize;
-use serde_json::{json, Map, Value};
+use serde_json::{Map, Value, json};
 use std::sync::OnceLock;
 
 #[derive(Deserialize)]
@@ -513,7 +513,9 @@ mod tests {
         )
         .unwrap();
         assert!(json.contains(r#""normalizedQuery":"game of thrones""#));
-        assert!(json.contains(r#""url":"https://stremio-addons.net/addons?query=game+of+thrones""#));
+        assert!(
+            json.contains(r#""url":"https://stremio-addons.net/addons?query=game+of+thrones""#)
+        );
         assert!(json.contains(r#""useCache":true"#));
     }
 

@@ -1,5 +1,5 @@
 use crate::content_identity::stream_matches_episode;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::sync::Mutex;
 
@@ -1035,7 +1035,7 @@ fn select_stream_index_inner(
                         initial_stream_index,
                         saved_url,
                         saved_title,
-                    )
+                    );
                 }
             };
             if let Some(index) = index_of_first_playable(streams, current_video_id, |stream| {

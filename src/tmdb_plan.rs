@@ -1,5 +1,5 @@
 use crate::constants::DEFAULT_LANGUAGE;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 pub(crate) fn tmdb_content_type(content_type: &str) -> &str {
     if content_type == "series" {

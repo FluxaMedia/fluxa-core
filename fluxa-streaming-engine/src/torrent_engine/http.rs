@@ -63,11 +63,7 @@ pub(super) async fn prioritize_stream_file(state: &EngineState, torrent_id: usiz
         .map(|mut files| {
             let entry = files.entry(torrent_id).or_default();
             let inserted = entry.insert(file_id);
-            if !inserted {
-                None
-            } else {
-                Some(entry.clone())
-            }
+            if !inserted { None } else { Some(entry.clone()) }
         })
         .unwrap_or(None);
     let Some(only_files) = only_files else {

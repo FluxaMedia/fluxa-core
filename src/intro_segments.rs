@@ -1,4 +1,4 @@
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::collections::HashMap;
 
 pub(crate) fn parse_intro_db_segments_json(data_json: &str) -> Option<String> {

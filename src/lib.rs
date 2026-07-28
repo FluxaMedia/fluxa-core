@@ -167,7 +167,7 @@ mod tests {
         stream_playback_info_json, stream_request_headers_json, stream_request_referer,
         torrent_runtime_info_json, torrent_status_info_json,
     };
-    use serde_json::{json, Value};
+    use serde_json::{Value, json};
 
     #[test]
     fn stream_request_ids_keep_requested_tmdb_episode_before_canonical_fallback() {

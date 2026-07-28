@@ -1,4 +1,4 @@
-use serde_json::{json, Map, Value};
+use serde_json::{Map, Value, json};
 
 const RESOLVED_LOW_RATIO: f64 = 0.005;
 const RESOLVED_HIGH_RATIO: f64 = 0.995;

@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock};
@@ -352,11 +352,7 @@ fn reduce(state: &mut AppCoreState, action: AppCoreAction) {
 }
 
 fn array_or_empty(value: Value) -> Value {
-    if value.is_array() {
-        value
-    } else {
-        json!([])
-    }
+    if value.is_array() { value } else { json!([]) }
 }
 
 fn reset_player_for_episode(player: &mut PlayerCoreState, video_id: Value) {

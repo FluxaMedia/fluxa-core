@@ -2,7 +2,7 @@ use super::state::GenerationKey;
 use super::{EffectResultInput, HeadlessEngine};
 use crate::runtime::{EffectEnvelope, EffectKind};
 use serde::Serialize;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 const WATCH_URL: &str = "https://www.youtube.com/watch?v=dQw4w9WgXcQ&hl=en";
 const PLAYER_URL: &str = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false";

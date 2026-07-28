@@ -1,7 +1,7 @@
 use crate::addon_protocol::build_resource_url;
 use crate::content_identity::parse_extra_args_json;
 use serde::Deserialize;
-use serde_json::{json, Map, Value};
+use serde_json::{Map, Value, json};
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -225,16 +225,20 @@ mod tests {
 
     #[test]
     fn manifest_fetch_decision_uses_cache_before_network_unless_forced() {
-        assert!(manifest_fetch_decision_json(
-            r#"{"forceRefresh":false,"memoryHit":true,"persistentHit":true}"#
-        )
-        .unwrap()
-        .contains(r#""phase":"memory""#));
-        assert!(manifest_fetch_decision_json(
-            r#"{"forceRefresh":true,"memoryHit":true,"persistentHit":true}"#
-        )
-        .unwrap()
-        .contains(r#""phase":"fetch""#));
+        assert!(
+            manifest_fetch_decision_json(
+                r#"{"forceRefresh":false,"memoryHit":true,"persistentHit":true}"#
+            )
+            .unwrap()
+            .contains(r#""phase":"memory""#)
+        );
+        assert!(
+            manifest_fetch_decision_json(
+                r#"{"forceRefresh":true,"memoryHit":true,"persistentHit":true}"#
+            )
+            .unwrap()
+            .contains(r#""phase":"fetch""#)
+        );
     }
 
     #[test]

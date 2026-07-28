@@ -1,4 +1,4 @@
-use serde_json::{json, Map, Value};
+use serde_json::{Map, Value, json};
 use std::collections::HashSet;
 
 pub(crate) fn is_http_url(value: &str) -> bool {
@@ -862,7 +862,7 @@ mod tests {
         build_resource_url, merge_live_manifest_json, normalize_addon_descriptor_json,
         parse_manifest, resolve_manifest_assets_json, supports_resource,
     };
-    use serde_json::{json, Value};
+    use serde_json::{Value, json};
 
     #[test]
     fn resolve_manifest_assets_normalizes_transport_and_relative_assets() {

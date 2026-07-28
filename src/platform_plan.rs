@@ -6,7 +6,7 @@ use crate::content_identity::{parse_extra_args_json, stable_feed_part};
 use crate::repository_flow::addon_streams_with_provider_json;
 use crate::stream_policy::stream_playback_info_json;
 use serde::Deserialize;
-use serde_json::{json, Map, Value};
+use serde_json::{Map, Value, json};
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -991,10 +991,12 @@ mod tests {
 
         assert_eq!(requests.len(), 1);
         assert_eq!(requests[0]["kind"], "catalogPage");
-        assert!(requests[0]["url"]
-            .as_str()
-            .unwrap()
-            .contains("genre=action"));
+        assert!(
+            requests[0]["url"]
+                .as_str()
+                .unwrap()
+                .contains("genre=action")
+        );
     }
 
     #[test]
@@ -1025,9 +1027,11 @@ mod tests {
         );
         assert_eq!(requests[0]["catalogId"], "top");
         assert_eq!(requests[0]["categoryName"], "Addon One - Top Movies");
-        assert!(requests[0]["url"]
-            .as_str()
-            .unwrap()
-            .contains("search=batman"));
+        assert!(
+            requests[0]["url"]
+                .as_str()
+                .unwrap()
+                .contains("search=batman")
+        );
     }
 }

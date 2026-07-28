@@ -1,5 +1,5 @@
 use axum::body::Body;
-use axum::extract::{connect_info::ConnectInfo, Query, State};
+use axum::extract::{Query, State, connect_info::ConnectInfo};
 use axum::http::{HeaderMap, HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
@@ -11,7 +11,7 @@ use librqbit::{
     TorrentStatsState,
 };
 use serde::Deserialize;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
 use std::io::SeekFrom;
 use std::net::SocketAddr;
@@ -24,8 +24,8 @@ use std::thread;
 use std::time::Duration;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncSeekExt, ReadBuf};
 use tokio::net::TcpListener;
-use tokio::sync::oneshot;
 use tokio::sync::Mutex as AsyncMutex;
+use tokio::sync::oneshot;
 use tokio_util::io::ReaderStream;
 
 #[derive(Deserialize)]
@@ -542,7 +542,9 @@ async fn stream_fname(
             match parse_range(headers.get("Range"), total_len) {
                 Ok(Some((start, end))) => {
                     if let Err(error) = stream.seek(SeekFrom::Start(start)).await {
-                        debug_log(format!("[TorrServer] seek failed torrent={id} file={file_id} start={start} len={total_len}: {error}"));
+                        debug_log(format!(
+                            "[TorrServer] seek failed torrent={id} file={file_id} start={start} len={total_len}: {error}"
+                        ));
                         return error_response(
                             StatusCode::INTERNAL_SERVER_ERROR,
                             "failed to seek stream",

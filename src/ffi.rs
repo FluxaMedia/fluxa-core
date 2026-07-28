@@ -1,4 +1,4 @@
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 mod addon_resource_routes;
 mod addon_support_routes;
@@ -1674,7 +1674,9 @@ mod tests {
         ));
         assert_eq!(
             plan["value"]["findUrl"],
-            json!("https://api.themoviedb.org/3/find/tt123?api_key=k&language=en-US&external_source=imdb_id")
+            json!(
+                "https://api.themoviedb.org/3/find/tt123?api_key=k&language=en-US&external_source=imdb_id"
+            )
         );
 
         let images = parse(&core_invoke(

@@ -5,14 +5,14 @@
 /// exposed over HTTP instead of IPC. Used by both the standalone
 /// `companion_server` binary and the `fluxa-companion` tray app.
 use axum::extract::{Request, State};
-use axum::http::{header, HeaderMap, HeaderValue, Method, StatusCode};
+use axum::http::{HeaderMap, HeaderValue, Method, StatusCode, header};
 use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use fluxa_core::FluxaCore;
 use serde::Deserialize;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::sync::Arc;
 use tokio::net::TcpListener;
 use tokio::sync::Mutex;

@@ -1,6 +1,6 @@
 use crate::constants::{DEFAULT_LANGUAGE, GUEST_PROFILE_ID};
 use serde::Deserialize;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
 const DEFAULT_ADDON_URL: &str = "https://v3-cinemeta.strem.io/manifest.json";
@@ -536,11 +536,13 @@ mod tests {
         )
         .unwrap();
         assert_eq!(result["migratedProfile"]["traktAccessToken"], "tok");
-        assert!(result["appliedMigrations"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|m| m == "flatten_external_accounts"));
+        assert!(
+            result["appliedMigrations"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|m| m == "flatten_external_accounts")
+        );
     }
 
     #[test]

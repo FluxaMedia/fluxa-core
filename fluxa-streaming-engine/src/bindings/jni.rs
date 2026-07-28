@@ -5,9 +5,9 @@ use crate::dv_rewrite::{
 };
 use crate::local_stream::{start_local_stream_server, stop_local_stream_server};
 use crate::torrent_engine;
+use jni::JNIEnv;
 use jni::objects::{JByteArray, JClass, JString};
 use jni::sys::{jboolean, jbyteArray, jint, jstring};
-use jni::JNIEnv;
 use std::ptr;
 
 type JBoolean = jboolean;
@@ -91,11 +91,7 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaStreamingNative_
         let result = read_jstring(&mut env, &server_id)
             .map(|server_id| stop_local_stream_server(&server_id))
             .unwrap_or(false);
-        if result {
-            1
-        } else {
-            0
-        }
+        if result { 1 } else { 0 }
     }))
     .unwrap_or(0)
 }
@@ -146,11 +142,7 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaStreamingNative_
     _class: JObject<'_>,
 ) -> JBoolean {
     std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        if dv_rpu_self_test() {
-            1
-        } else {
-            0
-        }
+        if dv_rpu_self_test() { 1 } else { 0 }
     }))
     .unwrap_or(0)
 }
@@ -163,11 +155,7 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaStreamingNative_
     _class: JObject<'_>,
 ) -> JBoolean {
     std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        if dv_auto_detect_was_iptpqc2() {
-            1
-        } else {
-            0
-        }
+        if dv_auto_detect_was_iptpqc2() { 1 } else { 0 }
     }))
     .unwrap_or(0)
 }

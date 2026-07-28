@@ -1,9 +1,9 @@
+use axum::Router;
 use axum::body::Body;
 use axum::extract::Query;
 use axum::http::{HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
-use axum::Router;
 use serde::Deserialize;
 use std::io;
 use std::pin::Pin;
@@ -196,7 +196,7 @@ pub async fn handle_transcode(Query(q): Query<TranscodeQuery>) -> Response {
                 StatusCode::INTERNAL_SERVER_ERROR,
                 format!("failed to start ffmpeg: {e}"),
             )
-                .into_response()
+                .into_response();
         }
     };
     let Some(stdout) = child.stdout.take() else {

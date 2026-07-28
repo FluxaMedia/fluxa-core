@@ -1,6 +1,6 @@
 use crate::addon_protocol;
 use crate::repository_flow::normalize_stream;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 fn resource_payload(resource: &str, root: &Value) -> Option<Value> {
     match resource {
@@ -72,7 +72,7 @@ pub(crate) fn parse_addon_body(
                     "error": error.to_string()
                 })
                 .to_string(),
-            )
+            );
         }
     };
 

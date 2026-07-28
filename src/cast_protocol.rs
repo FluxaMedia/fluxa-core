@@ -124,7 +124,9 @@ pub(crate) fn dlna_seek_args(position_secs: f64) -> String {
 
 pub(crate) fn dlna_set_volume_args(level: f64) -> String {
     let volume = (level.clamp(0.0, 1.0) * 100.0).round() as u32;
-    format!("<InstanceID>0</InstanceID><Channel>Master</Channel><DesiredVolume>{volume}</DesiredVolume>")
+    format!(
+        "<InstanceID>0</InstanceID><Channel>Master</Channel><DesiredVolume>{volume}</DesiredVolume>"
+    )
 }
 
 pub(crate) fn resolve_loopback_url(stream_url: &str, lan_ip: &str) -> String {

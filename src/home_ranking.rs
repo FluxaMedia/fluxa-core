@@ -1,7 +1,7 @@
 use crate::content_identity::{imdb_id, normalized_billboard_title};
 use crate::search_plan::resolve_transport_url_json;
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Map, Value};
+use serde_json::{Map, Value, json};
 use std::collections::{HashMap, HashSet};
 
 const CORE_SHELF_KEYS: &[&str] = &[
@@ -604,11 +604,7 @@ fn curated_items(category: &NativeHomeCategory) -> Vec<Value> {
         })
         .filter_map(|(item, _)| {
             let id = meta_text(&item, "id").to_string();
-            if seen.insert(id) {
-                Some(item)
-            } else {
-                None
-            }
+            if seen.insert(id) { Some(item) } else { None }
         })
         .take(24)
         .collect()

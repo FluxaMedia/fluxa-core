@@ -1,5 +1,5 @@
 use serde::Deserialize;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::sync::OnceLock;
 
 pub(crate) fn remote_collection_request_plan_json(request_json: &str) -> Option<String> {

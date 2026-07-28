@@ -1,6 +1,6 @@
 use crate::content_identity::{base_content_id, imdb_regex, parse_episode_locator};
 use crate::integration_settings::{accepts_progress_source, integration_settings_from_value};
-use serde_json::{json, Map, Value};
+use serde_json::{Map, Value, json};
 
 pub(crate) fn external_sync_response_action(provider: &str, status_code: i64) -> &'static str {
     if (200..300).contains(&status_code) {

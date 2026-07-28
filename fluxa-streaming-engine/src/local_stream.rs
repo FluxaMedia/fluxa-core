@@ -1,6 +1,6 @@
 use serde_json::json;
-use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
+use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::io::{BufRead, BufReader, Write};
 use std::net::{TcpListener, TcpStream};
@@ -287,8 +287,8 @@ pub(crate) fn stop_local_stream_server(id: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::{ActiveConnectionGuard, MAX_LOCAL_STREAM_CONNECTIONS};
-    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
     #[test]
     fn active_connection_guard_caps_and_releases_slots() {

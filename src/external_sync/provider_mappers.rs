@@ -1,6 +1,6 @@
 use super::{ranked_winner, saved_at_ms, trakt_id_from_source, trakt_ids_from_content_id_json};
 use crate::content_identity::parse_video_id_json;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 fn simkl_entries(json: &str, key: &str) -> Vec<Value> {
     match serde_json::from_str::<Value>(json).ok() {

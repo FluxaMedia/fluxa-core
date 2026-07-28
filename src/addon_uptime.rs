@@ -1,4 +1,4 @@
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 fn host_for_url(value: &str) -> Option<String> {
     let authority = value.split_once("://")?.1.split(['/', '?', '#']).next()?;
