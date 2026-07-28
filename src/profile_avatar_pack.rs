@@ -94,19 +94,24 @@ pub(crate) fn profile_avatar_pack_catalog_json(request_json: &str) -> Option<Str
         let Some(path) = entry.get("path").and_then(Value::as_str) else {
             continue;
         };
-        let Some((directory, filename)) = path.rsplit_once('/') else {
-            continue;
-        };
+        let (directory, filename) = path.rsplit_once('/').unwrap_or(("", path));
         if !matches!(
             filename.to_ascii_lowercase().as_str(),
             "pack.json" | "json.pack"
-        ) || directory.is_empty()
-            || !valid_path(path)
+        ) || !valid_path(path)
             || !seen_paths.insert(path.to_string())
         {
             continue;
         }
-        let name = directory.rsplit('/').next().unwrap_or(directory);
+        let name = if directory.is_empty() {
+            repository.name.clone()
+        } else {
+            directory
+                .rsplit('/')
+                .next()
+                .unwrap_or(directory)
+                .to_string()
+        };
         categories.push(json!({
             "name": name,
             "path": directory,
@@ -138,15 +143,20 @@ pub(crate) fn profile_avatar_pack_json(request_json: &str) -> Option<String> {
     if !is_https_url(&request.manifest_url) {
         return None;
     }
+    let images = request
+        .pack
+        .as_array()
+        .cloned()
+        .or_else(|| request.pack.get("images").and_then(Value::as_array).cloned())?;
     let title = request
         .pack
         .get("title")
         .or_else(|| request.pack.get("name"))
         .and_then(Value::as_str)
         .map(str::trim)
-        .filter(|value| !value.is_empty())?
-        .to_string();
-    let images = request.pack.get("images")?.as_array()?;
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| default_pack_title(&request.manifest_url));
     let mut avatars = Vec::new();
     let mut seen_urls = HashSet::new();
     for image in images {
@@ -212,6 +222,15 @@ fn valid_ref(value: &str) -> bool {
         && !value
             .split('/')
             .any(|part| part.is_empty() || part == "." || part == "..")
+}
+
+fn default_pack_title(manifest_url: &str) -> String {
+    manifest_url
+        .strip_prefix("https://")
+        .and_then(|rest| rest.split('/').nth(2))
+        .filter(|part| !part.is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| "Avatar Pack".to_string())
 }
 
 fn valid_path(path: &str) -> bool {
@@ -331,6 +350,51 @@ mod tests {
             output["categories"][1]["manifestUrl"],
             "https://raw.githubusercontent.com/eueueue292/Fusion-Profile-Avatars/main/Disney%2B/Marvel/json.pack"
         );
+    }
+
+    #[test]
+    fn catalog_discovers_root_level_pack_and_names_it_after_the_repository() {
+        let output: Value = serde_json::from_str(
+            &profile_avatar_pack_catalog_json(
+                r#"{
+                    "repositoryUrl":"you/your-repo",
+                    "reference":"main",
+                    "tree":{"tree":[
+                        {"path":"pack.json","type":"blob"},
+                        {"path":"images/luffy.png","type":"blob"}
+                    ]}
+                }"#,
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(output["categories"].as_array().unwrap().len(), 1);
+        assert_eq!(output["categories"][0]["name"], "your-repo");
+        assert_eq!(output["categories"][0]["path"], "");
+        assert_eq!(
+            output["categories"][0]["manifestUrl"],
+            "https://raw.githubusercontent.com/you/your-repo/main/pack.json"
+        );
+    }
+
+    #[test]
+    fn pack_parser_accepts_bare_array_without_a_title() {
+        let output: Value = serde_json::from_str(
+            &profile_avatar_pack_json(
+                r#"{
+                    "manifestUrl":"https://raw.githubusercontent.com/you/your-repo/main/pack.json",
+                    "pack":[
+                        {"name":"Luffy","url":"https://images.example/luffy.png"},
+                        {"name":"Zoro","url":"https://images.example/zoro.png"}
+                    ]
+                }"#,
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(output["title"], "your-repo");
+        assert_eq!(output["avatars"].as_array().unwrap().len(), 2);
+        assert_eq!(output["avatars"][0]["name"], "Luffy");
     }
 
     #[test]
