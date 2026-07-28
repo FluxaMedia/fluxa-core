@@ -29,6 +29,7 @@ pub(super) fn activate(engine: &mut HeadlessEngine, profile: Profile) {
     engine.state.profile.active = profile_value.clone();
     engine.state.profile.active_profile_id = Value::String(id.clone());
     library::set_active_profile_id(engine, &id);
+    *engine.state.home = home::HomeState::default();
     home::mirror_active_profile(engine, profile_value);
 }
 
