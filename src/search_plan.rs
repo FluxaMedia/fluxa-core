@@ -463,6 +463,28 @@ pub(crate) fn discover_catalog_options_json(
             }
             let catalog_label =
                 discover_catalog_label(catalog.get("name").and_then(Value::as_str), id);
+            let genre_extra = extras
+                .iter()
+                .find(|extra| extra.get("name").and_then(Value::as_str) == Some("genre"));
+            let genres: Vec<&str> = genre_extra
+                .and_then(|extra| extra.get("options"))
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .filter_map(Value::as_str)
+                .collect();
+            let requires_genre = genre_extra
+                .and_then(|extra| extra.get("isRequired"))
+                .and_then(Value::as_bool)
+                .unwrap_or(false);
+            let default_genre = catalog
+                .get("extra")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .find(|extra| extra.get("name").and_then(Value::as_str) == Some("genre"))
+                .and_then(|extra| extra.get("default"))
+                .and_then(Value::as_str);
             options.push(json!({
                 "key": format!(
                     "discover:{}:{}:{}",
@@ -474,6 +496,9 @@ pub(crate) fn discover_catalog_options_json(
                 "transportUrl": transport_url,
                 "type": type_value,
                 "id": id,
+                "genres": genres,
+                "requiresGenre": requires_genre,
+                "defaultGenre": default_genre,
                 "extras": extras
             }));
         }
@@ -1126,6 +1151,37 @@ mod tests {
         assert_eq!(feeds.len(), 2);
         assert_eq!(feeds[0]["type"], "anime.movie");
         assert_eq!(feeds[1]["type"], "Trakt");
+    }
+
+    #[test]
+    fn discover_catalog_options_expose_genre_extra_as_flat_list() {
+        let result: Value = serde_json::from_str(
+            &discover_catalog_options_json(
+                r#"[{"transportUrl":"https://aio.example/stremio/u/manifest.json","manifest":{
+                    "id":"aiometadata","name":"AIOMetadata","resources":["catalog"],
+                    "catalogs":[{
+                        "type":"movie","id":"tmdb.top","name":"TMDB Popular",
+                        "extra":[{"name":"genre","options":["Action","Comedy"],"isRequired":false}]
+                    },{
+                        "type":"movie","id":"tmdb.year","name":"TMDB By Year",
+                        "extra":[{"name":"genre","options":["2026","2025"],"isRequired":true,"default":"2026"}]
+                    }]
+                }}]"#,
+                "movie",
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        let options = result.as_array().unwrap();
+        assert_eq!(options.len(), 2);
+        assert_eq!(
+            options[0]["genres"].as_array().unwrap(),
+            &[Value::from("Action"), Value::from("Comedy")]
+        );
+        assert_eq!(options[0]["requiresGenre"], false);
+        assert!(options[0]["defaultGenre"].is_null());
+        assert_eq!(options[1]["requiresGenre"], true);
+        assert_eq!(options[1]["defaultGenre"], "2026");
     }
 
     #[test]
