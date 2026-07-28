@@ -21,7 +21,7 @@ fn write_string(value: Option<String>) -> *mut c_char {
         .unwrap_or(ptr::null_mut())
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn fluxa_streaming_start_local_stream_server(
     target_url: *const c_char,
     headers_json: *const c_char,
@@ -39,7 +39,7 @@ pub extern "C" fn fluxa_streaming_start_local_stream_server(
     .unwrap_or(ptr::null_mut())
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn fluxa_streaming_stop_local_stream_server(server_id: *const c_char) -> bool {
     std::panic::catch_unwind(|| {
         read_string(server_id)
@@ -49,7 +49,7 @@ pub extern "C" fn fluxa_streaming_stop_local_stream_server(server_id: *const c_c
     .unwrap_or(false)
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn fluxa_streaming_start_torrent_server(
     cache_dir: *const c_char,
     preferred_port: i32,
@@ -67,15 +67,15 @@ pub extern "C" fn fluxa_streaming_start_torrent_server(
     .unwrap_or(ptr::null_mut())
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn fluxa_streaming_stop_torrent_server() -> bool {
     std::panic::catch_unwind(|| stop_torrent_server(None)).unwrap_or(false)
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn fluxa_streaming_string_free(value: *mut c_char) {
     if !value.is_null() {
-        let _ = CString::from_raw(value);
+        let _ = unsafe { CString::from_raw(value) };
     }
 }
 
