@@ -312,10 +312,12 @@ fn catalog_extras(catalog: &Value) -> Vec<Value> {
                 .filter_map(|option| option.as_str().map(str::trim).map(str::to_string))
                 .filter(|option| !option.is_empty())
                 .collect::<Vec<_>>();
+            let default_value = extra.get("default").and_then(Value::as_str);
             (!options.is_empty()).then(|| {
                 json!({
                     "name": name,
                     "options": options,
+                    "default": default_value,
                     "isRequired": catalog_requires_extra(catalog, name)
                 })
             })
@@ -574,13 +576,25 @@ pub(crate) fn discover_selection_plan_json(request_json: &str) -> Option<String>
         .and_then(Value::as_array)
         .and_then(|values| values.first())
         .cloned();
-    let requested_extra = request.get("extraValue").and_then(Value::as_str);
-    let extra_value = requested_extra.filter(|value| {
+    let extra_options_contains = |value: &str| {
         extra
             .as_ref()
             .and_then(|extra| extra.get("options"))
             .and_then(Value::as_array)
-            .is_some_and(|options| options.iter().any(|option| option.as_str() == Some(*value)))
+            .is_some_and(|options| options.iter().any(|option| option.as_str() == Some(value)))
+    };
+    let extra_required = extra
+        .as_ref()
+        .and_then(|extra| extra.get("isRequired"))
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let requested_extra = request.get("extraValue").and_then(Value::as_str);
+    let extra_value = requested_extra.filter(|value| extra_options_contains(value)).or_else(|| {
+        extra
+            .as_ref()
+            .and_then(|extra| extra.get("default"))
+            .and_then(Value::as_str)
+            .filter(|value| extra_required && extra_options_contains(value))
     });
     let extra_name = extra
         .as_ref()
@@ -1182,6 +1196,35 @@ mod tests {
         assert!(options[0]["defaultGenre"].is_null());
         assert_eq!(options[1]["requiresGenre"], true);
         assert_eq!(options[1]["defaultGenre"], "2026");
+    }
+
+    #[test]
+    fn discover_selection_plan_falls_back_to_default_when_extra_is_required() {
+        let catalogs = serde_json::json!([{
+            "key": "tmdb.year", "type": "movie",
+            "extras": [{"name": "genre", "options": ["2026", "2025"], "isRequired": true, "default": "2026"}]
+        }]);
+        let result: Value = serde_json::from_str(
+            &discover_selection_plan_json(
+                &serde_json::json!({"contentType": "movie", "catalogs": catalogs}).to_string(),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(result["extraValue"], "2026");
+
+        let optional_catalogs = serde_json::json!([{
+            "key": "tmdb.top", "type": "movie",
+            "extras": [{"name": "genre", "options": ["Action", "Comedy"], "isRequired": false}]
+        }]);
+        let optional_result: Value = serde_json::from_str(
+            &discover_selection_plan_json(
+                &serde_json::json!({"contentType": "movie", "catalogs": optional_catalogs}).to_string(),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        assert!(optional_result["extraValue"].is_null());
     }
 
     #[test]
