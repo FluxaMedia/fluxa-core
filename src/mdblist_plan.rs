@@ -172,7 +172,10 @@ pub(crate) fn mdblist_media_ratings_from_response_json(response_json: &str) -> O
     let mut normalized = serde_json::Map::new();
     for entry in ratings {
         let source = entry.get("source").and_then(Value::as_str)?;
-        let value = entry.get("value").or_else(|| entry.get("score"));
+        let value = entry
+            .get("value")
+            .filter(|value| !value.is_null())
+            .or_else(|| entry.get("score").filter(|score| !score.is_null()));
         if let Some(value) = value {
             normalized.insert(source.to_string(), value.clone());
         }
@@ -790,7 +793,9 @@ mod tests {
         let response = json!({
             "ratings": [
                 { "source": "imdb", "value": 9.3 },
-                { "source": "tmdb", "score": 88 }
+                { "source": "tmdb", "score": 88 },
+                { "source": "myanimelist", "value": null, "score": null },
+                { "source": "metacriticuser", "value": null, "score": 75 }
             ]
         })
         .to_string();
@@ -799,6 +804,8 @@ mod tests {
                 .unwrap();
         assert_eq!(normalized["imdb"], 9.3);
         assert_eq!(normalized["tmdb"], 88);
+        assert!(normalized.get("myanimelist").is_none());
+        assert_eq!(normalized["metacriticuser"], 75);
     }
 
     #[test]
