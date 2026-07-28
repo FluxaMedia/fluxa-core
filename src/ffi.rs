@@ -13,9 +13,10 @@ use crate::{
     addon_protocol, addon_resource, addon_store, addon_uptime, anime_detection, app_state,
     calendar_plan, content_identity, core_contract, data_policy, desktop_playback, discovery_plan,
     external_sync, headless_adapter_plan, headless_engine, home_ranking, integration_settings,
-    intro_segments, library_state, nuvio_sync, offline_download, platform_plan, player_flow,
-    player_policy, player_scrobble, plugins, profile_avatar_pack, profile_contract, profile_prefs,
-    repository_flow, search_plan, stream_policy, tmdb_plan, trailer_subtitles, watchlist_plan,
+    intro_segments, library_state, mdblist_plan, nuvio_sync, offline_download, platform_plan,
+    player_flow, player_policy, player_scrobble, plugins, profile_avatar_pack, profile_contract,
+    profile_prefs, repository_flow, search_plan, stream_policy, tmdb_plan, trailer_subtitles,
+    watchlist_plan,
 };
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -93,6 +94,7 @@ const ROUTERS: &[fn(&str, &str) -> Outcome] = &[
     route_external_sync_trakt,
     route_external_sync_simkl,
     route_external_sync_anilist,
+    route_mdblist,
     route_anime_detection,
     route_library_state,
     route_nuvio_sync,
@@ -899,10 +901,12 @@ fn route_calendar(method: &str, args_json: &str) -> Outcome {
 }
 
 mod external_sync_routes;
+mod mdblist_routes;
 
 use external_sync_routes::{
     route_external_sync_anilist, route_external_sync_simkl, route_external_sync_trakt,
 };
+use mdblist_routes::route_mdblist;
 
 fn route_anime_detection(method: &str, args_json: &str) -> Outcome {
     match method {
@@ -1580,6 +1584,15 @@ fn field_u64(args: &Value, name: &str) -> Result<u64, CallError> {
         fail(
             ErrorKind::InvalidArgs,
             format!("field `{name}` must be a non-negative integer"),
+        )
+    })
+}
+
+fn field_i64(args: &Value, name: &str) -> Result<i64, CallError> {
+    field(args, name)?.as_i64().ok_or_else(|| {
+        fail(
+            ErrorKind::InvalidArgs,
+            format!("field `{name}` must be an integer"),
         )
     })
 }

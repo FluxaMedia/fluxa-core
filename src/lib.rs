@@ -71,6 +71,8 @@ mod library_persistence;
 mod library_state;
 pub mod log_sink;
 #[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
+mod mdblist_plan;
+#[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
 mod nuvio_sync;
 #[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
 mod oauth_plan;
