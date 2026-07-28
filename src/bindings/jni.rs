@@ -28,7 +28,7 @@ pub(crate) fn write_jstring(env: &mut JNIEnv<'_>, value: Option<String>) -> JStr
         .unwrap_or_else(|_| ptr::null_mut())
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_coreInvokeNative(
     mut env: JNIEnv<'_>,
     _class: JObject<'_>,
@@ -45,7 +45,7 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_coreI
     .unwrap_or(ptr::null_mut())
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_createAppCoreStateNative(
     mut env: JNIEnv<'_>,
     _class: JObject<'_>,
@@ -59,7 +59,7 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_creat
     .unwrap_or(0)
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_destroyAppCoreStateNative(
     _env: JNIEnv<'_>,
     _class: JObject<'_>,
@@ -75,7 +75,7 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_destr
     .unwrap_or(0)
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_appCoreStateJsonNative(
     mut env: JNIEnv<'_>,
     _class: JObject<'_>,
@@ -92,7 +92,7 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_appCo
     .unwrap_or(ptr::null_mut())
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_appCoreDispatchJsonNative(
     mut env: JNIEnv<'_>,
     _class: JObject<'_>,
@@ -111,7 +111,7 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_appCo
     .unwrap_or(ptr::null_mut())
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_createHeadlessEngineNative(
     mut env: JNIEnv<'_>,
     _class: JObject<'_>,
@@ -125,7 +125,7 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_creat
     .unwrap_or(0)
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_destroyHeadlessEngineNative(
     _env: JNIEnv<'_>,
     _class: JObject<'_>,
@@ -141,7 +141,7 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_destr
     .unwrap_or(0)
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_headlessEngineSnapshotJsonNative(
     mut env: JNIEnv<'_>,
     _class: JObject<'_>,
@@ -158,7 +158,7 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_headl
     .unwrap_or(ptr::null_mut())
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_headlessEngineDispatchJsonNative(
     mut env: JNIEnv<'_>,
     _class: JObject<'_>,
@@ -177,7 +177,7 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_headl
     .unwrap_or(ptr::null_mut())
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_headlessEngineCompleteEffectJsonNative(
     mut env: JNIEnv<'_>,
     _class: JObject<'_>,
@@ -197,7 +197,7 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_headl
     .unwrap_or(ptr::null_mut())
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_drainCoreErrorLogJsonNative(
     mut env: JNIEnv<'_>,
     _class: JObject<'_>,

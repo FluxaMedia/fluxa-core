@@ -26,7 +26,7 @@ fn write_jstring(env: &mut JNIEnv<'_>, value: Option<String>) -> JStringReturn {
         .unwrap_or(ptr::null_mut())
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 /// # Safety
 /// Called by the JVM with JNI-managed arguments. The function validates JNI
 /// conversions, catches panics, and returns null on failure.
@@ -52,7 +52,7 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaStreamingNative_
     .unwrap_or(ptr::null_mut())
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 /// # Safety
 /// Called by the JVM with JNI-managed arguments. The function validates JNI
 /// conversions, catches panics, and returns null on failure.
@@ -78,7 +78,7 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaStreamingNative_
     .unwrap_or(ptr::null_mut())
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 /// # Safety
 /// Called by the JVM with JNI-managed arguments. The function validates JNI
 /// conversions, catches panics, and returns false on failure.
@@ -100,7 +100,7 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaStreamingNative_
     .unwrap_or(0)
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 /// # Safety
 /// Called by the JVM with JNI-managed arguments. The function validates JNI
 /// conversions, catches panics, and returns null on failure.
@@ -121,7 +121,7 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaStreamingNative_
     .unwrap_or(ptr::null_mut())
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 /// # Safety
 /// Called by the JVM. The function catches panics and returns false on failure.
 pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaStreamingNative_stopTorrentServerNative(
@@ -138,7 +138,7 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaStreamingNative_
     .unwrap_or(0)
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 /// # Safety
 /// Called by the JVM. The function catches panics and returns false on failure.
 pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaStreamingNative_dvRpuSelfTestNative(
@@ -155,7 +155,7 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaStreamingNative_
     .unwrap_or(0)
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 /// # Safety
 /// Called by the JVM. The function catches panics and returns false on failure.
 pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaStreamingNative_dvAutoDetectWasIptPqc2Native(
@@ -172,7 +172,7 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaStreamingNative_
     .unwrap_or(0)
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 /// # Safety
 /// Called by the JVM with JNI-managed arguments. The function validates byte
 /// array conversions, catches panics, and returns null on unrecoverable failure.
@@ -222,7 +222,7 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaStreamingNative_
     .unwrap_or(ptr::null_mut())
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 /// # Safety
 /// Called by the JVM. The function catches panics and returns null on failure.
 pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaStreamingNative_dvGetStreamStatsJsonNative(
@@ -235,7 +235,7 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaStreamingNative_
     .unwrap_or(ptr::null_mut())
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 /// # Safety
 /// Called by the JVM. The function catches panics and returns null on failure.
 pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaStreamingNative_dvGetCurrentL1JsonNative(
@@ -248,7 +248,7 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaStreamingNative_
     .unwrap_or(ptr::null_mut())
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 /// # Safety
 /// Called by the JVM with JNI-managed arguments. The function validates byte
 /// array conversions, catches panics, and returns null on unrecoverable failure.
@@ -272,7 +272,7 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaStreamingNative_
     .unwrap_or(ptr::null_mut())
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaStreamingNative_parseMkvChaptersAtOffsetNative(
     mut env: JNIEnv<'_>,
     _class: JObject<'_>,
