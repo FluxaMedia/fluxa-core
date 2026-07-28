@@ -459,6 +459,14 @@ pub(crate) fn parse_catalogs(json: &Value) -> Vec<Value> {
                                             json!(options_limit as i32),
                                         );
                                     }
+                                    if let Some(default_value) =
+                                        extra_object.get("default").and_then(Value::as_str)
+                                    {
+                                        map.insert(
+                                            "default".to_string(),
+                                            Value::String(default_value.to_string()),
+                                        );
+                                    }
                                     Some(Value::Object(map))
                                 })
                                 .collect::<Vec<_>>()
@@ -1000,7 +1008,7 @@ mod tests {
                 "resources":["catalog",{"name":"stream","types":["movie"],"idPrefixes":["tt"]}],
                 "types":["movie","series"],
                 "idPrefixes":["tt"],
-                "catalogs":[{"type":"movie","id":"top","name":"Top","extra":[{"name":"genre","isRequired":false,"options":["Drama"],"optionsLimit":2}],"extraSupported":["search"],"extraRequired":["genre"]}],
+                "catalogs":[{"type":"movie","id":"top","name":"Top","extra":[{"name":"genre","isRequired":false,"options":["Drama"],"optionsLimit":2,"default":"Drama"}],"extraSupported":["search"],"extraRequired":["genre"]}],
                 "addonCatalogs":[{"type":"addon","id":"community","name":"Community"}],
                 "config":[{"key":"token","type":"password","default":"x","title":"Token","required":true}],
                 "background":"/bg.jpg",
@@ -1028,6 +1036,10 @@ mod tests {
         assert_eq!(
             manifest["catalogs"][0]["extraRequired"][0].as_str(),
             Some("genre")
+        );
+        assert_eq!(
+            manifest["catalogs"][0]["extra"][0]["default"].as_str(),
+            Some("Drama")
         );
         assert_eq!(
             manifest["logo"].as_str(),
