@@ -398,7 +398,12 @@ fn items_by_type_body(items_json: &str) -> Option<Value> {
         } else {
             &mut movies
         };
-        bucket.push(json!({ "ids": ids }));
+        let mut entry = serde_json::Map::new();
+        entry.insert("ids".to_string(), ids);
+        if let Some(rating) = item.get("rating") {
+            entry.insert("rating".to_string(), rating.clone());
+        }
+        bucket.push(Value::Object(entry));
     }
     let mut body = serde_json::Map::new();
     if !movies.is_empty() {
@@ -549,12 +554,12 @@ pub(crate) fn mdblist_sync_get_url(category: &str, args_json: &str) -> Option<St
 pub(crate) fn mdblist_sync_mutate_plan(
     category: &str,
     remove: bool,
-    body_json: &str,
+    items_json: &str,
 ) -> Option<String> {
     if !["watched", "ratings", "collection", "dropped"].contains(&category) {
         return None;
     }
-    let body: Value = serde_json::from_str(body_json).ok()?;
+    let body = items_by_type_body(items_json)?;
     let path = if remove {
         format!("/sync/{category}/remove")
     } else {
@@ -576,6 +581,28 @@ pub(crate) fn mdblist_upnext_url(section: Option<&str>, args_json: &str) -> Opti
     Some(build_url(&path, &extract_query(&args, UPNEXT_QUERY_KEYS)))
 }
 
+// Confirmed against a real account: the body nests under "movie" or "show"
+// (Trakt-shaped), not a flat {ids, type}. Season/episode live inside the
+// "show" object itself, not a separate "episode" object.
+fn scrobble_target_body(args: &Value) -> Option<serde_json::Map<String, Value>> {
+    let ids = args.get("ids").filter(|value| value.is_object())?.clone();
+    let mut body = serde_json::Map::new();
+    if args.get("isEpisode").and_then(Value::as_bool) == Some(true) {
+        let mut show = serde_json::Map::new();
+        show.insert("ids".to_string(), ids);
+        if let Some(season) = args.get("season") {
+            show.insert("season".to_string(), season.clone());
+        }
+        if let Some(episode) = args.get("episode") {
+            show.insert("episode".to_string(), episode.clone());
+        }
+        body.insert("show".to_string(), Value::Object(show));
+    } else {
+        body.insert("movie".to_string(), json!({ "ids": ids }));
+    }
+    Some(body)
+}
+
 pub(crate) fn mdblist_scrobble_plan(action: &str, args_json: &str) -> Option<String> {
     let path = match action {
         "start" => "/scrobble/start",
@@ -585,15 +612,9 @@ pub(crate) fn mdblist_scrobble_plan(action: &str, args_json: &str) -> Option<Str
         _ => return None,
     };
     let args: Value = serde_json::from_str(args_json).ok()?;
-    let ids = args.get("ids").filter(|value| value.is_object())?;
-    let body_type = args.get("type").and_then(Value::as_str).unwrap_or("movie");
-    let mut body = serde_json::Map::new();
-    body.insert("ids".to_string(), ids.clone());
-    body.insert("type".to_string(), json!(body_type));
-    for key in ["season", "episode", "progress"] {
-        if let Some(value) = args.get(key) {
-            body.insert(key.to_string(), value.clone());
-        }
+    let mut body = scrobble_target_body(&args)?;
+    if let Some(progress) = args.get("progress") {
+        body.insert("progress".to_string(), progress.clone());
     }
     plan("POST", build_url(path, &[]), Some(Value::Object(body)))
 }
@@ -601,17 +622,7 @@ pub(crate) fn mdblist_scrobble_plan(action: &str, args_json: &str) -> Option<Str
 pub(crate) fn mdblist_checkin_plan(method: &str, args_json: &str) -> Option<String> {
     let body = if method == "POST" {
         let args: Value = serde_json::from_str(args_json).ok()?;
-        let ids = args.get("ids").filter(|value| value.is_object())?;
-        let body_type = args.get("type").and_then(Value::as_str).unwrap_or("movie");
-        let mut body = serde_json::Map::new();
-        body.insert("ids".to_string(), ids.clone());
-        body.insert("type".to_string(), json!(body_type));
-        for key in ["season", "episode"] {
-            if let Some(value) = args.get(key) {
-                body.insert(key.to_string(), value.clone());
-            }
-        }
-        Some(Value::Object(body))
+        Some(Value::Object(scrobble_target_body(&args)?))
     } else {
         None
     };
@@ -651,7 +662,7 @@ pub(crate) fn mdblist_discussion_create_plan(
     plan(
         "POST",
         build_url(&format!("/discussion/{provider}/{target_type}/{target_id}"), &[]),
-        Some(json!({ "comment": comment })),
+        Some(json!({ "content": comment })),
     )
 }
 
@@ -674,7 +685,7 @@ pub(crate) fn mdblist_discussion_reply_create_plan(comment_id: i64, comment: &st
     plan(
         "POST",
         build_url(&format!("/discussion/comments/{comment_id}/replies"), &[]),
-        Some(json!({ "comment": comment })),
+        Some(json!({ "content": comment })),
     )
 }
 
@@ -685,7 +696,7 @@ pub(crate) fn mdblist_discussion_comment_update_plan(comment_id: i64, comment: &
     plan(
         "PATCH",
         build_url(&format!("/discussion/comments/{comment_id}"), &[]),
-        Some(json!({ "comment": comment })),
+        Some(json!({ "content": comment })),
     )
 }
 
@@ -712,7 +723,7 @@ pub(crate) fn mdblist_discussion_reply_update_plan(reply_id: i64, comment: &str)
     plan(
         "PATCH",
         build_url(&format!("/discussion/replies/{reply_id}"), &[]),
-        Some(json!({ "comment": comment })),
+        Some(json!({ "content": comment })),
     )
 }
 
@@ -875,19 +886,43 @@ mod tests {
             serde_json::from_str(&mdblist_watchlist_mutate_plan("add", &watchlist_items).unwrap())
                 .unwrap();
         assert_eq!(watchlist["url"], "https://api.mdblist.com/watchlist/items/add");
+
+        let rated_items = json!([{ "type": "movie", "imdbId": "tt1", "rating": 8 }]).to_string();
+        let rate: Value =
+            serde_json::from_str(&mdblist_sync_mutate_plan("ratings", false, &rated_items).unwrap())
+                .unwrap();
+        assert_eq!(rate["body"]["movies"][0]["rating"], 8);
     }
 
     #[test]
     fn builds_scrobble_and_checkin_plans() {
-        let args = json!({ "ids": {"imdb": "tt1"}, "type": "movie", "progress": 42.5 }).to_string();
-        let start: Value = serde_json::from_str(&mdblist_scrobble_plan("start", &args).unwrap()).unwrap();
+        let movie_args = json!({ "ids": {"imdb": "tt1"}, "progress": 42.5 }).to_string();
+        let start: Value =
+            serde_json::from_str(&mdblist_scrobble_plan("start", &movie_args).unwrap()).unwrap();
         assert_eq!(start["url"], "https://api.mdblist.com/scrobble/start");
         assert_eq!(start["body"]["progress"], 42.5);
-        assert!(mdblist_scrobble_plan("bogus", &args).is_none());
+        assert_eq!(start["body"]["movie"]["ids"]["imdb"], "tt1");
+        assert!(mdblist_scrobble_plan("bogus", &movie_args).is_none());
+
+        let episode_args = json!({
+            "ids": {"imdb": "tt2"},
+            "isEpisode": true,
+            "season": 1,
+            "episode": 3,
+            "progress": 10
+        })
+        .to_string();
+        let episode_start: Value =
+            serde_json::from_str(&mdblist_scrobble_plan("start", &episode_args).unwrap()).unwrap();
+        assert_eq!(episode_start["body"]["show"]["ids"]["imdb"], "tt2");
+        assert_eq!(episode_start["body"]["show"]["season"], 1);
+        assert_eq!(episode_start["body"]["show"]["episode"], 3);
+        assert!(episode_start["body"].get("movie").is_none());
 
         let checkin_start: Value =
-            serde_json::from_str(&mdblist_checkin_plan("POST", &args).unwrap()).unwrap();
+            serde_json::from_str(&mdblist_checkin_plan("POST", &movie_args).unwrap()).unwrap();
         assert_eq!(checkin_start["method"], "POST");
+        assert_eq!(checkin_start["body"]["movie"]["ids"]["imdb"], "tt1");
         let checkin_stop: Value =
             serde_json::from_str(&mdblist_checkin_plan("DELETE", "{}").unwrap()).unwrap();
         assert_eq!(checkin_stop["body"], Value::Null);
@@ -896,15 +931,15 @@ mod tests {
     #[test]
     fn builds_discussion_plans() {
         assert_eq!(
-            mdblist_discussion_url("imdb", "movie", 1),
-            "https://api.mdblist.com/discussion/imdb/movie/1"
+            mdblist_discussion_url("tmdb", "movie", 1),
+            "https://api.mdblist.com/discussion/tmdb/movie/1"
         );
         let create: Value = serde_json::from_str(
-            &mdblist_discussion_create_plan("imdb", "movie", 1, "great film").unwrap(),
+            &mdblist_discussion_create_plan("tmdb", "movie", 1, "great film").unwrap(),
         )
         .unwrap();
-        assert_eq!(create["body"]["comment"], "great film");
-        assert!(mdblist_discussion_create_plan("imdb", "movie", 1, "  ").is_none());
+        assert_eq!(create["body"]["content"], "great film");
+        assert!(mdblist_discussion_create_plan("tmdb", "movie", 1, "  ").is_none());
     }
 
     #[test]

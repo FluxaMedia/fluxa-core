@@ -193,13 +193,13 @@ pub(super) fn route_mdblist(method: &str, args_json: &str) -> Outcome {
         }
         "mdblistSyncMutatePlan" => {
             let args = object(args_json)?;
-            let body_json = field(&args, "body")?.to_string();
+            let items_json = field(&args, "items")?.to_string();
             opt_json(mdblist_plan::mdblist_sync_mutate_plan(
                 field_str(&args, "category")?,
                 field(&args, "remove")?
                     .as_bool()
                     .ok_or_else(|| fail(ErrorKind::InvalidArgs, "remove must be a bool"))?,
-                &body_json,
+                &items_json,
             ))
         }
         "mdblistUpnextUrl" => {
