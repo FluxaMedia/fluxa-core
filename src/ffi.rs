@@ -386,6 +386,9 @@ fn route_stream_policy(method: &str, args_json: &str) -> Outcome {
                 field_str(&args, "preferredLanguage")?,
             )))
         }
+        "subtitleLanguageDedupKeepIndices" => opt_json(
+            stream_policy::subtitle_language_dedup_keep_indices_json(args_json),
+        ),
         "findPreferredSubtitleIndex" => {
             let args = object(args_json)?;
             let last = args

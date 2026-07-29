@@ -67,6 +67,12 @@ impl FluxaCore {
         guard(None, || stream_policy::stream_magnet_link_json(stream_json))
     }
 
+    pub fn torrent_sibling_subtitle_matches_json(request_json: &str) -> Option<String> {
+        guard(None, || {
+            stream_policy::torrent_sibling_subtitle_matches_json(request_json)
+        })
+    }
+
     #[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
     pub fn player_buffer_targets_json(request_json: &str) -> Option<String> {
         guard(None, || {

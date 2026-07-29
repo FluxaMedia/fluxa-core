@@ -216,8 +216,18 @@ pub(crate) fn stream_request_headers_json(headers_json: &str) -> Option<String> 
     serde_json::to_string(&clean).ok()
 }
 
-pub(crate) fn stream_request_referer(_url: &str) -> Option<String> {
-    None
+pub(crate) fn stream_request_referer(url: &str) -> Option<String> {
+    let after_scheme = url.split_once("://")?.1;
+    let host_end = after_scheme.find(['/', '?', '#']).unwrap_or(after_scheme.len());
+    let authority = &after_scheme[..host_end];
+    if authority.is_empty() {
+        return None;
+    }
+    let scheme = url.split_once("://")?.0;
+    if scheme != "http" && scheme != "https" {
+        return None;
+    }
+    Some(format!("{scheme}://{authority}/"))
 }
 
 #[derive(serde::Deserialize)]
@@ -429,6 +439,121 @@ pub(crate) fn resolve_torrent_file_index(
         .max_by_key(|stat| stat.length)
         .map(|stat| (Some(stat.id), Some("largest-video".to_string())))
         .unwrap_or((None, None))
+}
+
+// Pulls a "s01e02"-style tag out of a lowercased filename, if present.
+// Season-pack subtitle folders/files usually keep this tag even when the
+// rest of the naming (release group, resolution) differs from the video.
+fn extract_episode_tag(lower_name: &str) -> Option<String> {
+    let bytes = lower_name.as_bytes();
+    for start in 0..bytes.len() {
+        if bytes[start] != b's' {
+            continue;
+        }
+        let mut i = start + 1;
+        let season_start = i;
+        while i < bytes.len() && bytes[i].is_ascii_digit() && i - season_start < 2 {
+            i += 1;
+        }
+        if i == season_start || i >= bytes.len() || bytes[i] != b'e' {
+            continue;
+        }
+        i += 1;
+        let episode_start = i;
+        while i < bytes.len() && bytes[i].is_ascii_digit() && i - episode_start < 3 {
+            i += 1;
+        }
+        if i == episode_start {
+            continue;
+        }
+        return Some(lower_name[start..i].to_string());
+    }
+    None
+}
+
+const SUBTITLE_FILE_EXTENSIONS: [&str; 5] = [".srt", ".ass", ".ssa", ".vtt", ".sub"];
+
+pub(crate) struct TorrentSubtitleMatch {
+    pub id: i64,
+    pub path: String,
+    pub language: Option<String>,
+}
+
+// Decides which torrent files are sibling subtitles for the selected video:
+// matched by filename, by shared "s01e02" episode tag, or (for a torrent
+// with only one video file) any subtitle file at all since there's nothing
+// else to disambiguate against.
+pub(crate) fn torrent_sibling_subtitle_matches(
+    selected_path: &str,
+    files: &[(i64, String)],
+) -> Vec<TorrentSubtitleMatch> {
+    let selected_name = std::path::Path::new(selected_path)
+        .file_stem()
+        .and_then(|name| name.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    if selected_name.is_empty() {
+        return Vec::new();
+    }
+    let episode_tag = extract_episode_tag(&selected_name);
+    let is_single_video_torrent = files
+        .iter()
+        .filter(|(_, path)| is_likely_video_file(path))
+        .count()
+        <= 1;
+
+    let mut matches = Vec::new();
+    for (id, path) in files {
+        let lower = path.to_ascii_lowercase();
+        let is_subtitle = SUBTITLE_FILE_EXTENSIONS
+            .iter()
+            .any(|extension| lower.ends_with(extension));
+        if !is_subtitle {
+            continue;
+        }
+        let matches_name = lower.contains(&selected_name);
+        let matches_episode_tag = episode_tag
+            .as_deref()
+            .is_some_and(|tag| lower.contains(tag));
+        if !matches_name && !matches_episode_tag && !is_single_video_torrent {
+            continue;
+        }
+        let language = lower
+            .split('.')
+            .rev()
+            .nth(1)
+            .filter(|part| part.len() == 3)
+            .map(str::to_string);
+        matches.push(TorrentSubtitleMatch {
+            id: *id,
+            path: path.clone(),
+            language,
+        });
+    }
+    matches
+}
+
+pub(crate) fn torrent_sibling_subtitle_matches_json(request_json: &str) -> Option<String> {
+    let request: Value = serde_json::from_str(request_json).ok()?;
+    let selected_path = request.get("selectedPath")?.as_str()?;
+    let files: Vec<(i64, String)> = request
+        .get("files")?
+        .as_array()?
+        .iter()
+        .filter_map(|file| {
+            let id = file.get("id")?.as_i64()?;
+            let path = file.get("path")?.as_str()?.to_string();
+            Some((id, path))
+        })
+        .collect();
+    let matches = torrent_sibling_subtitle_matches(selected_path, &files);
+    serde_json::to_string(
+        &matches
+            .into_iter()
+            .map(|m| json!({ "id": m.id, "path": m.path, "language": m.language }))
+            .collect::<Vec<_>>(),
+    )
+    .ok()
 }
 
 pub(crate) fn torrent_fallback_file_indexes(
@@ -756,6 +881,48 @@ fn find_preferred_subtitle_index_in_tracks(
         }
     }
     -1
+}
+
+// OpenSubtitles-style addons can return dozens of duplicates per language.
+// Keeps at most `max_per_language` subtitles per language, in original
+// order, matching the player UX without hammering the download host.
+pub(crate) fn subtitle_language_dedup_keep_indices(
+    languages: &[Option<String>],
+    max_per_language: usize,
+) -> Vec<usize> {
+    let mut counts: HashMap<String, usize> = HashMap::new();
+    let mut kept = Vec::new();
+    for (index, language) in languages.iter().enumerate() {
+        let key = language
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_ascii_lowercase)
+            .unwrap_or_else(|| "unknown".to_string());
+        let count = counts.entry(key).or_insert(0);
+        if *count >= max_per_language {
+            continue;
+        }
+        *count += 1;
+        kept.push(index);
+    }
+    kept
+}
+
+pub(crate) fn subtitle_language_dedup_keep_indices_json(request_json: &str) -> Option<String> {
+    let request: Value = serde_json::from_str(request_json).ok()?;
+    let languages: Vec<Option<String>> = request
+        .get("languages")?
+        .as_array()?
+        .iter()
+        .map(|value| value.as_str().map(str::to_string))
+        .collect();
+    let max_per_language = request
+        .get("maxPerLanguage")
+        .and_then(Value::as_u64)
+        .unwrap_or(2) as usize;
+    let kept = subtitle_language_dedup_keep_indices(&languages, max_per_language);
+    serde_json::to_string(&kept).ok()
 }
 
 pub(crate) fn find_preferred_subtitle_index(
@@ -1203,6 +1370,45 @@ mod tests {
         });
         let link = stream_magnet_link(&stream).unwrap();
         assert!(link.starts_with("magnet:?xt=urn:btih:abcdef1234567890abcdef1234567890abcdef12"));
+    }
+
+    #[test]
+    fn torrent_sibling_subtitles_match_by_episode_tag_over_unrelated_files() {
+        let files = vec![
+            (1, "Show.S01E01.mkv".to_string()),
+            (2, "Show.S01E02.mkv".to_string()),
+            (3, "Show.S01E02.eng.srt".to_string()),
+            (4, "Show.S01E03.eng.srt".to_string()),
+            (5, "readme.txt".to_string()),
+        ];
+        let matches = torrent_sibling_subtitle_matches("Show.S01E02.mkv", &files);
+        assert_eq!(matches.len(), 1);
+        assert_eq!(matches[0].id, 3);
+        assert_eq!(matches[0].language.as_deref(), Some("eng"));
+    }
+
+    #[test]
+    fn torrent_sibling_subtitles_single_video_torrent_accepts_any_subtitle() {
+        let files = vec![
+            (1, "release-group-video.mkv".to_string()),
+            (2, "totally-unrelated-name.srt".to_string()),
+        ];
+        let matches = torrent_sibling_subtitle_matches("release-group-video.mkv", &files);
+        assert_eq!(matches.len(), 1);
+        assert_eq!(matches[0].id, 2);
+    }
+
+    #[test]
+    fn subtitle_language_dedup_keeps_two_per_language_and_preserves_order() {
+        let languages = vec![
+            Some("eng".to_string()),
+            Some("eng".to_string()),
+            Some("eng".to_string()),
+            Some("tur".to_string()),
+            None,
+        ];
+        let kept = subtitle_language_dedup_keep_indices(&languages, 2);
+        assert_eq!(kept, vec![0, 1, 3, 4]);
     }
 
     #[test]
