@@ -1422,6 +1422,18 @@ fn route_player_scrobble(method: &str, args_json: &str) -> Outcome {
             opt_json(player_scrobble::lifecycle_action_json(args_json))
         }
         "scrobbleMediaContext" => opt_json(player_scrobble::scrobble_media_context_json(args_json)),
+        "scrobbleCloseAction" => {
+            let args = object(args_json)?;
+            let time_pos = field(&args, "timePosSec")?
+                .as_f64()
+                .ok_or_else(|| fail(ErrorKind::InvalidArgs, "timePosSec must be a number"))?;
+            let duration = field(&args, "durationSec")?
+                .as_f64()
+                .ok_or_else(|| fail(ErrorKind::InvalidArgs, "durationSec must be a number"))?;
+            Ok(Value::String(
+                player_scrobble::scrobble_close_action(time_pos, duration).to_string(),
+            ))
+        }
         "playerProgressPercent" => {
             let args = object(args_json)?;
             let position_ms = field(&args, "positionMs")?

@@ -260,18 +260,6 @@ pub(super) fn route_external_sync_simkl(method: &str, args_json: &str) -> Outcom
                 field_str(&args, "moviesJson")?,
             ))
         }
-        "simklScrobbleAction" => {
-            let args = object(args_json)?;
-            let time_pos = field(&args, "timePosSec")?
-                .as_f64()
-                .ok_or_else(|| fail(ErrorKind::InvalidArgs, "timePosSec must be a number"))?;
-            let duration = field(&args, "durationSec")?
-                .as_f64()
-                .ok_or_else(|| fail(ErrorKind::InvalidArgs, "durationSec must be a number"))?;
-            Ok(Value::String(
-                player_scrobble::scrobble_close_action(time_pos, duration).to_string(),
-            ))
-        }
         "simklScrobbleBody" => {
             let args = object(args_json)?;
             let season = field(&args, "season")?
