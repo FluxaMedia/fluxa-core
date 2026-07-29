@@ -15,20 +15,15 @@ pub(crate) fn trailer_subtitle_selection_plan_json(input: &str) -> Option<String
     if tracks.is_empty() {
         return Some("null".to_string());
     }
-    let mut explicit_wanted = Vec::new();
-    for candidate in ["preferred", "secondary"] {
+    let mut real_wanted = Vec::new();
+    for candidate in ["preferred", "secondary", "systemLanguage"] {
         if let Some(language) = language(value.get(candidate).and_then(Value::as_str))
-            && !explicit_wanted.contains(&language)
+            && !real_wanted.contains(&language)
         {
-            explicit_wanted.push(language);
+            real_wanted.push(language);
         }
     }
-    let mut wanted = explicit_wanted.clone();
-    if let Some(language) = language(value.get("systemLanguage").and_then(Value::as_str))
-        && !wanted.contains(&language)
-    {
-        wanted.push(language);
-    }
+    let mut wanted = real_wanted.clone();
     if !wanted.iter().any(|value| value == "en") {
         wanted.push("en".to_string());
     }
@@ -56,7 +51,7 @@ pub(crate) fn trailer_subtitle_selection_plan_json(input: &str) -> Option<String
     let (_, best_track) = selected;
 
     let best_language = language(best_track.get("languageTag").and_then(Value::as_str));
-    let translation_target = explicit_wanted
+    let translation_target = real_wanted
         .into_iter()
         .find(|language| Some(language.clone()) != best_language);
 
@@ -141,6 +136,17 @@ mod tests {
         assert_eq!(value["languageTag"], "tr");
         assert_eq!(value["isAuto"], true);
         assert_eq!(value["url"], "https://youtube.com/timedtext?lang=ja&tlang=tr");
+    }
+
+    #[test]
+    fn falls_back_to_system_language_translation_when_no_explicit_preference() {
+        let result = trailer_subtitle_selection_plan_json(
+            r#"{"tracks":[{"languageTag":"en","label":"English","url":"https://youtube.com/timedtext?lang=en","isAuto":false}],"systemLanguage":"tr-TR"}"#,
+        )
+        .unwrap();
+        let value: Value = serde_json::from_str(&result).unwrap();
+        assert_eq!(value["languageTag"], "tr");
+        assert_eq!(value["url"], "https://youtube.com/timedtext?lang=en&tlang=tr");
     }
 
     #[test]
