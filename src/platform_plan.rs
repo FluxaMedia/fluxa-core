@@ -144,6 +144,7 @@ pub(crate) fn resource_fetch_plan_json(request_json: &str) -> Option<String> {
                         "url": build_resource_url(transport_url, "catalog", content_type, id, Some(&json!({"search": query}).to_string())),
                         "kind": "search",
                         "addonName": addon_display_name(addon),
+                        "transportUrl": transport_url,
                         "catalogId": id,
                         "catalogType": content_type,
                         "categoryId": format!("{}:{}:{}", transport_url, content_type, id),
@@ -196,7 +197,28 @@ pub(crate) fn resource_fetch_plan_json(request_json: &str) -> Option<String> {
         "metaDetail" => {
             let content_type = request.content_type.as_deref()?;
             let id = request.id.as_deref()?;
-            for addon in &request.addons {
+            let source_transport_url = request.transport_url.as_deref().filter(|url| !url.is_empty());
+            let source_addons: Vec<&Value> = match source_transport_url {
+                Some(url) => request
+                    .addons
+                    .iter()
+                    .filter(|addon| {
+                        addon_transport_url(addon) == Some(url)
+                            && addon_supports(addon, "meta", content_type, Some(id))
+                    })
+                    .collect(),
+                None => Vec::new(),
+            };
+            let candidate_addons: Vec<&Value> = if source_addons.is_empty() {
+                // No known source addon (deep link, search, library nav), it's no
+                // longer configured, or it doesn't implement the meta resource at all
+                // (e.g. a torrent-indexing addon): fall back to racing every
+                // meta-capable addon instead of coming back empty.
+                request.addons.iter().collect()
+            } else {
+                source_addons
+            };
+            for addon in &candidate_addons {
                 if !addon_supports(addon, "meta", content_type, Some(id)) {
                     continue;
                 }
