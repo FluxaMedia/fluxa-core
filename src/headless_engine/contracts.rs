@@ -312,6 +312,7 @@ pub(super) enum AppAction {
     TrailerResolveRequested {
         request_id: String,
         video_id: String,
+        max_height: Option<u32>,
     },
     #[serde(rename = "trailerPrewarmRequested")]
     TrailerPrewarmRequested,

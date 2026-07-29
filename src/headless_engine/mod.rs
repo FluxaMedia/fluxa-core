@@ -17,6 +17,7 @@ mod settings;
 mod state;
 mod sync;
 mod trailer;
+mod youtube_cipher;
 
 use crate::core_error::{CoreError, LogAndDiscard};
 use crate::runtime::{EffectEnvelope, EffectKind};
@@ -546,7 +547,8 @@ impl HeadlessEngine {
             AppAction::TrailerResolveRequested {
                 request_id,
                 video_id,
-            } => trailer::dispatch_resolve(self, request_id, video_id),
+                max_height,
+            } => trailer::dispatch_resolve(self, request_id, video_id, max_height),
             AppAction::TrailerPrewarmRequested => trailer::dispatch_prewarm(self),
             AppAction::PluginRepositoryAddRequested { manifest_url } => {
                 plugins::dispatch_add_repository(self, manifest_url)
@@ -657,7 +659,9 @@ impl HeadlessEngine {
                 auth::complete(self, effect_type, generation, &result)
             }
 
-            EffectKind::FetchYoutubeTrailerWatchConfig | EffectKind::FetchYoutubeTrailerPlayer => {
+            EffectKind::FetchYoutubeTrailerWatchConfig
+            | EffectKind::FetchYoutubeTrailerPlayer
+            | EffectKind::FetchYoutubeTrailerPlayerScript => {
                 trailer::complete(self, effect_type, generation, &effect, &result)
             }
 
