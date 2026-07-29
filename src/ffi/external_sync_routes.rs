@@ -134,6 +134,7 @@ pub(super) fn route_external_sync_trakt(method: &str, args_json: &str) -> Outcom
                 field_str(&args, "externalJson")?,
             ))
         }
+        "pushPlan" => opt_json(external_sync::push_plan_json(args_json)),
         "mergeContinueWatchingLists" => {
             let args = object(args_json)?;
             opt_json(external_sync::merge_continue_watching_lists_json(

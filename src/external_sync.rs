@@ -1195,6 +1195,169 @@ pub(crate) fn merge_external_watched_json(local_json: &str, external_json: &str)
     serde_json::to_string(&Value::Object(local)).unwrap_or_else(|_| "{}".to_string())
 }
 
+fn item_str<'a>(item: &'a Value, key: &str) -> Option<&'a str> {
+    item.get(key).and_then(Value::as_str)
+}
+
+/// Given a destination provider, the requested import categories, and the local
+/// library snapshot for those categories, decides which push operations are needed
+/// and in what shape — so every platform's host code (TS, Kotlin, ...) can dispatch
+/// to its own existing per-provider push functions without re-deriving this
+/// provider/category capability matrix itself. Only fields relevant to the chosen
+/// destination + categories are populated; the rest are omitted.
+pub(crate) fn push_plan_json(request_json: &str) -> Option<String> {
+    let req: Value = serde_json::from_str(request_json).ok()?;
+    let destination = req.get("destination")?.as_str()?;
+    let categories: Vec<&str> = req
+        .get("categories")
+        .and_then(Value::as_array)
+        .map(|arr| arr.iter().filter_map(Value::as_str).collect())
+        .unwrap_or_default();
+    let wants = |c: &str| categories.iter().any(|x| *x == c);
+
+    let watchlist = req
+        .get("watchlist")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let completed = req
+        .get("completed")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let dropped = req
+        .get("dropped")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let continue_watching = req
+        .get("continueWatching")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let now_sec = req.get("nowSec").and_then(Value::as_i64).unwrap_or(0);
+
+    let mut plan = Map::new();
+
+    if wants("watchlist") {
+        match destination {
+            "trakt" | "simkl" | "anilist" | "stremio" => {
+                let items: Vec<Value> = watchlist
+                    .iter()
+                    .filter_map(|item| {
+                        let id = item_str(item, "id")?;
+                        Some(json!({ "id": id, "contentType": item_str(item, "type").unwrap_or("movie") }))
+                    })
+                    .collect();
+                plan.insert("watchlistItems".into(), json!(items));
+            }
+            "nuvio" => {
+                let items: Vec<Value> = watchlist
+                    .iter()
+                    .filter_map(|item| {
+                        let id = item_str(item, "id")?;
+                        Some(json!({
+                            "contentId": id,
+                            "contentType": item_str(item, "type").unwrap_or("movie"),
+                            "name": item.get("name"),
+                            "poster": item.get("poster"),
+                            "background": item.get("background"),
+                        }))
+                    })
+                    .collect();
+                plan.insert("watchlistNuvioItems".into(), json!(items));
+            }
+            _ => {}
+        }
+    }
+
+    if wants("watched") {
+        let all_watched: Vec<&Value> = completed.iter().chain(dropped.iter()).collect();
+        match destination {
+            "trakt" | "simkl" => {
+                let video_ids: Vec<&str> = all_watched
+                    .iter()
+                    .filter_map(|item| item_str(item, "lastVideoId").or_else(|| item_str(item, "id")))
+                    .collect();
+                plan.insert("watchedVideoIds".into(), json!(video_ids));
+            }
+            "anilist" => {
+                let mut items: Vec<Value> = Vec::new();
+                for item in &completed {
+                    if let Some(id) = item_str(item, "id") {
+                        items.push(json!({ "id": id, "status": "completed" }));
+                    }
+                }
+                for item in &dropped {
+                    if let Some(id) = item_str(item, "id") {
+                        items.push(json!({ "id": id, "status": "dropped" }));
+                    }
+                }
+                plan.insert("watchedStatusItems".into(), json!(items));
+            }
+            "stremio" => {
+                let ids: Vec<&str> = all_watched.iter().filter_map(|item| item_str(item, "id")).collect();
+                plan.insert("watchedItemIds".into(), json!(ids));
+            }
+            "nuvio" => {
+                let items: Vec<Value> = all_watched
+                    .iter()
+                    .filter_map(|item| {
+                        let id = item_str(item, "id")?;
+                        Some(json!({
+                            "contentId": id,
+                            "contentType": item_str(item, "type").unwrap_or("movie"),
+                            "title": item.get("name"),
+                            "season": item.get("lastEpisodeSeason"),
+                            "episode": item.get("lastEpisodeNumber"),
+                            "watchedAt": now_sec,
+                        }))
+                    })
+                    .collect();
+                plan.insert("watchedNuvioItems".into(), json!(items));
+            }
+            _ => {}
+        }
+    }
+
+    if wants("continueWatching") {
+        match destination {
+            "trakt" | "simkl" | "anilist" | "stremio" => {
+                let ids: Vec<&str> = continue_watching
+                    .iter()
+                    .filter(|item| item.get("duration").and_then(Value::as_f64).unwrap_or(0.0) > 0.0)
+                    .filter_map(|item| item_str(item, "id"))
+                    .collect();
+                plan.insert("progressItemIds".into(), json!(ids));
+            }
+            "nuvio" => {
+                let entries: Vec<Value> = continue_watching
+                    .iter()
+                    .filter(|item| item.get("duration").and_then(Value::as_f64).unwrap_or(0.0) > 0.0)
+                    .filter_map(|item| {
+                        let id = item_str(item, "id")?;
+                        let video_id = item_str(item, "lastVideoId")?;
+                        Some(json!({
+                            "contentId": id,
+                            "contentType": item_str(item, "type").unwrap_or("movie"),
+                            "videoId": video_id,
+                            "position": item.get("timeOffset").cloned().unwrap_or(json!(0)),
+                            "duration": item.get("duration").cloned().unwrap_or(json!(0)),
+                            "lastWatched": now_sec,
+                            "season": item.get("lastEpisodeSeason"),
+                            "episode": item.get("lastEpisodeNumber"),
+                        }))
+                    })
+                    .collect();
+                plan.insert("progressNuvioEntries".into(), json!(entries));
+            }
+            _ => {}
+        }
+    }
+
+    Some(Value::Object(plan).to_string())
+}
+
 #[derive(serde::Deserialize)]
 struct TimestampedLocalItem {
     id: String,
