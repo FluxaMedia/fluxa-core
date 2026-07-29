@@ -219,6 +219,7 @@ pub(super) fn route_external_sync_trakt(method: &str, args_json: &str) -> Outcom
             ))
         }
         "traktCommentsRequest" => opt_json(external_sync::trakt_comments_request_json(args_json)),
+        "traktActivityDiff" => opt_json(external_sync::trakt_activity_diff_json(args_json)),
 
         _ => Err(fail(
             ErrorKind::UnknownMethod,
@@ -324,6 +325,16 @@ pub(super) fn route_external_sync_simkl(method: &str, args_json: &str) -> Outcom
             opt_json(external_sync::simkl_recommendation_to_meta_json(
                 field_str(&args, "recJson")?,
                 field_str(&args, "resolvedImdb")?,
+            ))
+        }
+        "simklResourceSyncPlan" => {
+            opt_json(external_sync::simkl_resource_sync_plan_json(args_json))
+        }
+        "simklMergeDelta" => {
+            let args = object(args_json)?;
+            opt_json(external_sync::simkl_merge_delta_json(
+                field_str(&args, "previousJson")?,
+                field_str(&args, "changesJson")?,
             ))
         }
 

@@ -700,3 +700,138 @@ pub(crate) fn simkl_recommendation_to_meta_json(
     }
     serde_json::to_string(&meta).ok()
 }
+
+fn activity_at(activities: Option<&Value>, group: &str, field: &str) -> Option<String> {
+    activities?
+        .get(group)?
+        .get(field)
+        .and_then(Value::as_str)
+        .map(str::to_string)
+}
+
+pub(crate) fn trakt_activity_diff_json(request_json: &str) -> Option<String> {
+    let request: Value = serde_json::from_str(request_json).ok()?;
+    let current = request.get("current").filter(|v| !v.is_null());
+    let previous = request.get("previous").filter(|v| !v.is_null());
+    let has = |key: &str| request.get(key).and_then(Value::as_bool).unwrap_or(false);
+    let changed = |group: &str, field: &str| {
+        current.is_none() || activity_at(current, group, field) != activity_at(previous, group, field)
+    };
+
+    let result = json!({
+        "playbackChanged": !has("hasPlayback") || changed("movies", "paused_at") || changed("episodes", "paused_at"),
+        "watchlistMoviesChanged": !has("hasWatchlistMovies") || changed("movies", "watchlisted_at"),
+        "watchlistShowsChanged": !has("hasWatchlistShows") || changed("shows", "watchlisted_at"),
+        "watchedMoviesChanged": !has("hasWatchedMovies") || changed("movies", "watched_at"),
+        "watchedShowsChanged": !has("hasWatchedShows") || changed("episodes", "watched_at"),
+    });
+    serde_json::to_string(&result).ok()
+}
+
+pub(crate) fn simkl_resource_sync_plan_json(request_json: &str) -> Option<String> {
+    let request: Value = serde_json::from_str(request_json).ok()?;
+    let current = request.get("current").filter(|v| !v.is_null());
+    let previous = request.get("previous").filter(|v| !v.is_null());
+    let resources = request.get("resources")?.as_array()?;
+
+    let plans: Vec<Value> = resources
+        .iter()
+        .map(|resource| {
+            let key = resource.get("key").and_then(Value::as_str).unwrap_or("");
+            let res_type = resource.get("type").and_then(Value::as_str).unwrap_or("");
+            let status = resource.get("status").and_then(Value::as_str).unwrap_or("");
+            let has_cached = resource.get("hasCached").and_then(Value::as_bool).unwrap_or(false);
+
+            let previous_activity = activity_at(previous, res_type, status);
+            let current_activity = activity_at(current, res_type, status);
+            let force_full = !has_cached
+                || activity_at(previous, res_type, "removed_from_list")
+                    != activity_at(current, res_type, "removed_from_list");
+
+            let action = if !force_full && previous_activity == current_activity {
+                "unchanged"
+            } else if force_full {
+                "full"
+            } else {
+                "delta"
+            };
+            let date_from = if action == "delta" { previous_activity.clone() } else { None };
+
+            json!({ "key": key, "action": action, "dateFrom": date_from })
+        })
+        .collect();
+
+    serde_json::to_string(&plans).ok()
+}
+
+fn simkl_item_key(value: &Value) -> Option<String> {
+    let obj = value.as_object()?;
+    let ids = obj.get("ids").and_then(Value::as_object);
+    let candidate = ids
+        .and_then(|ids| ids.get("simkl").or_else(|| ids.get("imdb")).or_else(|| ids.get("tmdb")))
+        .or_else(|| obj.get("id"))?;
+    match candidate {
+        Value::String(s) => Some(s.clone()),
+        Value::Number(n) => Some(n.to_string()),
+        Value::Bool(b) => Some(b.to_string()),
+        _ => None,
+    }
+}
+
+fn simkl_merge_delta_list(previous: &[Value], changes: &[Value]) -> Vec<Value> {
+    let updates: std::collections::HashMap<String, &Value> = changes
+        .iter()
+        .filter_map(|item| simkl_item_key(item).map(|key| (key, item)))
+        .collect();
+    let mut merged: Vec<Value> = previous
+        .iter()
+        .map(|item| {
+            simkl_item_key(item)
+                .and_then(|key| updates.get(&key))
+                .map(|updated| (*updated).clone())
+                .unwrap_or_else(|| item.clone())
+        })
+        .collect();
+    let existing: std::collections::HashSet<String> =
+        previous.iter().filter_map(simkl_item_key).collect();
+    for item in changes {
+        let key = simkl_item_key(item);
+        let already_present = key.as_ref().is_some_and(|k| existing.contains(k));
+        if !already_present {
+            merged.push(item.clone());
+        }
+    }
+    merged
+}
+
+fn simkl_merge_delta(previous: &Value, changes: &Value) -> Value {
+    match (previous.as_array(), changes.as_array()) {
+        (Some(prev_arr), Some(changes_arr)) => Value::Array(simkl_merge_delta_list(prev_arr, changes_arr)),
+        _ => changes.clone(),
+    }
+}
+
+fn simkl_merge_resource(previous: &Value, changes: &Value) -> Value {
+    let previous_is_container = previous.is_object() || previous.is_array();
+    let changes_is_container = changes.is_object() || changes.is_array();
+    if !previous_is_container || !changes_is_container {
+        return changes.clone();
+    }
+    if previous.is_array() || changes.is_array() {
+        return simkl_merge_delta(previous, changes);
+    }
+    let mut merged = previous.as_object().cloned().unwrap_or_default();
+    if let Some(changes_obj) = changes.as_object() {
+        for (key, value) in changes_obj {
+            let current = merged.get(key).cloned().unwrap_or(Value::Null);
+            merged.insert(key.clone(), simkl_merge_resource(&current, value));
+        }
+    }
+    Value::Object(merged)
+}
+
+pub(crate) fn simkl_merge_delta_json(previous_json: &str, changes_json: &str) -> Option<String> {
+    let previous: Value = serde_json::from_str(previous_json).unwrap_or(Value::Null);
+    let changes: Value = serde_json::from_str(changes_json).unwrap_or(Value::Null);
+    serde_json::to_string(&simkl_merge_resource(&previous, &changes)).ok()
+}

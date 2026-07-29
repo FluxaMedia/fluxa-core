@@ -1371,10 +1371,12 @@ mod provider_mappers;
 
 pub(crate) use provider_mappers::{
     replace_external_continue_watching_json, simkl_lookup_id_for_type,
-    simkl_mark_watched_body_json, simkl_match_episode_json, simkl_recommendation_candidates_json,
-    simkl_recommendation_to_meta_json, simkl_watched_to_ids_json, simkl_watching_to_items_json,
-    simkl_watchlist_body_json, simkl_watchlist_to_items_json, trakt_mark_watched_body_json,
-    trakt_playback_items_dedup_json, trakt_related_items_to_metas_json, trakt_related_lookup_slug,
+    simkl_mark_watched_body_json, simkl_match_episode_json, simkl_merge_delta_json,
+    simkl_recommendation_candidates_json, simkl_recommendation_to_meta_json,
+    simkl_resource_sync_plan_json, simkl_watched_to_ids_json, simkl_watching_to_items_json,
+    simkl_watchlist_body_json, simkl_watchlist_to_items_json, trakt_activity_diff_json,
+    trakt_mark_watched_body_json, trakt_playback_items_dedup_json,
+    trakt_related_items_to_metas_json, trakt_related_lookup_slug,
     trakt_watched_shows_to_items_json,
 };
 mod anilist;
@@ -2103,5 +2105,72 @@ mod tests {
             "items":[{"id":1,"show":{"ids":{"tmdb":42}}},{"id":2,"movie":{"ids":{"imdb":"tt1"}}}],
         }).to_string()).unwrap()).unwrap();
         assert_eq!(ids, json!([1]));
+    }
+
+    #[test]
+    fn trakt_activity_diff_flags_only_moved_timestamps() {
+        let result: Value = serde_json::from_str(&trakt_activity_diff_json(&json!({
+            "previous": { "movies": { "paused_at": "t1", "watchlisted_at": "t1", "watched_at": "t1" }, "episodes": { "paused_at": "t1", "watched_at": "t1" }, "shows": { "watchlisted_at": "t1" } },
+            "current": { "movies": { "paused_at": "t1", "watchlisted_at": "t1", "watched_at": "t2" }, "episodes": { "paused_at": "t1", "watched_at": "t1" }, "shows": { "watchlisted_at": "t1" } },
+            "hasPlayback": true,
+            "hasWatchlistMovies": true,
+            "hasWatchlistShows": true,
+            "hasWatchedMovies": true,
+            "hasWatchedShows": true,
+        }).to_string()).unwrap()).unwrap();
+        assert_eq!(result["playbackChanged"], false);
+        assert_eq!(result["watchlistMoviesChanged"], false);
+        assert_eq!(result["watchlistShowsChanged"], false);
+        assert_eq!(result["watchedMoviesChanged"], true);
+        assert_eq!(result["watchedShowsChanged"], false);
+    }
+
+    #[test]
+    fn trakt_activity_diff_forces_full_when_nothing_cached_yet() {
+        let result: Value = serde_json::from_str(&trakt_activity_diff_json(&json!({
+            "previous": null,
+            "current": { "movies": {}, "episodes": {}, "shows": {} },
+            "hasPlayback": false,
+            "hasWatchlistMovies": false,
+            "hasWatchlistShows": false,
+            "hasWatchedMovies": false,
+            "hasWatchedShows": false,
+        }).to_string()).unwrap()).unwrap();
+        assert_eq!(result["playbackChanged"], true);
+        assert_eq!(result["watchedShowsChanged"], true);
+    }
+
+    #[test]
+    fn simkl_resource_sync_plan_marks_removed_from_list_as_force_full() {
+        let plan: Value = serde_json::from_str(&simkl_resource_sync_plan_json(&json!({
+            "previous": { "tv_shows": { "watching": "t1", "removed_from_list": "r1" } },
+            "current": { "tv_shows": { "watching": "t1", "removed_from_list": "r2" } },
+            "resources": [{ "key": "showsWatching", "type": "tv_shows", "status": "watching", "hasCached": true }],
+        }).to_string()).unwrap()).unwrap();
+        assert_eq!(plan[0]["action"], "full");
+    }
+
+    #[test]
+    fn simkl_resource_sync_plan_uses_date_from_for_partial_delta() {
+        let plan: Value = serde_json::from_str(&simkl_resource_sync_plan_json(&json!({
+            "previous": { "tv_shows": { "watching": "t1", "removed_from_list": "r1" } },
+            "current": { "tv_shows": { "watching": "t2", "removed_from_list": "r1" } },
+            "resources": [{ "key": "showsWatching", "type": "tv_shows", "status": "watching", "hasCached": true }],
+        }).to_string()).unwrap()).unwrap();
+        assert_eq!(plan[0]["action"], "delta");
+        assert_eq!(plan[0]["dateFrom"], "t1");
+    }
+
+    #[test]
+    fn simkl_merge_delta_updates_existing_and_appends_new_items() {
+        let merged: Value = serde_json::from_str(&simkl_merge_delta_json(
+            &json!([{ "ids": { "simkl": 1 }, "progress": 10 }, { "ids": { "simkl": 2 }, "progress": 20 }]).to_string(),
+            &json!([{ "ids": { "simkl": 1 }, "progress": 50 }, { "ids": { "simkl": 3 }, "progress": 5 }]).to_string(),
+        ).unwrap()).unwrap();
+        assert_eq!(merged, json!([
+            { "ids": { "simkl": 1 }, "progress": 50 },
+            { "ids": { "simkl": 2 }, "progress": 20 },
+            { "ids": { "simkl": 3 }, "progress": 5 },
+        ]));
     }
 }
