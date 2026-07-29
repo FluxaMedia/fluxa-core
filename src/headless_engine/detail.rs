@@ -34,6 +34,7 @@ pub(super) struct DetailState {
     similar_items: Value,
     trailers: Value,
     omdb_ratings: Value,
+    mdblist_ratings: Value,
     fanart_artwork: Value,
     has_stream_providers: Value,
     last_prefetch: Value,
@@ -73,6 +74,7 @@ impl Default for DetailState {
             similar_items: serde_json::json!([]),
             trailers: serde_json::json!([]),
             omdb_ratings: Value::Null,
+            mdblist_ratings: Value::Null,
             fanart_artwork: Value::Null,
             has_stream_providers: Value::Null,
             last_prefetch: Value::Null,
@@ -542,6 +544,11 @@ pub(super) fn complete(
                     engine.state.detail.omdb_ratings = result
                         .value
                         .get("omdbRatings")
+                        .cloned()
+                        .unwrap_or(Value::Null);
+                    engine.state.detail.mdblist_ratings = result
+                        .value
+                        .get("mdblistRatings")
                         .cloned()
                         .unwrap_or(Value::Null);
                     engine.state.detail.fanart_artwork = result
