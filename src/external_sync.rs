@@ -1165,6 +1165,66 @@ pub(crate) fn stremio_watched_to_ids_json(items_json: &str) -> Option<String> {
     serde_json::to_string(&Value::Object(ids)).ok()
 }
 
+/// Decides what an "import" should actually apply for a provider that follows the
+/// common watchlist+watched(+continueWatching) shape (Trakt, Simkl, Stremio): given
+/// already-fetched provider data, local before-state, the selected import
+/// categories, and whether this is a dry run, returns per-category counts (always)
+/// and merged results (only when that category was selected and this isn't a dry
+/// run) — so host platforms don't need to re-derive "should I apply this category"
+/// themselves beyond passing the user's selection through.
+pub(crate) fn import_apply_plan_json(request_json: &str) -> Option<String> {
+    let req: Value = serde_json::from_str(request_json).ok()?;
+    let categories: Option<Vec<&str>> = req
+        .get("categories")
+        .filter(|v| !v.is_null())
+        .and_then(Value::as_array)
+        .map(|arr| arr.iter().filter_map(Value::as_str).collect());
+    let dry_run = req.get("dryRun").and_then(Value::as_bool).unwrap_or(false);
+    let wants = |c: &str| categories.as_ref().is_none_or(|cats| cats.iter().any(|x| *x == c));
+
+    let local_watchlist = req.get("localWatchlist").cloned().unwrap_or(json!([]));
+    let external_watchlist = req.get("externalWatchlist").cloned().unwrap_or(json!([]));
+    let watchlist_count = external_watchlist.as_array().map(|a| a.len()).unwrap_or(0);
+    let watchlist_merged = if wants("watchlist") && !dry_run {
+        serde_json::from_str::<Value>(&merge_external_watchlist_json(
+            &local_watchlist.to_string(),
+            &external_watchlist.to_string(),
+        ))
+        .ok()
+    } else {
+        None
+    };
+
+    let local_watched = req.get("localWatched").cloned().unwrap_or(json!({}));
+    let external_watched = req.get("externalWatched").cloned().unwrap_or(json!({}));
+    let watched_count = external_watched
+        .as_object()
+        .map(|m| m.values().filter(|v| v.as_bool() == Some(true)).count())
+        .unwrap_or(0);
+    let watched_merged = if wants("watched") && !dry_run {
+        serde_json::from_str::<Value>(&merge_external_watched_json(
+            &local_watched.to_string(),
+            &external_watched.to_string(),
+        ))
+        .ok()
+    } else {
+        None
+    };
+
+    let continue_watching_apply = wants("continueWatching") && !dry_run;
+
+    Some(
+        json!({
+            "watchlist": watchlist_merged,
+            "watchlistCount": watchlist_count,
+            "watched": watched_merged,
+            "watchedCount": watched_count,
+            "continueWatchingApply": continue_watching_apply,
+        })
+        .to_string(),
+    )
+}
+
 pub(crate) fn merge_external_watchlist_json(local_json: &str, external_json: &str) -> String {
     let mut local: Vec<Value> = serde_json::from_str(local_json).unwrap_or_default();
     let external: Vec<Value> = serde_json::from_str(external_json).unwrap_or_default();
@@ -1741,6 +1801,8 @@ mod tests {
                 .unwrap()
                 .as_slice(),
             0,
+            None,
+            false,
         );
         assert_eq!(plan["watching"][0]["lastVideoId"], "anilist:5:1:3");
         assert_eq!(plan["watched"]["anilist:5:1:2"], Value::Bool(true));
@@ -1763,6 +1825,8 @@ mod tests {
                 .unwrap()
                 .as_slice(),
             0,
+            None,
+            false,
         );
         assert_eq!(plan["watchlist"][0]["updatedAtMs"], json!(1700000000000i64));
     }

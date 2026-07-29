@@ -237,7 +237,13 @@ pub(crate) fn anilist_media_list_status(
     }
 }
 
-pub(crate) fn anilist_entries_to_sync(entries: &[Value], now_ms: i64) -> Value {
+pub(crate) fn anilist_entries_to_sync(
+    entries: &[Value],
+    now_ms: i64,
+    categories: Option<&[&str]>,
+    dry_run: bool,
+) -> Value {
+    let wants = |c: &str| categories.is_none_or(|cats| cats.iter().any(|x| *x == c));
     let mut watchlist: Vec<Value> = Vec::new();
     let mut completed: Vec<Value> = Vec::new();
     let mut dropped: Vec<Value> = Vec::new();
@@ -338,14 +344,25 @@ pub(crate) fn anilist_entries_to_sync(entries: &[Value], now_ms: i64) -> Value {
         }
     }
 
+    let watchlist_count = watchlist.len();
+    let completed_count = completed.len();
+    let dropped_count = dropped.len();
+    let watching_count = watching.len();
+    let watched_apply = wants("watched") && !dry_run;
+    let continue_watching_apply = wants("continueWatching") && !dry_run;
+
     json!({
-        "watchlist": watchlist,
-        "completed": completed,
-        "dropped": dropped,
-        "watching": watching,
-        "watched": Value::Object(watched),
-        "watchedUpdatedAtMs": Value::Object(watched_at_ms),
-        "progress": Value::Object(progress),
+        "watchlist": if wants("watchlist") && !dry_run { json!(watchlist) } else { Value::Null },
+        "watchlistCount": watchlist_count,
+        "completed": if watched_apply { json!(completed) } else { Value::Null },
+        "completedCount": completed_count,
+        "dropped": if watched_apply { json!(dropped) } else { Value::Null },
+        "droppedCount": dropped_count,
+        "watching": if continue_watching_apply { json!(watching) } else { Value::Null },
+        "watchingCount": watching_count,
+        "watched": if watched_apply { Value::Object(watched) } else { Value::Null },
+        "watchedUpdatedAtMs": if watched_apply { Value::Object(watched_at_ms) } else { Value::Null },
+        "progress": if continue_watching_apply { Value::Object(progress) } else { Value::Null },
     })
 }
 

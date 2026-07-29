@@ -602,6 +602,23 @@ fn progress_entry(entry: &Value, lib_item: Option<&Value>, addon_meta: Option<&V
 
 pub(crate) fn import_merge_plan_json(args_json: &str) -> Option<String> {
     let args = parse(args_json)?;
+    let categories: Option<Vec<&str>> = args
+        .get("categories")
+        .filter(|v| !v.is_null())
+        .and_then(Value::as_array)
+        .map(|arr| arr.iter().filter_map(Value::as_str).collect());
+    let dry_run = args.get("dryRun").and_then(Value::as_bool).unwrap_or(false);
+    let wants = |c: &str| categories.as_ref().is_none_or(|cats| cats.iter().any(|x| *x == c));
+    let progress_count = args
+        .get("watchProgress")
+        .and_then(Value::as_array)
+        .map(|a| a.len())
+        .unwrap_or(0);
+    let watched_count = args
+        .get("watchHistory")
+        .and_then(Value::as_array)
+        .map(|a| a.len())
+        .unwrap_or(0);
     let mut progress = args
         .get("progress")
         .and_then(Value::as_object)
@@ -700,10 +717,23 @@ pub(crate) fn import_merge_plan_json(args_json: &str) -> Option<String> {
         progress.remove(&id);
     }
 
+    let progress_out = if wants("continueWatching") && !dry_run {
+        Some(progress)
+    } else {
+        None
+    };
+    let watched_out = if wants("watched") && !dry_run {
+        Some(watched)
+    } else {
+        None
+    };
+
     Some(
         json!({
-            "progress": progress,
-            "watched": watched,
+            "progress": progress_out,
+            "progressCount": progress_count,
+            "watched": watched_out,
+            "watchedCount": watched_count,
         })
         .to_string(),
     )

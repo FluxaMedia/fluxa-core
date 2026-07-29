@@ -135,6 +135,7 @@ pub(super) fn route_external_sync_trakt(method: &str, args_json: &str) -> Outcom
             ))
         }
         "pushPlan" => opt_json(external_sync::push_plan_json(args_json)),
+        "importApplyPlan" => opt_json(external_sync::import_apply_plan_json(args_json)),
         "mergeContinueWatchingLists" => {
             let args = object(args_json)?;
             opt_json(external_sync::merge_continue_watching_lists_json(
@@ -344,7 +345,18 @@ pub(super) fn route_external_sync_anilist(method: &str, args_json: &str) -> Outc
             let entries = field(&args, "entries")?
                 .as_array()
                 .ok_or_else(|| fail(ErrorKind::InvalidArgs, "entries must be an array"))?;
-            Ok(external_sync::anilist_entries_to_sync(entries, now_ms))
+            let categories: Option<Vec<&str>> = args
+                .get("categories")
+                .filter(|v| !v.is_null())
+                .and_then(Value::as_array)
+                .map(|arr| arr.iter().filter_map(Value::as_str).collect());
+            let dry_run = args.get("dryRun").and_then(Value::as_bool).unwrap_or(false);
+            Ok(external_sync::anilist_entries_to_sync(
+                entries,
+                now_ms,
+                categories.as_deref(),
+                dry_run,
+            ))
         }
         "mergeLibraryItemsById" => {
             let args = object(args_json)?;
