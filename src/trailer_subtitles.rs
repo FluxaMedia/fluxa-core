@@ -15,13 +15,19 @@ pub(crate) fn trailer_subtitle_selection_plan_json(input: &str) -> Option<String
     if tracks.is_empty() {
         return Some("null".to_string());
     }
-    let mut wanted = Vec::new();
-    for candidate in ["preferred", "secondary", "systemLanguage"] {
-        if let Some(value) = language(value.get(candidate).and_then(Value::as_str)) {
-            if !wanted.contains(&value) {
-                wanted.push(value);
-            }
+    let mut explicit_wanted = Vec::new();
+    for candidate in ["preferred", "secondary"] {
+        if let Some(language) = language(value.get(candidate).and_then(Value::as_str))
+            && !explicit_wanted.contains(&language)
+        {
+            explicit_wanted.push(language);
         }
+    }
+    let mut wanted = explicit_wanted.clone();
+    if let Some(language) = language(value.get("systemLanguage").and_then(Value::as_str))
+        && !wanted.contains(&language)
+    {
+        wanted.push(language);
     }
     if !wanted.iter().any(|value| value == "en") {
         wanted.push("en".to_string());
@@ -46,8 +52,29 @@ pub(crate) fn trailer_subtitle_selection_plan_json(input: &str) -> Option<String
             .unwrap_or(false)) as i64
             * 25;
         (preferred + english_label + human, std::cmp::Reverse(*index))
-    });
-    selected.map(|(_, track)| track.to_string())
+    })?;
+    let (_, best_track) = selected;
+
+    let best_language = language(best_track.get("languageTag").and_then(Value::as_str));
+    let translation_target = explicit_wanted
+        .into_iter()
+        .find(|language| Some(language.clone()) != best_language);
+
+    if let Some(target) = translation_target {
+        let base_url = best_track.get("url").and_then(Value::as_str)?;
+        let separator = if base_url.contains('?') { "&" } else { "?" };
+        let source_label = best_track.get("label").and_then(Value::as_str).unwrap_or("");
+        return serde_json::to_string(&json!({
+            "languageTag": target,
+            "label": format!("{target} (auto-translated from {source_label})"),
+            "url": format!("{base_url}{separator}tlang={target}"),
+            "mimeType": "text/vtt",
+            "isAuto": true,
+        }))
+        .ok();
+    }
+
+    Some(best_track.to_string())
 }
 
 pub(crate) fn normalize_trailer_subtitle_url_json(input: &str) -> Option<String> {
@@ -102,6 +129,18 @@ mod tests {
             serde_json::from_str::<Value>(&result).unwrap()["languageTag"],
             "tr-TR"
         );
+    }
+
+    #[test]
+    fn synthesizes_youtube_auto_translation_when_no_native_track_matches() {
+        let result = trailer_subtitle_selection_plan_json(
+            r#"{"tracks":[{"languageTag":"ja","label":"日本語","url":"https://youtube.com/timedtext?lang=ja","isAuto":false}],"preferred":"tr"}"#,
+        )
+        .unwrap();
+        let value: Value = serde_json::from_str(&result).unwrap();
+        assert_eq!(value["languageTag"], "tr");
+        assert_eq!(value["isAuto"], true);
+        assert_eq!(value["url"], "https://youtube.com/timedtext?lang=ja&tlang=tr");
     }
 
     #[test]
