@@ -414,7 +414,11 @@ mod tests {
         assert_eq!(headers.get("X-Test").and_then(Value::as_str), Some("ok"));
         assert!(headers.get("").is_none());
         assert!(headers.get("Blank").is_none());
-        assert_eq!(stream_request_referer("https://vidmoly.me/video.mp4"), None);
+        assert_eq!(
+            stream_request_referer("https://vidmoly.me/video.mp4"),
+            Some("https://vidmoly.me/".to_string())
+        );
+        assert_eq!(stream_request_referer("magnet:?xt=urn:btih:abc"), None);
     }
 
     #[test]
