@@ -195,10 +195,25 @@ pub(crate) fn external_provider_action_plan_json(args_json: &str) -> Option<Stri
                 Some(Value::Array(values)) => values.clone(),
                 Some(value) if !value.is_null() => vec![value.clone()],
                 _ => Vec::new(),
-            }.into_iter().filter(|info| info.get("contentId").and_then(Value::as_str).is_some_and(|id| !id.is_empty())).collect();
+            }
+            .into_iter()
+            .filter(|info| {
+                info.get("contentId")
+                    .and_then(Value::as_str)
+                    .is_some_and(|id| !id.is_empty())
+            })
+            .collect();
             let meta = args.get("meta").cloned().unwrap_or(Value::Null);
-            let video_ids = args.get("videoIds").and_then(Value::as_array).cloned().unwrap_or_default();
-            let fallback_id = meta.get("id").and_then(Value::as_str).or_else(|| video_ids.first().and_then(Value::as_str)).unwrap_or("");
+            let video_ids = args
+                .get("videoIds")
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default();
+            let fallback_id = meta
+                .get("id")
+                .and_then(Value::as_str)
+                .or_else(|| video_ids.first().and_then(Value::as_str))
+                .unwrap_or("");
             let watched_keys: Vec<Value> = if episode_infos.is_empty() {
                 (!fallback_id.is_empty()).then(|| json!({"content_id": fallback_id, "season": Value::Null, "episode": Value::Null})).into_iter().collect()
             } else {
@@ -208,7 +223,18 @@ pub(crate) fn external_provider_action_plan_json(args_json: &str) -> Option<Stri
                 "content_id": info.get("contentId"), "content_type": info.get("contentType"), "title": info.get("title").and_then(Value::as_str).unwrap_or(""),
                 "season": info.get("season"), "episode": info.get("episode"), "watched_at": now_ms,
             })).collect();
-            let progress_entry = args.get("progressInfo").filter(|value| value.get("contentId").is_some() && value.get("videoId").is_some() && value.get("durationSeconds").and_then(Value::as_f64).unwrap_or(0.0) > 0.0).map(progress_to_nuvio);
+            let progress_entry = args
+                .get("progressInfo")
+                .filter(|value| {
+                    value.get("contentId").is_some()
+                        && value.get("videoId").is_some()
+                        && value
+                            .get("durationSeconds")
+                            .and_then(Value::as_f64)
+                            .unwrap_or(0.0)
+                            > 0.0
+                })
+                .map(progress_to_nuvio);
             let anime_episode = episode_infos.last().cloned().unwrap_or(Value::Null);
             Some(json!({
                 "trakt": trakt && accepts_progress_source(&integration_settings, "trakt"), "simkl": simkl && accepts_progress_source(&integration_settings, "simkl"), "anilist": anilist && watched, "stremio": stremio && accepts_progress_source(&integration_settings, "stremio"), "nuvio": nuvio && accepts_progress_source(&integration_settings, "nuvio"),
@@ -222,16 +248,26 @@ pub(crate) fn external_provider_action_plan_json(args_json: &str) -> Option<Stri
         }
         "progress" => {
             let progress = args.get("progress")?;
-            let valid = progress.get("durationSeconds").and_then(Value::as_f64).unwrap_or(0.0) > 0.0;
+            let valid = progress
+                .get("durationSeconds")
+                .and_then(Value::as_f64)
+                .unwrap_or(0.0)
+                > 0.0;
             Some(json!({"stremio": stremio && valid, "nuvio": nuvio && valid, "progressEntry": valid.then(|| progress_to_nuvio(progress))}).to_string())
         }
         "status" => Some(json!({"anilist": anilist}).to_string()),
         "dropProgress" => {
-            let reason = args.pointer("/item/reason").and_then(Value::as_str).unwrap_or("");
-            Some(json!({
-                "dropTrakt": reason.eq_ignore_ascii_case("trakt"),
-                "dropSimkl": reason.eq_ignore_ascii_case("simkl"),
-            }).to_string())
+            let reason = args
+                .pointer("/item/reason")
+                .and_then(Value::as_str)
+                .unwrap_or("");
+            Some(
+                json!({
+                    "dropTrakt": reason.eq_ignore_ascii_case("trakt"),
+                    "dropSimkl": reason.eq_ignore_ascii_case("simkl"),
+                })
+                .to_string(),
+            )
         }
         _ => None,
     }

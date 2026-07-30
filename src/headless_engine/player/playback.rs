@@ -23,7 +23,11 @@ struct StopTorrentPayload {
     reason: &'static str,
 }
 
-pub(in crate::headless_engine) fn complete_direct_playback(engine: &mut HeadlessEngine, value: Value, error: Value) {
+pub(in crate::headless_engine) fn complete_direct_playback(
+    engine: &mut HeadlessEngine,
+    value: Value,
+    error: Value,
+) {
     if error.is_null() {
         engine.state.player.direct_playback_target = value;
         engine.state.player.player_error = Value::Null;

@@ -31,7 +31,9 @@ pub(in crate::headless_engine) fn dispatch_resolve(
     vec![watch_config_effect(engine, generation, Some(request_id))]
 }
 
-pub(in crate::headless_engine) fn dispatch_prewarm(engine: &mut HeadlessEngine) -> Vec<EffectEnvelope> {
+pub(in crate::headless_engine) fn dispatch_prewarm(
+    engine: &mut HeadlessEngine,
+) -> Vec<EffectEnvelope> {
     if engine.state.trailer.watch_config.is_some() {
         return vec![];
     }
