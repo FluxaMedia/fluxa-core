@@ -1,3 +1,4 @@
+use crate::external_sync::trakt_id_from_source;
 use serde_json::{Value, json};
 
 pub(crate) fn simkl_history_request_json(args_json: &str) -> Option<String> {
@@ -51,4 +52,20 @@ pub(crate) fn simkl_watchlist_request_json(args_json: &str, remove: bool) -> Opt
         json!({ "movies": [item] })
     })
     .ok()
+}
+
+pub(crate) fn simkl_playback_delete_ids_json(args_json: &str) -> Option<String> {
+    let args: Value = serde_json::from_str(args_json).ok()?;
+    let content_id = args.get("contentId")?.as_str()?;
+    let ids = args
+        .get("items")?
+        .as_array()?
+        .iter()
+        .filter_map(|item| {
+            let source = item.get("show").or_else(|| item.get("movie"))?;
+            (trakt_id_from_source(source).as_deref() == Some(content_id))
+                .then(|| item.get("id")?.as_i64())
+        })
+        .collect::<Vec<_>>();
+    serde_json::to_string(&ids).ok()
 }

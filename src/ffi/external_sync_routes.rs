@@ -240,6 +240,9 @@ pub(super) fn route_external_sync_simkl(method: &str, args_json: &str) -> Outcom
             opt_json(external_sync::simkl_watchlist_request_json(args_json, true))
         }
         "simklMarkWatchedBody" => opt_json(external_sync::simkl_mark_watched_body_json(args_json)),
+        "simklPlaybackDeleteIds" => {
+            opt_json(external_sync::simkl_playback_delete_ids_json(args_json))
+        }
         "simklWatchlistBody" => opt_json(external_sync::simkl_watchlist_body_json(args_json)),
         "simklWatchingToItems" => {
             let args = object(args_json)?;

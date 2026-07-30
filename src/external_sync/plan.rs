@@ -226,7 +226,13 @@ pub(crate) fn external_provider_action_plan_json(args_json: &str) -> Option<Stri
             Some(json!({"stremio": stremio && valid, "nuvio": nuvio && valid, "progressEntry": valid.then(|| progress_to_nuvio(progress))}).to_string())
         }
         "status" => Some(json!({"anilist": anilist}).to_string()),
-        "dropProgress" => Some(json!({"dropTrakt": args.pointer("/item/reason").and_then(Value::as_str).is_some_and(|value| value.eq_ignore_ascii_case("trakt"))}).to_string()),
+        "dropProgress" => {
+            let reason = args.pointer("/item/reason").and_then(Value::as_str).unwrap_or("");
+            Some(json!({
+                "dropTrakt": reason.eq_ignore_ascii_case("trakt"),
+                "dropSimkl": reason.eq_ignore_ascii_case("simkl"),
+            }).to_string())
+        }
         _ => None,
     }
 }

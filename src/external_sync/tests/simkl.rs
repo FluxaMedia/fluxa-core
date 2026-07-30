@@ -88,3 +88,15 @@ fn simkl_merge_delta_updates_existing_and_appends_new_items() {
         ])
     );
 }
+
+#[test]
+fn simkl_playback_deletion_matches_shared_content_identity() {
+    let ids: Value = serde_json::from_str(&simkl_playback_delete_ids_json(&json!({
+            "contentId": "tt4574334",
+            "items": [
+                {"id": 12345, "show": {"ids": {"simkl": 39687, "imdb": "tt4574334", "tvdb": 305288}}},
+                {"id": 99, "movie": {"ids": {"simkl": 1, "imdb": "tt9999999"}}},
+            ],
+        }).to_string()).unwrap()).unwrap();
+    assert_eq!(ids, json!([12345]));
+}
