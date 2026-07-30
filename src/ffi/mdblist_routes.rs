@@ -21,11 +21,13 @@ pub(super) fn route_mdblist(method: &str, args_json: &str) -> Outcome {
         }
         "mdblistWatchproviderLinksUrl" => {
             let args = object(args_json)?;
-            Ok(Value::String(mdblist_plan::mdblist_watchprovider_links_url(
-                field_str(&args, "provider")?,
-                field_str(&args, "mediaType")?,
-                field_str(&args, "mediaId")?,
-            )))
+            Ok(Value::String(
+                mdblist_plan::mdblist_watchprovider_links_url(
+                    field_str(&args, "provider")?,
+                    field_str(&args, "mediaType")?,
+                    field_str(&args, "mediaId")?,
+                ),
+            ))
         }
         "mdblistMediaInfoBatchPlan" => {
             let args = object(args_json)?;
@@ -149,7 +151,9 @@ pub(super) fn route_mdblist(method: &str, args_json: &str) -> Outcome {
         "mdblistListsCuratedUrl" => Ok(Value::String(mdblist_plan::mdblist_lists_curated_url(
             args_json,
         ))),
-        "mdblistListsTopUrl" => Ok(Value::String(mdblist_plan::mdblist_lists_top_url(args_json))),
+        "mdblistListsTopUrl" => Ok(Value::String(mdblist_plan::mdblist_lists_top_url(
+            args_json,
+        ))),
         "mdblistListsLikedUrl" => Ok(Value::String(mdblist_plan::mdblist_lists_liked_url(
             args_json,
         ))),
@@ -272,18 +276,16 @@ pub(super) fn route_mdblist(method: &str, args_json: &str) -> Outcome {
                 field_str(&args, "comment")?,
             ))
         }
-        "mdblistDiscussionCommentDeletePlan" => opt_json(
-            mdblist_plan::mdblist_discussion_comment_delete_plan(field_i64(
-                &object(args_json)?,
-                "commentId",
-            )?),
-        ),
-        "mdblistDiscussionCommentLikePlan" => opt_json(
-            mdblist_plan::mdblist_discussion_comment_like_plan(field_i64(
-                &object(args_json)?,
-                "commentId",
-            )?),
-        ),
+        "mdblistDiscussionCommentDeletePlan" => {
+            opt_json(mdblist_plan::mdblist_discussion_comment_delete_plan(
+                field_i64(&object(args_json)?, "commentId")?,
+            ))
+        }
+        "mdblistDiscussionCommentLikePlan" => {
+            opt_json(mdblist_plan::mdblist_discussion_comment_like_plan(
+                field_i64(&object(args_json)?, "commentId")?,
+            ))
+        }
         "mdblistDiscussionReplyUpdatePlan" => {
             let args = object(args_json)?;
             opt_json(mdblist_plan::mdblist_discussion_reply_update_plan(
@@ -291,18 +293,17 @@ pub(super) fn route_mdblist(method: &str, args_json: &str) -> Outcome {
                 field_str(&args, "comment")?,
             ))
         }
-        "mdblistDiscussionReplyDeletePlan" => opt_json(
-            mdblist_plan::mdblist_discussion_reply_delete_plan(field_i64(
+        "mdblistDiscussionReplyDeletePlan" => {
+            opt_json(mdblist_plan::mdblist_discussion_reply_delete_plan(
+                field_i64(&object(args_json)?, "replyId")?,
+            ))
+        }
+        "mdblistDiscussionReplyLikePlan" => {
+            opt_json(mdblist_plan::mdblist_discussion_reply_like_plan(field_i64(
                 &object(args_json)?,
                 "replyId",
-            )?),
-        ),
-        "mdblistDiscussionReplyLikePlan" => opt_json(
-            mdblist_plan::mdblist_discussion_reply_like_plan(field_i64(
-                &object(args_json)?,
-                "replyId",
-            )?),
-        ),
+            )?))
+        }
 
         "mdblistUserUrl" => Ok(Value::String(mdblist_plan::mdblist_user_url())),
         "mdblistUserStatsUrl" => Ok(Value::String(mdblist_plan::mdblist_user_stats_url())),

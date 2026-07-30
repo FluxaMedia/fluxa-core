@@ -20,6 +20,9 @@ pub(super) fn route_library_state(method: &str, args_json: &str) -> Outcome {
         "clearPlaybackProgressItem" => opt_json(library_state::clear_playback_progress_item_json(
             &arg_str(args_json, "metaJson")?,
         )),
+        "clearPlaybackProgressPlan" => {
+            opt_json(library_state::clear_playback_progress_plan_json(args_json))
+        }
         "watchedStateItems" => {
             let args = object(args_json)?;
             let watched = field(&args, "watched")?
