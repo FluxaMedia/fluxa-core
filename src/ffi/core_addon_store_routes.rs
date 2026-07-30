@@ -80,6 +80,9 @@ pub(super) fn route_profile_avatar_pack(method: &str, args_json: &str) -> Outcom
         // args_json IS the request object for all of these. The platform owns
         // the HTTP calls between plans; this crate only validates and maps the
         // GitHub responses into the stable UI contract.
+        "profileAvatarPackManifestPlan" => {
+            opt_json(profile_avatar_pack::profile_avatar_pack_manifest_plan_json(args_json))
+        }
         "profileAvatarPackRepositoryPlan" => {
             opt_json(profile_avatar_pack::profile_avatar_pack_repository_plan_json(args_json))
         }

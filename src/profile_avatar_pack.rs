@@ -37,6 +37,12 @@ struct GitHubRepository {
     path: Option<String>,
 }
 
+pub(crate) fn profile_avatar_pack_manifest_plan_json(request_json: &str) -> Option<String> {
+    let request = serde_json::from_str::<RepositoryPlanRequest>(request_json).ok()?;
+    let manifest_url = direct_manifest_url(&request.repository_url)?;
+    serde_json::to_string(&json!({ "manifestUrl": manifest_url })).ok()
+}
+
 /// Normalizes a GitHub repository pasted by a user and returns the first
 /// platform-owned HTTP request needed to discover its default branch.
 pub(crate) fn profile_avatar_pack_repository_plan_json(request_json: &str) -> Option<String> {
@@ -195,6 +201,21 @@ pub(crate) fn profile_avatar_pack_json(request_json: &str) -> Option<String> {
     .ok()
 }
 
+fn direct_manifest_url(input: &str) -> Option<String> {
+    let trimmed = input.trim();
+    if !is_https_url(trimmed) {
+        return None;
+    }
+    let normalized = normalize_avatar_url(trimmed);
+    is_manifest_filename(&normalized).then_some(normalized)
+}
+
+fn is_manifest_filename(url: &str) -> bool {
+    let path = url.split('?').next().unwrap_or(url);
+    let filename = path.rsplit('/').next().unwrap_or("");
+    matches!(filename.to_ascii_lowercase().as_str(), "pack.json" | "json.pack")
+}
+
 fn parse_repository_url(input: &str) -> Option<GitHubRepository> {
     let input = input.trim().trim_end_matches('/');
     let path = input
@@ -216,9 +237,6 @@ fn parse_repository_url(input: &str) -> Option<GitHubRepository> {
     })
 }
 
-/// Extracts the directory a `/blob/<ref>/<path>` or `/tree/<ref>/<path>` URL
-/// points at, so pasting a link to one specific pack scopes discovery to it
-/// instead of importing every pack in the repository.
 fn extract_target_path(rest: &str) -> Option<String> {
     let mut segments = rest.splitn(2, '/');
     let kind = segments.next()?;
@@ -421,6 +439,49 @@ mod tests {
         .unwrap();
         assert_eq!(output["owner"], "eueueue292");
         assert_eq!(output["repository"], "Fusion-Profile-Avatars");
+    }
+
+    #[test]
+    fn manifest_plan_rewrites_a_github_blob_url_to_raw() {
+        let output: Value = serde_json::from_str(
+            &profile_avatar_pack_manifest_plan_json(
+                r#"{"repositoryUrl":"https://github.com/eueueue292/Fusion-Profile-Avatars/blob/main/Solo%20Leveling%20S2/pack.json"}"#,
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            output["manifestUrl"],
+            "https://raw.githubusercontent.com/eueueue292/Fusion-Profile-Avatars/main/Solo%20Leveling%20S2/pack.json"
+        );
+    }
+
+    #[test]
+    fn manifest_plan_accepts_any_https_host_serving_a_manifest() {
+        let output: Value = serde_json::from_str(
+            &profile_avatar_pack_manifest_plan_json(
+                r#"{"repositoryUrl":"https://example.com/packs/solo-leveling/pack.json"}"#,
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(output["manifestUrl"], "https://example.com/packs/solo-leveling/pack.json");
+    }
+
+    #[test]
+    fn manifest_plan_rejects_urls_not_pointing_at_a_manifest_file() {
+        assert!(
+            profile_avatar_pack_manifest_plan_json(
+                r#"{"repositoryUrl":"https://github.com/eueueue292/Fusion-Profile-Avatars"}"#
+            )
+            .is_none()
+        );
+        assert!(
+            profile_avatar_pack_manifest_plan_json(
+                r#"{"repositoryUrl":"https://example.com/packs/solo-leveling/avatar.png"}"#
+            )
+            .is_none()
+        );
     }
 
     #[test]
