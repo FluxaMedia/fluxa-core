@@ -34,6 +34,7 @@ struct PackRequest {
 struct GitHubRepository {
     owner: String,
     name: String,
+    path: Option<String>,
 }
 
 /// Normalizes a GitHub repository pasted by a user and returns the first
@@ -102,6 +103,11 @@ pub(crate) fn profile_avatar_pack_catalog_json(request_json: &str) -> Option<Str
             || !seen_paths.insert(path.to_string())
         {
             continue;
+        }
+        if let Some(target) = &repository.path {
+            if !path_under_target(directory, target) {
+                continue;
+            }
         }
         let name = if directory.is_empty() {
             repository.name.clone()
@@ -197,16 +203,46 @@ fn parse_repository_url(input: &str) -> Option<GitHubRepository> {
         .or_else(|| input.strip_prefix("github.com/"))
         .unwrap_or(input);
     let path = path.strip_suffix(".git").unwrap_or(path);
-    let mut parts = path.split('/');
+    let mut parts = path.splitn(3, '/');
     let owner = parts.next()?;
-    let name = parts.next()?;
-    if parts.next().is_some() || !valid_repository_part(owner) || !valid_repository_part(name) {
+    let name = parts.next().filter(|name| !name.is_empty())?;
+    if !valid_repository_part(owner) || !valid_repository_part(name) {
         return None;
     }
     Some(GitHubRepository {
         owner: owner.to_string(),
         name: name.to_string(),
+        path: parts.next().and_then(extract_target_path),
     })
+}
+
+/// Extracts the directory a `/blob/<ref>/<path>` or `/tree/<ref>/<path>` URL
+/// points at, so pasting a link to one specific pack scopes discovery to it
+/// instead of importing every pack in the repository.
+fn extract_target_path(rest: &str) -> Option<String> {
+    let mut segments = rest.splitn(2, '/');
+    let kind = segments.next()?;
+    if kind != "blob" && kind != "tree" {
+        return None;
+    }
+    let (_reference, path) = segments.next()?.split_once('/')?;
+    let path = path.split('?').next().unwrap_or(path);
+    if !valid_path(path) {
+        return None;
+    }
+    let path = percent_decode(path);
+    let (directory, filename) = path.rsplit_once('/').unwrap_or(("", &path));
+    let directory = if matches!(filename.to_ascii_lowercase().as_str(), "pack.json" | "json.pack")
+    {
+        directory
+    } else {
+        path.as_str()
+    };
+    (!directory.is_empty()).then(|| directory.to_string())
+}
+
+fn path_under_target(directory: &str, target: &str) -> bool {
+    directory == target || directory.starts_with(&format!("{target}/"))
 }
 
 fn valid_repository_part(value: &str) -> bool {
@@ -269,6 +305,24 @@ fn percent_encode(value: &str) -> String {
             }
         })
         .collect()
+}
+
+fn percent_decode(value: &str) -> String {
+    let bytes = value.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' && i + 3 <= bytes.len() {
+            if let Ok(byte) = u8::from_str_radix(&value[i + 1..i + 3], 16) {
+                out.push(byte);
+                i += 3;
+                continue;
+            }
+        }
+        out.push(bytes[i]);
+        i += 1;
+    }
+    String::from_utf8_lossy(&out).into_owned()
 }
 
 fn normalize_avatar_url(url: &str) -> String {
@@ -354,6 +408,40 @@ mod tests {
             output["categories"][1]["manifestUrl"],
             "https://raw.githubusercontent.com/eueueue292/Fusion-Profile-Avatars/main/Disney%2B/Marvel/json.pack"
         );
+    }
+
+    #[test]
+    fn repository_plan_accepts_a_url_pointing_at_one_pack() {
+        let output: Value = serde_json::from_str(
+            &profile_avatar_pack_repository_plan_json(
+                r#"{"repositoryUrl":"https://github.com/eueueue292/Fusion-Profile-Avatars/blob/main/Solo%20Leveling%20S2/pack.json"}"#,
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(output["owner"], "eueueue292");
+        assert_eq!(output["repository"], "Fusion-Profile-Avatars");
+    }
+
+    #[test]
+    fn catalog_scopes_to_the_pack_a_blob_url_points_at() {
+        let output: Value = serde_json::from_str(
+            &profile_avatar_pack_catalog_json(
+                r#"{
+                    "repositoryUrl":"https://github.com/eueueue292/Fusion-Profile-Avatars/blob/main/Solo%20Leveling%20S2/pack.json",
+                    "reference":"main",
+                    "tree":{"tree":[
+                        {"path":"Solo Leveling S2/pack.json","type":"blob"},
+                        {"path":"Attack On Titan/pack.json","type":"blob"}
+                    ]}
+                }"#,
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        let categories = output["categories"].as_array().unwrap();
+        assert_eq!(categories.len(), 1);
+        assert_eq!(categories[0]["path"], "Solo Leveling S2");
     }
 
     #[test]
