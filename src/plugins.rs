@@ -45,7 +45,12 @@ pub(crate) fn plugin_execution_plan_json(payload: &str) -> Option<String> {
     let request: PluginExecutionPlanRequest = serde_json::from_str(payload).ok()?;
     let segments: Vec<&str> = request.content_id.split(':').collect();
     let content_id = segments.first()?.trim().to_string();
-    if content_id.is_empty() || request.media_type.trim().is_empty() {
+    let media_type = match request.media_type.trim() {
+        "series" | "show" => "tv".to_string(),
+        value if !value.is_empty() => value.to_string(),
+        _ => return None,
+    };
+    if content_id.is_empty() {
         return None;
     }
     let season = request.season.or_else(|| segments.get(1)?.parse().ok());
@@ -66,11 +71,21 @@ pub(crate) fn plugin_execution_plan_json(payload: &str) -> Option<String> {
                     .get("filename")
                     .and_then(Value::as_str)
                     .is_some_and(|filename| !filename.trim().is_empty())
+                && scraper
+                    .get("supportedTypes")
+                    .and_then(Value::as_array)
+                    .map(|types| {
+                        types
+                            .iter()
+                            .filter_map(Value::as_str)
+                            .any(|kind| kind == media_type)
+                    })
+                    .unwrap_or(true)
         })
         .collect();
     serde_json::to_string(&PluginExecutionPlan {
         content_id,
-        media_type: request.media_type,
+        media_type,
         season,
         episode,
         scrapers,
