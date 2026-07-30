@@ -1,5 +1,5 @@
 use super::super::*;
-use serde_json::json;
+use serde_json::{Value, json};
 
 #[test]
 fn detail_load_emits_platform_effects_and_completion_updates_state() {

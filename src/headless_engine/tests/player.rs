@@ -1,5 +1,5 @@
 use super::super::*;
-use serde_json::json;
+use serde_json::{Value, json};
 
 #[test]
 fn player_load_streams_uses_effect_completion_without_reordering_streams() {

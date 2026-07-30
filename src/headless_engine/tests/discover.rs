@@ -1,5 +1,5 @@
 use super::super::*;
-use serde_json::json;
+use serde_json::{Value, json};
 
 #[test]
 fn addon_search_discover_and_catalog_backbone_are_effect_driven() {

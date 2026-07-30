@@ -1,5 +1,5 @@
 use super::super::*;
-use serde_json::json;
+use serde_json::{Value, json};
 
 #[test]
 fn calendar_completion_plans_os_side_effects_in_core() {

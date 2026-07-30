@@ -1,5 +1,5 @@
 use super::super::*;
-use serde_json::json;
+use serde_json::{Value, json};
 
 #[test]
 fn home_load_is_owned_by_core_and_resolved_through_platform_effect() {

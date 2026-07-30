@@ -1,4 +1,5 @@
 use super::super::*;
+use serde_json::Value;
 
 #[test]
 fn wire_fixtures_match_golden_dispatch_output() {

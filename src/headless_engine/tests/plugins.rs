@@ -1,5 +1,5 @@
 use super::super::*;
-use serde_json::json;
+use serde_json::{Value, json};
 
 #[test]
 fn plugin_repository_add_completion_populates_repositories_and_scrapers() {
