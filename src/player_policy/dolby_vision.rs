@@ -1,4 +1,6 @@
-use super::*;
+use crate::core_error::{CoreError, LogAndDiscard};
+use serde::Deserialize;
+use serde_json::{json, Value};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -396,7 +398,11 @@ fn parse_dv_codec_string(text: &str) -> Option<DvProfile> {
 
 fn leading_digits(s: &str) -> Option<&str> {
     let end = s.find(|c: char| !c.is_ascii_digit()).unwrap_or(s.len());
-    if end == 0 { None } else { Some(&s[..end]) }
+    if end == 0 {
+        None
+    } else {
+        Some(&s[..end])
+    }
 }
 
 /// Recognise short profile tokens ("P8.1", "P7", "P8") in freetext.
