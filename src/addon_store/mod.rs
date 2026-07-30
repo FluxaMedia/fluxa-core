@@ -4,8 +4,8 @@ mod repo_url;
 mod search_policy;
 
 pub(crate) use ownership::{
-    effective_addons_owner_id_json, effective_plugins_owner_id_json,
-    plugin_storage_fallback_json, profile_local_addons_key_json,
+    effective_addons_owner_id_json, effective_plugins_owner_id_json, plugin_storage_fallback_json,
+    profile_local_addons_key_json,
 };
 pub(crate) use profile_sanitize::{addon_profile_mutation_plan_json, sanitize_profile_json};
 pub(crate) use repo_url::{
@@ -18,8 +18,8 @@ pub(crate) use search_policy::{
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::ownership::effective_shared_owner_id;
+    use super::*;
     use serde_json::Value;
 
     #[test]

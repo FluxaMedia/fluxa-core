@@ -19,7 +19,7 @@ pub(crate) use resource_parse::{
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::{json, Value};
+    use serde_json::{Value, json};
 
     #[test]
     fn parse_and_plan_addon_resource_matches_the_three_call_pipeline_for_discover() {
@@ -134,10 +134,12 @@ mod tests {
 
         assert_eq!(requests.len(), 1);
         assert_eq!(requests[0]["kind"], "catalogPage");
-        assert!(requests[0]["url"]
-            .as_str()
-            .unwrap()
-            .contains("genre=action"));
+        assert!(
+            requests[0]["url"]
+                .as_str()
+                .unwrap()
+                .contains("genre=action")
+        );
     }
 
     #[test]
@@ -168,9 +170,11 @@ mod tests {
         );
         assert_eq!(requests[0]["catalogId"], "top");
         assert_eq!(requests[0]["categoryName"], "Addon One - Top Movies");
-        assert!(requests[0]["url"]
-            .as_str()
-            .unwrap()
-            .contains("search=batman"));
+        assert!(
+            requests[0]["url"]
+                .as_str()
+                .unwrap()
+                .contains("search=batman")
+        );
     }
 }

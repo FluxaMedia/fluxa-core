@@ -426,9 +426,11 @@ mod tests {
         assert_eq!(p["reason"], "no_hdr_base_layer");
         assert_eq!(p["profile"], "P5");
         let limitations = p["limitations"].as_array().unwrap();
-        assert!(limitations
-            .iter()
-            .any(|l| l.as_str().unwrap().contains("p4_p5")));
+        assert!(
+            limitations
+                .iter()
+                .any(|l| l.as_str().unwrap().contains("p4_p5"))
+        );
     }
 
     #[test]
@@ -453,9 +455,11 @@ mod tests {
         assert_eq!(p["compatibility"], "HDR10");
         assert_eq!(p["safety"], "medium");
         let limitations = p["limitations"].as_array().unwrap();
-        assert!(limitations
-            .iter()
-            .any(|l| l.as_str().unwrap().contains("does_not_convert_bitstream")));
+        assert!(
+            limitations
+                .iter()
+                .any(|l| l.as_str().unwrap().contains("does_not_convert_bitstream"))
+        );
     }
 
     #[test]
@@ -524,9 +528,11 @@ mod tests {
         assert_eq!(p["action"], "none");
         assert_eq!(p["reason"], "unknown_profile_no_safe_fallback");
         let limitations = p["limitations"].as_array().unwrap();
-        assert!(limitations
-            .iter()
-            .any(|l| l.as_str().unwrap().contains("set_dvProfile_field")));
+        assert!(
+            limitations
+                .iter()
+                .any(|l| l.as_str().unwrap().contains("set_dvProfile_field"))
+        );
     }
 
     #[test]

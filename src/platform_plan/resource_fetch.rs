@@ -4,7 +4,7 @@ use crate::addon_protocol::{
 };
 use crate::content_identity::{parse_extra_args_json, stable_feed_part};
 use serde::Deserialize;
-use serde_json::{json, Map, Value};
+use serde_json::{Map, Value, json};
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]

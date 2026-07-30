@@ -22,7 +22,7 @@ pub(crate) use ranking::{
 mod tests {
     use super::folders::resolve_folder_catalog_sources;
     use super::*;
-    use serde_json::{json, Value};
+    use serde_json::{Value, json};
 
     #[test]
     fn billboard_policy_scores_match_the_shared_rules() {

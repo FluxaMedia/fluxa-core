@@ -19,7 +19,7 @@ pub(crate) use widget_notifications::{
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::{json, Value};
+    use serde_json::{Value, json};
 
     #[test]
     fn visibility_keeps_new_episodes_for_completed_series() {

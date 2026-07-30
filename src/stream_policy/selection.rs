@@ -1,10 +1,10 @@
 use super::language::{
-    find_preferred_subtitle_index_in_tracks, resolve_preferred_audio_language,
-    resolve_profile_audio_language, SubtitleSelectionTrack,
+    SubtitleSelectionTrack, find_preferred_subtitle_index_in_tracks,
+    resolve_preferred_audio_language, resolve_profile_audio_language,
 };
 use super::meta::SourceSelectionMode;
 use crate::content_identity::stream_matches_episode;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 #[derive(serde::Deserialize)]
 #[serde(rename_all = "camelCase")]

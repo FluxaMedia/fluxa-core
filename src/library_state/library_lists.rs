@@ -1,6 +1,6 @@
 use super::continue_watching::is_up_next_item;
 use super::helpers::{number, text};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 pub(crate) fn library_continue_watching_items_json(items_json: &str) -> Option<String> {
     let mut items: Vec<Value> = serde_json::from_str(items_json).ok()?;

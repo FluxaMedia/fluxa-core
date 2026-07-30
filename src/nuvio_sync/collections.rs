@@ -1,5 +1,5 @@
 use super::helpers::{parse, str_field};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 fn map_catalog_source(source: &Value) -> Option<Value> {
     let addon_id = str_field(source, "addonId").unwrap_or("");

@@ -1,5 +1,5 @@
 use serde::Deserialize;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::collections::HashSet;
 
 pub(crate) fn search_suggestions_plan_json(request_json: &str) -> Option<String> {

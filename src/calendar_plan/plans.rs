@@ -1,9 +1,9 @@
 use super::helpers::{
-    calendar_item_detail_score, calendar_item_identity, resolve_calendar_artwork, usable_artwork,
-    CalendarItemInput,
+    CalendarItemInput, calendar_item_detail_score, calendar_item_identity,
+    resolve_calendar_artwork, usable_artwork,
 };
 use serde::Deserialize;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 pub(crate) fn calendar_visibility_plan_json(request_json: &str) -> Option<String> {
     let request: Value = serde_json::from_str(request_json).ok()?;

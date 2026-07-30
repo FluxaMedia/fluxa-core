@@ -14,7 +14,7 @@ pub(crate) use torrent_runtime::*;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::{json, Value};
+    use serde_json::{Value, json};
 
     fn track_state(request: Value) -> Value {
         serde_json::from_str(&player_track_state_json(&request.to_string()).unwrap()).unwrap()

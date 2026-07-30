@@ -1,9 +1,9 @@
-use super::helpers::{push_unique, TMDB_ID_PREFIX};
+use super::helpers::{TMDB_ID_PREFIX, push_unique};
 use super::id::{
     base_content_id, episode_id, imdb_id, is_tmdb_like_content_id, normalize_series_lookup_id,
     parse_episode_locator,
 };
-use serde_json::{json, Map, Value};
+use serde_json::{Map, Value, json};
 
 pub(crate) fn stream_request_ids(
     content_type: &str,

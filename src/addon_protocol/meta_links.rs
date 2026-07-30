@@ -1,4 +1,4 @@
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 fn meta_link_kind(category: &str) -> Option<&'static str> {
     let category = category.to_lowercase();

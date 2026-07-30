@@ -1,4 +1,4 @@
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 pub(crate) fn detail_series_lookup_id(raw_id: &str) -> String {
     let trimmed = raw_id.trim();

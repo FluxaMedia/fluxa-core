@@ -1,4 +1,4 @@
-use super::helpers::{imdb_regex, TMDB_ID_PREFIX};
+use super::helpers::{TMDB_ID_PREFIX, imdb_regex};
 
 // pub rather than pub(crate): re-exported under fuzz_targets for the `fuzz/`
 // crate (see lib.rs). Not part of the supported public API otherwise.

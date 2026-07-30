@@ -58,7 +58,10 @@ pub(crate) fn trailer_subtitle_selection_plan_json(input: &str) -> Option<String
     if let Some(target) = translation_target {
         let base_url = best_track.get("url").and_then(Value::as_str)?;
         let separator = if base_url.contains('?') { "&" } else { "?" };
-        let source_label = best_track.get("label").and_then(Value::as_str).unwrap_or("");
+        let source_label = best_track
+            .get("label")
+            .and_then(Value::as_str)
+            .unwrap_or("");
         return serde_json::to_string(&json!({
             "languageTag": target,
             "label": format!("{target} (auto-translated from {source_label})"),
@@ -135,7 +138,10 @@ mod tests {
         let value: Value = serde_json::from_str(&result).unwrap();
         assert_eq!(value["languageTag"], "tr");
         assert_eq!(value["isAuto"], true);
-        assert_eq!(value["url"], "https://youtube.com/timedtext?lang=ja&tlang=tr");
+        assert_eq!(
+            value["url"],
+            "https://youtube.com/timedtext?lang=ja&tlang=tr"
+        );
     }
 
     #[test]
@@ -146,7 +152,10 @@ mod tests {
         .unwrap();
         let value: Value = serde_json::from_str(&result).unwrap();
         assert_eq!(value["languageTag"], "tr");
-        assert_eq!(value["url"], "https://youtube.com/timedtext?lang=en&tlang=tr");
+        assert_eq!(
+            value["url"],
+            "https://youtube.com/timedtext?lang=en&tlang=tr"
+        );
     }
 
     #[test]

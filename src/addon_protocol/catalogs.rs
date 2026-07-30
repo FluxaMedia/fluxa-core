@@ -1,5 +1,5 @@
 use super::assets::string_array;
-use serde_json::{json, Map, Value};
+use serde_json::{Map, Value, json};
 use std::collections::HashSet;
 
 pub(crate) fn parse_catalogs(json: &Value) -> Vec<Value> {

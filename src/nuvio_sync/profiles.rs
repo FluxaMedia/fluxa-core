@@ -1,5 +1,5 @@
 use super::helpers::{parse, str_field};
-use serde_json::{json, Map, Value};
+use serde_json::{Map, Value, json};
 
 const AVATAR_STORAGE_BASE: &str = "https://api.nuvio.tv/storage/v1/object/public/avatars/";
 fn safe_id_part(value: &str) -> String {

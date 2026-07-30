@@ -21,7 +21,7 @@ pub(crate) use reconciliation::{addon_reconciliation_plan_json, library_mutation
 mod tests {
     use super::helpers::iso_from_ms;
     use super::*;
-    use serde_json::{json, Value};
+    use serde_json::{Value, json};
 
     fn merge(args: Value) -> Value {
         serde_json::from_str(&import_merge_plan_json(&args.to_string()).unwrap()).unwrap()

@@ -102,8 +102,17 @@ mod tests {
 
     #[test]
     fn plans_mdblist_device_flow_and_refresh() {
-        let plan: Value = serde_json::from_str(&oauth_request_plan_json(r#"{"service":"mdblist","operation":"device_start","clientId":"id"}"#).unwrap()).unwrap();
-        assert_eq!(plan["url"], "https://api.mdblist.com/oauth/device-authorization/");
+        let plan: Value = serde_json::from_str(
+            &oauth_request_plan_json(
+                r#"{"service":"mdblist","operation":"device_start","clientId":"id"}"#,
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            plan["url"],
+            "https://api.mdblist.com/oauth/device-authorization/"
+        );
         assert_eq!(plan["body"]["scope"], "write");
 
         let poll: Value = serde_json::from_str(&oauth_request_plan_json(r#"{"service":"mdblist","operation":"device_poll","clientId":"id","code":"devcode"}"#).unwrap()).unwrap();

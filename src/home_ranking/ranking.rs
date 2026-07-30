@@ -168,11 +168,7 @@ fn curated_items(category: &NativeHomeCategory) -> Vec<Value> {
         })
         .filter_map(|(item, _)| {
             let id = meta_text(&item, "id").to_string();
-            if seen.insert(id) {
-                Some(item)
-            } else {
-                None
-            }
+            if seen.insert(id) { Some(item) } else { None }
         })
         .take(24)
         .collect()

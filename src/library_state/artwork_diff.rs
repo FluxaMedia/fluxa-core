@@ -1,5 +1,5 @@
 use super::continue_watching::format_episode_line_json;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 /// Selects the best artwork URL for a continue-watching card.
 /// `artwork_preference` is "poster", "background", or "episode" (default).

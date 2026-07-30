@@ -9,10 +9,10 @@ pub(crate) use artwork_diff::{
     select_continue_watching_artwork_json, value_map_diff_json, watched_map_diff_json,
 };
 pub(crate) use continue_watching::{
-    build_continue_watching_from_progress_json, compute_continue_watching_badges_json,
-    format_episode_line_json, is_episode_released, next_progress_info_plan_json,
-    remember_last_watched_episodes_json, resolve_next_after_watched_json,
-    resolve_next_episode_json, UP_NEXT_DURATION_SECONDS, UP_NEXT_POSITION_SECONDS,
+    UP_NEXT_DURATION_SECONDS, UP_NEXT_POSITION_SECONDS, build_continue_watching_from_progress_json,
+    compute_continue_watching_badges_json, format_episode_line_json, is_episode_released,
+    next_progress_info_plan_json, remember_last_watched_episodes_json,
+    resolve_next_after_watched_json, resolve_next_episode_json,
 };
 pub(crate) use library_lists::{
     filter_home_continue_watching_json, is_up_next_continue_watching_item_json,
@@ -26,7 +26,7 @@ pub(crate) use playback_progress::{
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::{json, Value};
+    use serde_json::{Value, json};
 
     #[test]
     fn library_watchlist_items_excludes_removed_and_undated_entries() {

@@ -255,7 +255,11 @@ pub(crate) fn import_apply_plan_json(request_json: &str) -> Option<String> {
         .and_then(Value::as_array)
         .map(|arr| arr.iter().filter_map(Value::as_str).collect());
     let dry_run = req.get("dryRun").and_then(Value::as_bool).unwrap_or(false);
-    let wants = |c: &str| categories.as_ref().is_none_or(|cats| cats.iter().any(|x| *x == c));
+    let wants = |c: &str| {
+        categories
+            .as_ref()
+            .is_none_or(|cats| cats.iter().any(|x| *x == c))
+    };
 
     let local_watchlist = req.get("localWatchlist").cloned().unwrap_or(json!([]));
     let external_watchlist = req.get("externalWatchlist").cloned().unwrap_or(json!([]));
@@ -382,7 +386,9 @@ pub(crate) fn push_plan_json(request_json: &str) -> Option<String> {
             "trakt" | "simkl" => {
                 let video_ids: Vec<&str> = all_watched
                     .iter()
-                    .filter_map(|item| item_str(item, "lastVideoId").or_else(|| item_str(item, "id")))
+                    .filter_map(|item| {
+                        item_str(item, "lastVideoId").or_else(|| item_str(item, "id"))
+                    })
                     .collect();
                 plan.insert("watchedVideoIds".into(), json!(video_ids));
             }
@@ -401,7 +407,10 @@ pub(crate) fn push_plan_json(request_json: &str) -> Option<String> {
                 plan.insert("watchedStatusItems".into(), json!(items));
             }
             "stremio" => {
-                let ids: Vec<&str> = all_watched.iter().filter_map(|item| item_str(item, "id")).collect();
+                let ids: Vec<&str> = all_watched
+                    .iter()
+                    .filter_map(|item| item_str(item, "id"))
+                    .collect();
                 plan.insert("watchedItemIds".into(), json!(ids));
             }
             "nuvio" => {
@@ -430,7 +439,9 @@ pub(crate) fn push_plan_json(request_json: &str) -> Option<String> {
             "trakt" | "simkl" | "anilist" | "stremio" => {
                 let ids: Vec<&str> = continue_watching
                     .iter()
-                    .filter(|item| item.get("duration").and_then(Value::as_f64).unwrap_or(0.0) > 0.0)
+                    .filter(|item| {
+                        item.get("duration").and_then(Value::as_f64).unwrap_or(0.0) > 0.0
+                    })
                     .filter_map(|item| item_str(item, "id"))
                     .collect();
                 plan.insert("progressItemIds".into(), json!(ids));
@@ -438,7 +449,9 @@ pub(crate) fn push_plan_json(request_json: &str) -> Option<String> {
             "nuvio" => {
                 let entries: Vec<Value> = continue_watching
                     .iter()
-                    .filter(|item| item.get("duration").and_then(Value::as_f64).unwrap_or(0.0) > 0.0)
+                    .filter(|item| {
+                        item.get("duration").and_then(Value::as_f64).unwrap_or(0.0) > 0.0
+                    })
                     .filter_map(|item| {
                         let id = item_str(item, "id")?;
                         let video_id = item_str(item, "lastVideoId")?;

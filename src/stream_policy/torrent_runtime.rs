@@ -1,9 +1,9 @@
 use super::magnet::normalize_torrent_link;
 use super::meta::form_encode;
 use super::torrent_files::{
-    resolve_torrent_file_index, torrent_fallback_file_indexes, TorrentFileStat,
+    TorrentFileStat, resolve_torrent_file_index, torrent_fallback_file_indexes,
 };
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 #[derive(serde::Deserialize)]
 #[serde(rename_all = "camelCase")]

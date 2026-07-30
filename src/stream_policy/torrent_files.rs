@@ -1,5 +1,5 @@
 use super::meta::VIDEO_FILE_EXTENSIONS;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 #[derive(Clone, serde::Deserialize)]
 pub(crate) struct TorrentFileStat {

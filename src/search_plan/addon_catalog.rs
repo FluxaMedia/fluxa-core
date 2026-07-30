@@ -1,5 +1,5 @@
 use crate::{addon_protocol, content_identity};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 fn manifest_value(addon: &Value) -> Option<&Value> {
     addon.get("manifest").or(Some(addon))

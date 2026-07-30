@@ -1,4 +1,4 @@
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 mod addon_protocol_routes;
 mod addon_resource_routes;

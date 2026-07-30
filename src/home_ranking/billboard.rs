@@ -1,6 +1,6 @@
 use super::helpers::{meta_i64, meta_text};
 use crate::content_identity::{imdb_id, normalized_billboard_title};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
 
 const RANKED_CATALOG_IDS: &[&str] = &["trending", "popular", "top", "now_playing"];

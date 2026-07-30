@@ -1,6 +1,6 @@
 use super::continue_watching::build_continue_watching_from_progress_json;
 use super::helpers::text;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 fn library_item_from_meta(meta: &Value, state: Value, last_watched: Option<&str>) -> Value {
     let mut item = json!({

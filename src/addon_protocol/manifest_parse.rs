@@ -1,6 +1,6 @@
 use super::assets::{first_text, resolve_asset_url, string_array};
 use super::catalogs::{canonical_resource_name, parse_catalogs};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 // pub rather than pub(crate): re-exported under fuzz_targets for the `fuzz/`
 // crate (see lib.rs). Not part of the supported public API otherwise.

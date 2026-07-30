@@ -1,4 +1,4 @@
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::collections::HashMap;
 
 pub(crate) const VIDEO_FILE_EXTENSIONS: [&str; 7] =

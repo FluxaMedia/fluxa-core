@@ -1,5 +1,5 @@
 use super::helpers::parse;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 pub(crate) fn sort_addons_by_priority_json(args_json: &str) -> Option<String> {
     let args = parse(args_json)?;

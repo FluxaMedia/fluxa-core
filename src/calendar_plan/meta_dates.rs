@@ -1,5 +1,5 @@
 use super::helpers::{end_of_current_week_ms, parse_date_ms};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 pub(crate) fn calendar_items_from_meta_json(meta_json: &str, month_prefix: &str) -> Option<String> {
     let meta: Value = serde_json::from_str(meta_json).ok()?;

@@ -1,4 +1,4 @@
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 pub(crate) const UP_NEXT_POSITION_SECONDS: i64 = 0;
 pub(crate) const UP_NEXT_DURATION_SECONDS: i64 = 0;

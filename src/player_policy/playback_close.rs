@@ -1,9 +1,9 @@
 use crate::action_contract::{
-    mark_watched_action_value, save_playback_progress_action_value, MarkWatchedAction,
-    SavePlaybackProgressAction,
+    MarkWatchedAction, SavePlaybackProgressAction, mark_watched_action_value,
+    save_playback_progress_action_value,
 };
 use crate::library_state::{UP_NEXT_DURATION_SECONDS, UP_NEXT_POSITION_SECONDS};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 pub(crate) fn playback_close_plan_json(input: &str) -> Option<String> {
     let value: Value = serde_json::from_str(input).ok()?;
