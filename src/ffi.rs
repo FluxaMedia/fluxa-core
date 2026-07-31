@@ -16,6 +16,7 @@ mod plan_misc_routes;
 mod player_policy_routes;
 mod player_scrobble_routes;
 mod profile_routes;
+mod publicmetadb_routes;
 mod resource_plan_routes;
 mod search_plan_routes;
 mod stream_policy_routes;
@@ -43,6 +44,7 @@ use plan_misc_routes::{
 use player_policy_routes::route_player_policy;
 use player_scrobble_routes::route_player_scrobble;
 use profile_routes::{route_profile_contract, route_profile_prefs};
+use publicmetadb_routes::route_publicmetadb;
 use resource_plan_routes::route_resource_plan;
 use search_plan_routes::route_search_plan;
 use stream_policy_routes::route_stream_policy;
@@ -57,8 +59,8 @@ use crate::{
     external_sync, headless_adapter_plan, headless_engine, home_ranking, integration_settings,
     intro_segments, library_state, mdblist_plan, nuvio_sync, offline_download, platform_plan,
     player_flow, player_policy, player_scrobble, plugins, profile_avatar_pack, profile_contract,
-    profile_prefs, repository_flow, search_plan, stream_policy, tmdb_plan, trailer_subtitles,
-    watchlist_plan,
+    profile_prefs, publicmetadb_plan, repository_flow, search_plan, stream_policy, tmdb_plan,
+    trailer_subtitles, watchlist_plan,
 };
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -137,6 +139,7 @@ const ROUTERS: &[fn(&str, &str) -> Outcome] = &[
     route_external_sync_simkl,
     route_external_sync_anilist,
     route_mdblist,
+    route_publicmetadb,
     route_anime_detection,
     route_library_state,
     route_nuvio_sync,

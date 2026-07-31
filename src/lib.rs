@@ -97,6 +97,8 @@ mod profile_contract;
 #[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
 mod profile_prefs;
 #[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
+mod publicmetadb_plan;
+#[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
 mod repository_flow;
 #[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
 mod search_plan;
