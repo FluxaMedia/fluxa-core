@@ -7,6 +7,7 @@ use super::{EffectResultInput, HeadlessEngine};
 use crate::runtime::{EffectEnvelope, EffectKind};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::collections::HashSet;
 
 #[derive(Clone, Debug, Default, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", default)]
@@ -294,15 +295,11 @@ pub(super) fn dispatch_mark_watched(
     let generation = engine.bump_generation(GenerationKey::Library);
     let profile_id = active_profile_id(&engine.state, &Value::Null);
     let watched_value = watched.unwrap_or(true);
+    let mut seen_video_ids = HashSet::with_capacity(video_ids.len());
     let clean_video_ids: Vec<String> = video_ids
         .into_iter()
-        .filter(|value| !value.trim().is_empty())
-        .fold(Vec::new(), |mut acc, value| {
-            if !acc.contains(&value) {
-                acc.push(value);
-            }
-            acc
-        });
+        .filter(|value| !value.trim().is_empty() && seen_video_ids.insert(value.clone()))
+        .collect();
     let command = MarkWatchedCommand {
         kind: "markWatched",
         series_id,

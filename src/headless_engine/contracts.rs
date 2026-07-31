@@ -354,6 +354,7 @@ pub(crate) struct EffectResultInput {
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(super) struct DispatchResult {
+    pub revision: u64,
     pub state: StatePatch,
     pub effects: Vec<EffectEnvelope>,
 }

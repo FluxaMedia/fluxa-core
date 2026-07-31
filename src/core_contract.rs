@@ -54,6 +54,8 @@ pub struct CoreEffectResult {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CoreDispatchResult {
+    #[serde(default)]
+    pub revision: u64,
     pub state: CoreState,
     #[serde(default)]
     pub effects: Vec<CoreEffect>,
@@ -155,6 +157,7 @@ fn parse_dispatch_result(json: &str) -> Option<CoreDispatchResult> {
         })
         .unwrap_or_default();
     Some(CoreDispatchResult {
+        revision: raw.get("revision").and_then(Value::as_u64).unwrap_or_default(),
         state: CoreState { value: state },
         effects,
     })

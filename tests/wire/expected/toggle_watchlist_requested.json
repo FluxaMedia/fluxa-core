@@ -17,6 +17,7 @@
       "type": "writeLibraryCommand"
     }
   ],
+  "revision": 1,
   "state": {
     "library": {
       "activeProfileId": "",

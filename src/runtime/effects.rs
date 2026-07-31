@@ -194,25 +194,68 @@ pub struct EffectEnvelope {
     pub kind: String,
     pub generation: u64,
     pub payload: serde_json::Value,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub group_id: Option<String>,
+    #[serde(default = "default_priority", skip_serializing_if = "is_default_priority")]
+    pub priority: u8,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dedupe_key: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cache_policy: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub timeout_ms: Option<u64>,
 }
 
 impl EffectEnvelope {
     pub fn new(id: String, kind: EffectKind, generation: u64, payload: serde_json::Value) -> Self {
+        let (group_id, priority, cache_policy, timeout_ms) = effect_schedule(kind);
         Self {
+            dedupe_key: group_id.as_ref().map(|_| format!("{}:{generation}", kind.as_str())),
             id,
             kind: kind.as_str().to_owned(),
             generation,
             payload,
+            group_id,
+            priority,
+            cache_policy,
+            timeout_ms,
         }
     }
 
     pub fn raw(id: String, kind: &str, generation: u64, payload: serde_json::Value) -> Self {
         Self {
+            dedupe_key: None,
             id,
             kind: kind.to_owned(),
             generation,
             payload,
+            group_id: None,
+            priority: 100,
+            cache_policy: None,
+            timeout_ms: None,
         }
+    }
+}
+
+fn default_priority() -> u8 {
+    100
+}
+
+fn is_default_priority(priority: &u8) -> bool {
+    *priority == default_priority()
+}
+
+fn effect_schedule(kind: EffectKind) -> (Option<String>, u8, Option<String>, Option<u64>) {
+    match kind {
+        EffectKind::FetchAddonResource
+        | EffectKind::FetchCatalogPage
+        | EffectKind::FetchDetailStreams
+        | EffectKind::PrefetchDetailStreams
+        | EffectKind::PrefetchNextEpisodeStreams
+        | EffectKind::RefreshInstalledAddons => (Some("addon".to_string()), 50, Some("default".to_string()), Some(15_000)),
+        EffectKind::RunSearch | EffectKind::RunDiscover => (Some("addon".to_string()), 40, Some("default".to_string()), Some(15_000)),
+        EffectKind::ExecutePlugin => (Some("plugin".to_string()), 60, Some("no-store".to_string()), Some(10_000)),
+        _ => (None, 100, None, None),
     }
 }
 
