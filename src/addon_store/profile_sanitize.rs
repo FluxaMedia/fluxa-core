@@ -189,6 +189,7 @@ fn fill_structured_settings(profile: &mut Map<String, Value>) {
             ("tunneledPlayback", "tunneledPlayback"),
             ("useIntroDb", "useIntroDb"),
             ("useSkipDb", "useSkipDb"),
+            ("useTheIntroDb", "useTheIntroDb"),
             ("useAniSkip", "useAniSkip"),
             ("defaultQuality", "defaultQuality"),
             ("mobileDataUsage", "mobileDataUsage"),
