@@ -98,10 +98,7 @@ struct ProfileSafePrefs {
     dv7_to_dv8_fallback: bool,
     dv7_fallback: bool,
     tunneled_playback: bool,
-    use_intro_db: bool,
-    use_skip_db: bool,
-    use_the_intro_db: bool,
-    use_ani_skip: bool,
+    use_skip_segments: bool,
     default_quality: String,
     mobile_data_usage: String,
     hdr_playback: bool,
@@ -248,10 +245,7 @@ fn profile_safe_prefs(profile: &Value) -> ProfileSafePrefs {
         dv7_fallback: dolby_mode == "hdr10",
         dolby_vision_fallback_mode: dolby_mode,
         tunneled_playback: bool_value(profile, "tunneledPlayback").unwrap_or(false),
-        use_intro_db: bool_value(profile, "useIntroDb").unwrap_or(true),
-        use_skip_db: bool_value(profile, "useSkipDb").unwrap_or(true),
-        use_the_intro_db: bool_value(profile, "useTheIntroDb").unwrap_or(true),
-        use_ani_skip: bool_value(profile, "useAniSkip").unwrap_or(true),
+        use_skip_segments: bool_value(profile, "useSkipSegments").unwrap_or(true),
         default_quality: text(profile, "defaultQuality")
             .unwrap_or("1080p")
             .to_string(),

@@ -142,10 +142,7 @@ pub(crate) fn playback_preferences_plan_json(input: &str) -> Option<String> {
         "autoPlayNextEpisode": safe.get("autoPlayNextEpisode"),
         "autoSkipIntro": safe.get("autoSkipIntro"),
         "autoPlayCountdownSecs": prefs.get("autoPlayCountdownSecs").and_then(Value::as_i64).unwrap_or(7).clamp(1, 60),
-        "useIntroDb": safe.get("useIntroDb"),
-        "useSkipDb": safe.get("useSkipDb"),
-        "useTheIntroDb": safe.get("useTheIntroDb"),
-        "useAniSkip": safe.get("useAniSkip"),
+        "useSkipSegments": safe.get("useSkipSegments"),
         "useAnimeSkip": prefs.get("useAnimeSkip").and_then(Value::as_bool).unwrap_or(true),
         "animeSkipClientId": prefs.get("animeSkipClientId").and_then(Value::as_str).unwrap_or(""),
     })).ok()
