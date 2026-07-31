@@ -104,6 +104,15 @@ pub(crate) fn parse_skipdb_segments_json(data_json: &str) -> Option<String> {
     serde_json::to_string(&segments).ok()
 }
 
+// PublicMetaDB's `/api/external/skips` response wraps entries in "items" and
+// uses "credits_start_ms"/"credits_end_ms" for the outro (collect_segments
+// already covers "items" as a bucket and "intro_start_ms"/"intro_end_ms").
+pub(crate) fn parse_publicmetadb_segments_json(data_json: &str) -> Option<String> {
+    let data: Value = serde_json::from_str(data_json).ok()?;
+    let segments = collect_segments(&data);
+    serde_json::to_string(&segments).ok()
+}
+
 pub(crate) fn anilist_mal_id_json(data_json: &str) -> Option<String> {
     let data: Value = serde_json::from_str(data_json).ok()?;
     let mal_id = data
@@ -231,8 +240,14 @@ fn collect_segments(data: &Value) -> Vec<Value> {
                     result.extend(collect_segments(child));
                 }
             }
-            for seg_type in &["intro", "outro", "recap", "preview"] {
-                if let Some(child) = obj.get(*seg_type) {
+            for (seg_type, key_prefix) in &[
+                ("intro", "intro"),
+                ("outro", "outro"),
+                ("outro", "credits"),
+                ("recap", "recap"),
+                ("preview", "preview"),
+            ] {
+                if let Some(child) = obj.get(*key_prefix) {
                     if let Some(seg) = segment_from_object_with_type(child, seg_type) {
                         result.push(seg);
                     }
@@ -240,23 +255,23 @@ fn collect_segments(data: &Value) -> Vec<Value> {
                 let start = number_from_keys(
                     obj,
                     &[
-                        &format!("{seg_type}Start"),
-                        &format!("{seg_type}_start"),
-                        &format!("{seg_type}StartTime"),
-                        &format!("{seg_type}_start_time"),
-                        &format!("{seg_type}StartMs"),
-                        &format!("{seg_type}_start_ms"),
+                        &format!("{key_prefix}Start"),
+                        &format!("{key_prefix}_start"),
+                        &format!("{key_prefix}StartTime"),
+                        &format!("{key_prefix}_start_time"),
+                        &format!("{key_prefix}StartMs"),
+                        &format!("{key_prefix}_start_ms"),
                     ],
                 );
                 let end = number_from_keys(
                     obj,
                     &[
-                        &format!("{seg_type}End"),
-                        &format!("{seg_type}_end"),
-                        &format!("{seg_type}EndTime"),
-                        &format!("{seg_type}_end_time"),
-                        &format!("{seg_type}EndMs"),
-                        &format!("{seg_type}_end_ms"),
+                        &format!("{key_prefix}End"),
+                        &format!("{key_prefix}_end"),
+                        &format!("{key_prefix}EndTime"),
+                        &format!("{key_prefix}_end_time"),
+                        &format!("{key_prefix}EndMs"),
+                        &format!("{key_prefix}_end_ms"),
                     ],
                 );
                 if let (Some(s), Some(e)) = (start, end) {
@@ -678,4 +693,42 @@ pub(crate) fn the_introdb_submit_plan_json(args_json: &str) -> Option<String> {
         Some(&body),
     ))
     .ok()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_publicmetadb_skips_response_including_credits_alias() {
+        let response = json!({
+            "items": [
+                {
+                    "id": "skip123",
+                    "tmdb_id": 1399,
+                    "media_type": "tv",
+                    "season": 1,
+                    "episode": 1,
+                    "source": "streaming",
+                    "intro_start_ms": 0,
+                    "intro_end_ms": 62000,
+                    "credits_start_ms": 3180000,
+                    "credits_end_ms": 3240000
+                }
+            ],
+            "total": 1
+        })
+        .to_string();
+        let segments: Value =
+            serde_json::from_str(&parse_publicmetadb_segments_json(&response).unwrap()).unwrap();
+        let segments = segments.as_array().unwrap();
+        assert!(
+            segments
+                .iter()
+                .any(|s| s["type"] == "intro" && s["startTime"] == 0 && s["endTime"] == 62000)
+        );
+        assert!(segments.iter().any(|s| s["type"] == "outro"
+            && s["startTime"] == 3180000
+            && s["endTime"] == 3240000));
+    }
 }

@@ -9,6 +9,9 @@ pub(super) fn route_intro_segments(method: &str, args_json: &str) -> Outcome {
         "skipdbSegmentsPlan" => opt_json(intro_segments::skipdb_segments_plan_json(args_json)),
         "skipdbSubmitPlan" => opt_json(intro_segments::skipdb_submit_plan_json(args_json)),
         "parseSkipdbSegments" => opt_json(intro_segments::parse_skipdb_segments_json(args_json)),
+        "parsePublicmetadbSegments" => opt_json(
+            intro_segments::parse_publicmetadb_segments_json(args_json),
+        ),
         "anilistMalId" => opt_json(intro_segments::anilist_mal_id_json(args_json)),
         "anilistId" => opt_json(intro_segments::anilist_id_json(args_json)),
         "anilistMediaIdPlan" => opt_json(intro_segments::anilist_media_id_plan_json(args_json)),
