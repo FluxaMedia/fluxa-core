@@ -7,6 +7,12 @@ pub(crate) fn parse_intro_db_segments_json(data_json: &str) -> Option<String> {
     serde_json::to_string(&segments).ok()
 }
 
+pub(crate) fn parse_skipdb_segments_json(data_json: &str) -> Option<String> {
+    let data: Value = serde_json::from_str(data_json).ok()?;
+    let segments = collect_segments(&data);
+    serde_json::to_string(&segments).ok()
+}
+
 pub(crate) fn anilist_mal_id_json(data_json: &str) -> Option<String> {
     let data: Value = serde_json::from_str(data_json).ok()?;
     let mal_id = data
@@ -26,7 +32,7 @@ fn collect_segments(data: &Value) -> Vec<Value> {
                     result.extend(collect_segments(child));
                 }
             }
-            for seg_type in &["intro", "outro", "recap"] {
+            for seg_type in &["intro", "outro", "recap", "preview"] {
                 if let Some(child) = obj.get(*seg_type) {
                     if let Some(seg) = segment_from_object_with_type(child, seg_type) {
                         result.push(seg);
@@ -206,6 +212,7 @@ pub(crate) fn normalize_skip_type(raw: &str) -> &'static str {
         "op" | "opening" | "intro" | "mixed-intro" => "intro",
         "ed" | "ending" | "outro" | "credits" => "outro",
         "recap" | "previously" => "recap",
+        "preview" | "next-time" | "nexttime" => "preview",
         _ => "intro",
     }
 }

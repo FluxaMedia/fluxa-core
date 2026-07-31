@@ -188,6 +188,7 @@ fn fill_structured_settings(profile: &mut Map<String, Value>) {
             ("dv7ToDv8Fallback", "dv7ToDv8Fallback"),
             ("tunneledPlayback", "tunneledPlayback"),
             ("useIntroDb", "useIntroDb"),
+            ("useSkipDb", "useSkipDb"),
             ("useAniSkip", "useAniSkip"),
             ("defaultQuality", "defaultQuality"),
             ("mobileDataUsage", "mobileDataUsage"),

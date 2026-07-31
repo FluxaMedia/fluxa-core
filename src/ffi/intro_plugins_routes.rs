@@ -4,6 +4,7 @@ pub(super) fn route_intro_segments(method: &str, args_json: &str) -> Outcome {
     match method {
         // args_json IS the data JSON for single-arg methods
         "parseIntroDbSegments" => opt_json(intro_segments::parse_intro_db_segments_json(args_json)),
+        "parseSkipdbSegments" => opt_json(intro_segments::parse_skipdb_segments_json(args_json)),
         "anilistMalId" => opt_json(intro_segments::anilist_mal_id_json(args_json)),
         "parseAniskipResults" => opt_json(intro_segments::parse_aniskip_results_json(args_json)),
         "parseAnimeSkipResults" => {
