@@ -210,7 +210,11 @@ impl EffectEnvelope {
     pub fn new(id: String, kind: EffectKind, generation: u64, payload: serde_json::Value) -> Self {
         let (group_id, priority, cache_policy, timeout_ms) = effect_schedule(kind);
         Self {
-            dedupe_key: group_id.as_ref().map(|_| format!("{}:{generation}", kind.as_str())),
+            dedupe_key: group_id.as_ref().and_then(|_| {
+                serde_json::to_string(&payload)
+                    .ok()
+                    .map(|payload_key| format!("{}:{generation}:{payload_key}", kind.as_str()))
+            }),
             id,
             kind: kind.as_str().to_owned(),
             generation,
