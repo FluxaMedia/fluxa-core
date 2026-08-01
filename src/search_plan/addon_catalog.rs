@@ -370,13 +370,12 @@ pub(crate) fn resolve_transport_url_json(source_json: &str, addons_json: &str) -
             .get("transportUrl")
             .and_then(Value::as_str)
             .unwrap_or("");
-        if let Some(ref wanted_addon_id) = src_addon_id {
-            if !(addon_id == *wanted_addon_id
+        if let Some(ref wanted_addon_id) = src_addon_id
+            && !(addon_id == *wanted_addon_id
                 || t_url.to_lowercase().contains(wanted_addon_id.as_str()))
             {
                 continue;
             }
-        }
         let catalogs = manifest
             .get("catalogs")
             .and_then(Value::as_array)

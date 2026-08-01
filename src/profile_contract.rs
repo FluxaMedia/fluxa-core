@@ -254,21 +254,19 @@ pub(crate) fn profile_settings_migration_plan_json(request_json: &str) -> Option
     let mut applied = Vec::<String>::new();
 
     // Migration: flatten nested externalAccounts into top-level fields (v1 -> v2)
-    if schema_version < 2 {
-        if let Some(ext) = obj.remove("externalAccounts") {
-            if let Some(ext_obj) = ext.as_object() {
+    if schema_version < 2
+        && let Some(ext) = obj.remove("externalAccounts")
+            && let Some(ext_obj) = ext.as_object() {
                 for (k, v) in ext_obj {
                     obj.entry(k.clone()).or_insert(v.clone());
                 }
                 applied.push("flatten_external_accounts".to_string());
             }
-        }
-    }
 
     // Migration: flatten nested addonSettings into top-level localAddons/disabledLocalAddons
-    if schema_version < 2 {
-        if let Some(addon_settings) = obj.remove("addonSettings") {
-            if let Some(addon_obj) = addon_settings.as_object() {
+    if schema_version < 2
+        && let Some(addon_settings) = obj.remove("addonSettings")
+            && let Some(addon_obj) = addon_settings.as_object() {
                 if let Some(local) = addon_obj.get("localAddons") {
                     obj.entry("localAddons".to_string())
                         .or_insert(local.clone());
@@ -279,13 +277,11 @@ pub(crate) fn profile_settings_migration_plan_json(request_json: &str) -> Option
                 }
                 applied.push("flatten_addon_settings".to_string());
             }
-        }
-    }
 
     // Migration: flatten nested subtitleSettings
-    if schema_version < 2 {
-        if let Some(sub_settings) = obj.remove("subtitleSettings") {
-            if let Some(sub_obj) = sub_settings.as_object() {
+    if schema_version < 2
+        && let Some(sub_settings) = obj.remove("subtitleSettings")
+            && let Some(sub_obj) = sub_settings.as_object() {
                 let field_map = [
                     ("size", "subtitleSize"),
                     ("color", "subtitleColor"),
@@ -306,25 +302,21 @@ pub(crate) fn profile_settings_migration_plan_json(request_json: &str) -> Option
                 }
                 applied.push("flatten_subtitle_settings".to_string());
             }
-        }
-    }
 
     // Migration: flatten nested playbackSettings
-    if schema_version < 2 {
-        if let Some(pb_settings) = obj.remove("playbackSettings") {
-            if let Some(pb_obj) = pb_settings.as_object() {
+    if schema_version < 2
+        && let Some(pb_settings) = obj.remove("playbackSettings")
+            && let Some(pb_obj) = pb_settings.as_object() {
                 for (k, v) in pb_obj {
                     obj.entry(k.clone()).or_insert(v.clone());
                 }
                 applied.push("flatten_playback_settings".to_string());
             }
-        }
-    }
 
     // Migration: flatten nested torrentSettings
-    if schema_version < 2 {
-        if let Some(torr_settings) = obj.remove("torrentSettings") {
-            if let Some(torr_obj) = torr_settings.as_object() {
+    if schema_version < 2
+        && let Some(torr_settings) = obj.remove("torrentSettings")
+            && let Some(torr_obj) = torr_settings.as_object() {
                 let field_map = [
                     ("wifiOnly", "torrentWifiOnly"),
                     ("maxConnections", "torrentMaxConnections"),
@@ -338,25 +330,21 @@ pub(crate) fn profile_settings_migration_plan_json(request_json: &str) -> Option
                 }
                 applied.push("flatten_torrent_settings".to_string());
             }
-        }
-    }
 
     // Migration: flatten nested appearanceSettings
-    if schema_version < 2 {
-        if let Some(app_settings) = obj.remove("appearanceSettings") {
-            if let Some(app_obj) = app_settings.as_object() {
+    if schema_version < 2
+        && let Some(app_settings) = obj.remove("appearanceSettings")
+            && let Some(app_obj) = app_settings.as_object() {
                 for (k, v) in app_obj {
                     obj.entry(k.clone()).or_insert(v.clone());
                 }
                 applied.push("flatten_appearance_settings".to_string());
             }
-        }
-    }
 
     // Migration: flatten nested homeFeedSettings
-    if schema_version < 2 {
-        if let Some(feed_settings) = obj.remove("homeFeedSettings") {
-            if let Some(feed_obj) = feed_settings.as_object() {
+    if schema_version < 2
+        && let Some(feed_settings) = obj.remove("homeFeedSettings")
+            && let Some(feed_obj) = feed_settings.as_object() {
                 for (k, v) in feed_obj {
                     if k == "libraryCollections"
                         && v.as_array().is_some_and(|items| !items.is_empty())
@@ -372,8 +360,6 @@ pub(crate) fn profile_settings_migration_plan_json(request_json: &str) -> Option
                 }
                 applied.push("flatten_home_feed_settings".to_string());
             }
-        }
-    }
 
     // Ensure localAddons always has at least the default addon
     {

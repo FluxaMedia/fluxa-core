@@ -77,11 +77,10 @@ fn parse_edition_entry(buf: &[u8], mut pos: usize, end: usize, out: &mut Vec<Mkv
         let Some((id, _, content_start, content_end)) = read_element(buf, pos, end) else {
             return;
         };
-        if id == ID_CHAPTER_ATOM {
-            if let Some(chapter) = parse_chapter_atom(buf, content_start, content_end) {
+        if id == ID_CHAPTER_ATOM
+            && let Some(chapter) = parse_chapter_atom(buf, content_start, content_end) {
                 out.push(chapter);
             }
-        }
         pos = content_end.max(pos + 1);
     }
 }
@@ -136,8 +135,8 @@ fn scan_seek_head(
 ) -> Option<usize> {
     while pos < end {
         let (id, _, content_start, content_end) = read_element(buf, pos, end)?;
-        if id == ID_SEEK {
-            if let Some(offset) = parse_seek_entry(
+        if id == ID_SEEK
+            && let Some(offset) = parse_seek_entry(
                 buf,
                 content_start,
                 content_end,
@@ -146,7 +145,6 @@ fn scan_seek_head(
             ) {
                 return Some(offset);
             }
-        }
         pos = content_end.max(pos + 1);
     }
     None
@@ -193,11 +191,10 @@ fn scan_segment(buf: &[u8], mut pos: usize, end: usize) -> MkvChapterScan {
 fn parse_mkv_chapters_scan(buf: &[u8]) -> MkvChapterScan {
     let mut pos = 0usize;
     let end = buf.len();
-    if let Some((id, _, _content_start, content_end)) = read_element(buf, pos, end) {
-        if id == ID_EBML_HEADER {
+    if let Some((id, _, _content_start, content_end)) = read_element(buf, pos, end)
+        && id == ID_EBML_HEADER {
             pos = content_end;
         }
-    }
     while pos < end {
         let Some((id, _, content_start, content_end)) = read_element(buf, pos, end) else {
             break;

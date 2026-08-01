@@ -261,11 +261,10 @@ pub(crate) fn start_local_stream_server(
                         Ok((stream, _)) => {
                             let request_config = config.clone();
                             tokio::task::spawn_blocking(move || {
-                                if let Ok(stream) = stream.into_std() {
-                                    if stream.set_nonblocking(false).is_ok() {
+                                if let Ok(stream) = stream.into_std()
+                                    && stream.set_nonblocking(false).is_ok() {
                                         handle_local_stream(stream, request_config);
                                     }
-                                }
                             });
                         }
                         Err(_) => break,

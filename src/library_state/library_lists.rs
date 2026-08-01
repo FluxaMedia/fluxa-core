@@ -118,18 +118,15 @@ pub(crate) fn filter_home_continue_watching_json(
             {
                 return false;
             }
-            if is_series && !episode_keys.is_empty() && !last_video_id.is_empty() {
-                if let Some((_, season, episode)) =
+            if is_series && !episode_keys.is_empty() && !last_video_id.is_empty()
+                && let Some((_, season, episode)) =
                     crate::content_identity::parse_episode_locator(last_video_id)
-                {
-                    if watched_keys.iter().any(|k| {
+                    && watched_keys.iter().any(|k| {
                         let candidate = format!("{k}:{season}:{episode}");
                         episode_keys.contains(candidate.as_str())
                     }) {
                         return false;
                     }
-                }
-            }
             true
         })
         .collect::<Vec<_>>();

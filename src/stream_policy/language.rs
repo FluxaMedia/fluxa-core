@@ -70,11 +70,10 @@ fn word_boundary_regex_for(normalized_preference: &str) -> Option<regex::Regex> 
     let mut cache = CACHE
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
-    if let Some((cached_preference, regex)) = cache.as_ref() {
-        if cached_preference == normalized_preference {
+    if let Some((cached_preference, regex)) = cache.as_ref()
+        && cached_preference == normalized_preference {
             return Some(regex.clone());
         }
-    }
     let regex =
         regex::Regex::new(&format!(r"\b{}\b", regex::escape(normalized_preference))).ok()?;
     *cache = Some((normalized_preference.to_string(), regex.clone()));

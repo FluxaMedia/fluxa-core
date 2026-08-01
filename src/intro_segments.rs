@@ -259,11 +259,10 @@ fn collect_segments(data: &Value) -> Vec<Value> {
                 ("recap", "recap"),
                 ("preview", "preview"),
             ] {
-                if let Some(child) = obj.get(*key_prefix) {
-                    if let Some(seg) = segment_from_object_with_type(child, seg_type) {
+                if let Some(child) = obj.get(*key_prefix)
+                    && let Some(seg) = segment_from_object_with_type(child, seg_type) {
                         result.push(seg);
                     }
-                }
                 let start = number_from_keys(
                     obj,
                     &[
@@ -294,11 +293,10 @@ fn collect_segments(data: &Value) -> Vec<Value> {
                     }
                 }
             }
-            if let Some(seg) = segment_from_object(obj) {
-                if !result.iter().any(|r| r == &seg) {
+            if let Some(seg) = segment_from_object(obj)
+                && !result.iter().any(|r| r == &seg) {
                     result.push(seg);
                 }
-            }
             result
                 .into_iter()
                 .filter(|s| {

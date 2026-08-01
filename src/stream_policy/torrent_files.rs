@@ -61,8 +61,7 @@ pub(crate) fn resolve_torrent_file_index(
     if let Some(preferred) = preferred_filename
         .map(normalize_torrent_file_name)
         .filter(|value| !value.is_empty())
-    {
-        if let Some(stat) = file_stats.iter().find(|stat| {
+        && let Some(stat) = file_stats.iter().find(|stat| {
             let path = normalize_torrent_file_name(&stat.path);
             path == preferred
                 || path.ends_with(&format!("/{preferred}"))
@@ -70,11 +69,10 @@ pub(crate) fn resolve_torrent_file_index(
         }) {
             return (Some(stat.id), Some("filename".to_string()));
         }
-    }
 
     let episode_tokens = torrent_episode_tokens(title);
-    if !episode_tokens.is_empty() {
-        if let Some(stat) = file_stats
+    if !episode_tokens.is_empty()
+        && let Some(stat) = file_stats
             .iter()
             .filter(|stat| is_likely_video_file(&stat.path))
             .filter(|stat| matches_torrent_episode(&stat.path, &episode_tokens))
@@ -82,7 +80,6 @@ pub(crate) fn resolve_torrent_file_index(
         {
             return (Some(stat.id), Some("episode".to_string()));
         }
-    }
 
     file_stats
         .iter()

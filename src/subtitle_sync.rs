@@ -177,7 +177,7 @@ fn parse_timed_text_cues(text: &str) -> Vec<SubtitleCue> {
             let start = attribute("t")? / 1000.0;
             let duration = attribute("d")? / 1000.0;
             let cue_text = decode_subtitle_text(capture.get(2)?.as_str());
-            (!cue_text.is_empty()).then(|| SubtitleCue {
+            (!cue_text.is_empty()).then_some(SubtitleCue {
                 start,
                 end: start + duration,
                 text: cue_text,
@@ -200,11 +200,9 @@ pub(crate) fn parse_subtitle_cues_with_text(text: &str) -> Vec<SubtitleCue> {
             let fields = dialogue.splitn(10, ',').collect::<Vec<_>>();
             if let (Some(start), Some(end), Some(text)) =
                 (fields.get(1), fields.get(2), fields.get(9))
-            {
-                if let (Some(start), Some(end)) =
+                && let (Some(start), Some(end)) =
                     (parse_timestamp(start.trim()), parse_timestamp(end.trim()))
-                {
-                    if end > start {
+                    && end > start {
                         cues.push(SubtitleCue {
                             start,
                             end,
@@ -215,8 +213,6 @@ pub(crate) fn parse_subtitle_cues_with_text(text: &str) -> Vec<SubtitleCue> {
                                 .to_string(),
                         });
                     }
-                }
-            }
             index += 1;
             continue;
         }
@@ -224,7 +220,7 @@ pub(crate) fn parse_subtitle_cues_with_text(text: &str) -> Vec<SubtitleCue> {
             let end = rest
                 .split_whitespace()
                 .next()
-                .and_then(|value| parse_timestamp(value));
+                .and_then(parse_timestamp);
             let start = parse_timestamp(start.trim());
             index += 1;
             let mut cue_text = Vec::new();
@@ -232,15 +228,14 @@ pub(crate) fn parse_subtitle_cues_with_text(text: &str) -> Vec<SubtitleCue> {
                 cue_text.push(lines[index].trim());
                 index += 1;
             }
-            if let (Some(start), Some(end)) = (start, end) {
-                if end > start {
+            if let (Some(start), Some(end)) = (start, end)
+                && end > start {
                     cues.push(SubtitleCue {
                         start,
                         end,
                         text: decode_subtitle_text(&cue_text.join("\n")),
                     });
                 }
-            }
             continue;
         }
         index += 1;

@@ -36,11 +36,10 @@ fn resolve_url(base_url: &str, path: &str) -> String {
     }
     let base = base_url.trim_end_matches('/');
     if path.starts_with('/') {
-        if let Some(scheme_end) = base.find("://") {
-            if let Some(host_end) = base[scheme_end + 3..].find('/') {
+        if let Some(scheme_end) = base.find("://")
+            && let Some(host_end) = base[scheme_end + 3..].find('/') {
                 return format!("{}{}", &base[..scheme_end + 3 + host_end], path);
             }
-        }
         return format!("{base}{path}");
     }
     format!("{base}/{path}")
@@ -270,11 +269,10 @@ pub(crate) fn roku_launch_url(
     if !validate_stream_url(media_url) {
         return None;
     }
-    if let Some(sub) = subtitle_url {
-        if !validate_stream_url(sub) {
+    if let Some(sub) = subtitle_url
+        && !validate_stream_url(sub) {
             return None;
         }
-    }
     const ROKU_MEDIA_PLAYER_APP_ID: &str = "2213";
     let mut url = format!(
         "http://{host}:8060/launch/{ROKU_MEDIA_PLAYER_APP_ID}?t=v&u={}",

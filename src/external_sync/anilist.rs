@@ -124,11 +124,10 @@ fn extract_after_marker(text: &str, marker: &str) -> Option<i64> {
         let idx = search_from + offset;
         let rest = &text[idx + marker.len()..];
         let digits: String = rest.chars().take_while(|c| c.is_ascii_digit()).collect();
-        if !digits.is_empty() {
-            if let Ok(id) = digits.parse() {
+        if !digits.is_empty()
+            && let Ok(id) = digits.parse() {
                 return Some(id);
             }
-        }
         search_from = idx + marker.len();
     }
     None
@@ -243,7 +242,7 @@ pub(crate) fn anilist_entries_to_sync(
     categories: Option<&[&str]>,
     dry_run: bool,
 ) -> Value {
-    let wants = |c: &str| categories.is_none_or(|cats| cats.iter().any(|x| *x == c));
+    let wants = |c: &str| categories.is_none_or(|cats| cats.contains(&c));
     let mut watchlist: Vec<Value> = Vec::new();
     let mut completed: Vec<Value> = Vec::new();
     let mut dropped: Vec<Value> = Vec::new();

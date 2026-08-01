@@ -113,8 +113,8 @@ fn resolve_url(base_url: &str, relative: &str) -> String {
     if relative_lower.starts_with("http://") || relative_lower.starts_with("https://") {
         return relative.to_string();
     }
-    if relative.starts_with('/') {
-        if let Some(scheme_end) = base_url.find("://") {
+    if relative.starts_with('/')
+        && let Some(scheme_end) = base_url.find("://") {
             let remainder = &base_url[scheme_end + 3..];
             let authority_end = remainder.find('/').unwrap_or(remainder.len());
             return format!(
@@ -123,7 +123,6 @@ fn resolve_url(base_url: &str, relative: &str) -> String {
                 relative
             );
         }
-    }
     let base_directory = base_url
         .rfind('/')
         .map(|position| &base_url[..position + 1])

@@ -87,8 +87,8 @@ pub(crate) fn home_hero_plan_json(request_json: &str) -> Option<String> {
             })
     };
     let merge_trailers = |mut item: Value| {
-        if !has_playable(&item) {
-            if let Some(trailers) = item
+        if !has_playable(&item)
+            && let Some(trailers) = item
                 .get("id")
                 .and_then(Value::as_str)
                 .and_then(|id| fetched_trailers.and_then(|values| values.get(id)))
@@ -96,7 +96,6 @@ pub(crate) fn home_hero_plan_json(request_json: &str) -> Option<String> {
             {
                 item["trailers"] = trailers.clone();
             }
-        }
         item
     };
     let billboard = billboard.map(&merge_trailers);

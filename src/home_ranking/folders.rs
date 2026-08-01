@@ -89,11 +89,10 @@ pub(crate) fn merge_folder_sources_json(request_json: &str) -> Option<String> {
     let max_len = sources.iter().map(Vec::len).max().unwrap_or(0);
     for index in 0..max_len {
         for source in &sources {
-            if let Some(item) = source.get(index) {
-                if seen.insert(folder_item_key(item)) {
+            if let Some(item) = source.get(index)
+                && seen.insert(folder_item_key(item)) {
                     items.push(item.clone());
                 }
-            }
         }
     }
     let mut groups: Vec<Value> = Vec::new();
@@ -310,8 +309,8 @@ pub(crate) fn resolve_folder_catalog_sources(
         }
     }
 
-    if resolved.is_empty() {
-        if let Some(catalog_id) = folder.get("catalogId").and_then(Value::as_str) {
+    if resolved.is_empty()
+        && let Some(catalog_id) = folder.get("catalogId").and_then(Value::as_str) {
             let src = json!({ "catalogId": catalog_id, "type": "movie" });
             if let Some(t_url) = resolve_transport_url_json(&src.to_string(), addons_json)
                 .and_then(|json| serde_json::from_str::<String>(&json).ok())
@@ -324,7 +323,6 @@ pub(crate) fn resolve_folder_catalog_sources(
                 resolved.push(entry);
             }
         }
-    }
     resolved
 }
 

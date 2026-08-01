@@ -210,11 +210,10 @@ pub(crate) fn normalize_addon_subtitles_json(subtitles_json: &str, resource_url:
                 .and_then(Value::as_array)
                 .map(Vec::is_empty)
                 .unwrap_or(true);
-            if languages_empty {
-                if let Some(lang) = lang {
+            if languages_empty
+                && let Some(lang) = lang {
                     attributes.insert("languages".to_string(), json!([lang]));
                 }
-            }
             Some(subtitle)
         })
         .collect::<Vec<_>>();

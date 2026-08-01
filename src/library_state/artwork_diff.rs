@@ -33,7 +33,9 @@ pub(crate) fn select_continue_watching_artwork_json(
         None
     };
 
-    let result = if !is_horizontal {
+    
+
+    if !is_horizontal {
         thumbnail
             .or(cw_poster)
             .or(poster)
@@ -53,9 +55,7 @@ pub(crate) fn select_continue_watching_artwork_json(
                 .or(logo)
                 .or(poster),
         }
-    };
-
-    result
+    }
 }
 
 /// Batched form of select_continue_watching_artwork_json + format_episode_line_json for

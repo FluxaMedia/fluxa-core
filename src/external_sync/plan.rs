@@ -300,7 +300,7 @@ pub(crate) fn import_apply_plan_json(request_json: &str) -> Option<String> {
     let wants = |c: &str| {
         categories
             .as_ref()
-            .is_none_or(|cats| cats.iter().any(|x| *x == c))
+            .is_none_or(|cats| cats.contains(&c))
     };
 
     let local_watchlist = req.get("localWatchlist").cloned().unwrap_or(json!([]));
@@ -364,7 +364,7 @@ pub(crate) fn push_plan_json(request_json: &str) -> Option<String> {
         .and_then(Value::as_array)
         .map(|arr| arr.iter().filter_map(Value::as_str).collect())
         .unwrap_or_default();
-    let wants = |c: &str| categories.iter().any(|x| *x == c);
+    let wants = |c: &str| categories.contains(&c);
 
     let watchlist = req
         .get("watchlist")

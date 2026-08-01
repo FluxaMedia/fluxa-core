@@ -66,14 +66,13 @@ pub(super) fn dispatch_toggle_scraper(
     scraper_id: String,
     enabled: bool,
 ) -> Vec<EffectEnvelope> {
-    if let Some(items) = engine.state.plugins.scrapers.as_array_mut() {
-        if let Some(scraper) = items
+    if let Some(items) = engine.state.plugins.scrapers.as_array_mut()
+        && let Some(scraper) = items
             .iter_mut()
             .find(|scraper| scraper["id"].as_str() == Some(scraper_id.as_str()))
         {
             scraper["enabled"] = Value::Bool(enabled);
         }
-    }
     vec![]
 }
 
@@ -82,14 +81,13 @@ pub(super) fn dispatch_update_scraper_settings(
     scraper_id: String,
     settings: Value,
 ) -> Vec<EffectEnvelope> {
-    if let Some(items) = engine.state.plugins.scrapers.as_array_mut() {
-        if let Some(scraper) = items
+    if let Some(items) = engine.state.plugins.scrapers.as_array_mut()
+        && let Some(scraper) = items
             .iter_mut()
             .find(|scraper| scraper["id"].as_str() == Some(scraper_id.as_str()))
         {
             scraper["settings"] = settings;
         }
-    }
     vec![]
 }
 
@@ -152,11 +150,10 @@ pub(super) fn complete(
         scraper["repositoryUrl"] = Value::String(manifest_url.to_string());
         let manifest_enabled = scraper["enabled"].as_bool().unwrap_or(true);
         if let Some(previous) = scraper["id"].as_str().and_then(|id| previous_by_id.get(id)) {
-            if manifest_enabled {
-                if let Some(previous_enabled) = previous["enabled"].as_bool() {
+            if manifest_enabled
+                && let Some(previous_enabled) = previous["enabled"].as_bool() {
                     scraper["enabled"] = Value::Bool(previous_enabled);
                 }
-            }
             if let Some(previous_settings) = previous.get("settings") {
                 scraper["settings"] = previous_settings.clone();
             }

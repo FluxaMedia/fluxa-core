@@ -34,11 +34,10 @@ pub(crate) fn library_to_watchlist_json(args_json: &str) -> Option<String> {
                     out.insert(dst.into(), v.clone());
                 }
             }
-            if let Some(genres) = item.get("genres").and_then(Value::as_array) {
-                if !genres.is_empty() {
+            if let Some(genres) = item.get("genres").and_then(Value::as_array)
+                && !genres.is_empty() {
                     out.insert("genres".into(), Value::Array(genres.clone()));
                 }
-            }
             out.insert("inWatchlist".into(), Value::Bool(true));
             Value::Object(out)
         })
@@ -87,7 +86,7 @@ fn progress_entry(entry: &Value, lib_item: Option<&Value>, addon_meta: Option<&V
     let is_resolved_up_next = if duration <= 0.0 {
         position <= RESOLVED_MAX_POSITION_MS
     } else {
-        ratio < RESOLVED_LOW_RATIO || ratio >= RESOLVED_HIGH_RATIO
+        !(RESOLVED_LOW_RATIO..RESOLVED_HIGH_RATIO).contains(&ratio)
     };
 
     let season = entry.get("season").filter(|v| !v.is_null());
@@ -196,7 +195,7 @@ pub(crate) fn import_merge_plan_json(args_json: &str) -> Option<String> {
     let wants = |c: &str| {
         categories
             .as_ref()
-            .is_none_or(|cats| cats.iter().any(|x| *x == c))
+            .is_none_or(|cats| cats.contains(&c))
     };
     let progress_count = args
         .get("watchProgress")

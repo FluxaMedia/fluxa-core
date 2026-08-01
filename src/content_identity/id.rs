@@ -150,10 +150,9 @@ pub(crate) fn build_trakt_ids_json(video_id: &str) -> Option<String> {
     if let Some(imdb) = parsed.get("imdb").and_then(serde_json::Value::as_str) {
         return serde_json::to_string(&serde_json::json!({"imdb": imdb})).ok();
     }
-    if let Some(tmdb) = parsed.get("tmdb").and_then(serde_json::Value::as_str) {
-        if let Ok(n) = tmdb.parse::<i64>() {
+    if let Some(tmdb) = parsed.get("tmdb").and_then(serde_json::Value::as_str)
+        && let Ok(n) = tmdb.parse::<i64>() {
             return serde_json::to_string(&serde_json::json!({"tmdb": n})).ok();
         }
-    }
     None
 }

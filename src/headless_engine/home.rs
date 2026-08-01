@@ -249,11 +249,9 @@ pub(super) fn complete(
     match effect_type {
         "refreshContinueWatching" => {
             if generation == engine.state.runtime.get(GenerationKey::Home) && result.status.is_ok()
-            {
-                if let Some(cw) = result.value.get("continueWatching") {
+                && let Some(cw) = result.value.get("continueWatching") {
                     engine.state.home.continue_watching = cw.clone();
                 }
-            }
         }
         "readHomeBootstrap" => {
             if generation == engine.state.runtime.get(GenerationKey::Home) {

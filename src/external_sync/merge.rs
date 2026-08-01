@@ -8,11 +8,10 @@ pub(crate) fn merge_external_watchlist_json(local_json: &str, external_json: &st
         .filter_map(|i| i.get("id").and_then(Value::as_str).map(str::to_string))
         .collect();
     for item in external {
-        if let Some(id) = item.get("id").and_then(Value::as_str) {
-            if !local_ids.contains(id) {
+        if let Some(id) = item.get("id").and_then(Value::as_str)
+            && !local_ids.contains(id) {
                 local.push(item);
             }
-        }
     }
     serde_json::to_string(&local).unwrap_or_else(|_| "[]".to_string())
 }
@@ -122,13 +121,11 @@ pub(crate) fn ranked_winner(
     b_time: i64,
     ranking_mode: Option<&str>,
 ) -> bool {
-    if ranking_mode == Some("most_recent_episode") {
-        if let (Some(ra), Some(rb)) = (episode_rank(a), episode_rank(b)) {
-            if ra != rb {
+    if ranking_mode == Some("most_recent_episode")
+        && let (Some(ra), Some(rb)) = (episode_rank(a), episode_rank(b))
+            && ra != rb {
                 return ra > rb;
             }
-        }
-    }
     a_time >= b_time
 }
 

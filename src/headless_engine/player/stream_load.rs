@@ -122,9 +122,9 @@ pub(in crate::headless_engine) fn dispatch_load_streams(
     outgoing_progress: Option<Value>,
 ) -> Vec<EffectEnvelope> {
     let mut save_effects = Vec::new();
-    if let (Some(outgoing_video_id), Some(raw)) = (current_video_id.clone(), outgoing_progress) {
-        if outgoing_video_id != initial_video_id.clone().unwrap_or_default() {
-            if let Ok(progress) = serde_json::from_value::<OutgoingProgress>(raw) {
+    if let (Some(outgoing_video_id), Some(raw)) = (current_video_id.clone(), outgoing_progress)
+        && outgoing_video_id != initial_video_id.clone().unwrap_or_default()
+            && let Ok(progress) = serde_json::from_value::<OutgoingProgress>(raw) {
                 save_effects.extend(library::dispatch_save_progress(
                     engine,
                     profile.clone(),
@@ -144,8 +144,6 @@ pub(in crate::headless_engine) fn dispatch_load_streams(
                     progress.scrobble_trakt_pause,
                 ));
             }
-        }
-    }
 
     let generation = engine.bump_generation(GenerationKey::Player);
     let mut initial_streams = initial_streams.unwrap_or_default();
@@ -205,8 +203,8 @@ pub(in crate::headless_engine) fn dispatch_load_streams(
             .and_then(Value::as_str)
             .unwrap_or("unknown")
             .to_string();
-        if kind == "loadStreams" {
-            if let Value::Object(map) = &mut payload {
+        if kind == "loadStreams"
+            && let Value::Object(map) = &mut payload {
                 map.insert(
                     "initialStreams".to_string(),
                     pending_value["initialStreams"].clone(),
@@ -220,7 +218,6 @@ pub(in crate::headless_engine) fn dispatch_load_streams(
                 map.insert("language".to_string(), pending_value["language"].clone());
                 map.insert("profile".to_string(), pending_value["profile"].clone());
             }
-        }
         engine.effect_raw(&kind, generation, payload)
     }));
     save_effects

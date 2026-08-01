@@ -123,12 +123,12 @@ pub(super) async fn run_settings_layout(code: String, scraper_id: String) -> Str
     }
     qjs_rt.idle().await;
 
-    let result = captured
+    
+    captured
         .lock()
         .expect("capture lock poisoned")
         .take()
-        .unwrap_or_else(|| "[]".to_string());
-    result
+        .unwrap_or_else(|| "[]".to_string())
 }
 
 struct NoopHttpClient;

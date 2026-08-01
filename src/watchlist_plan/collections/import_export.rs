@@ -116,11 +116,10 @@ pub(crate) fn import_collections_json(raw_json: &str) -> Option<String> {
                 }))
             }).collect();
 
-            if sources.is_empty() {
-                if let Some(fallback_id) = folder.get("catalogId").and_then(Value::as_str).filter(|s| !s.is_empty()) {
+            if sources.is_empty()
+                && let Some(fallback_id) = folder.get("catalogId").and_then(Value::as_str).filter(|s| !s.is_empty()) {
                     sources.push(json!({ "catalogId": fallback_id, "type": "movie" }));
                 }
-            }
             let nuvio_sources: Vec<Value> = folder.get("sources")
                 .and_then(Value::as_array)
                 .map(Vec::as_slice)

@@ -205,11 +205,10 @@ pub(crate) fn start_dv_rewrite_local_stream_server(
                             let cfg = config.clone();
                             let dv = dv_config.clone();
                             tokio::task::spawn_blocking(move || {
-                                if let Ok(stream) = stream.into_std() {
-                                    if stream.set_nonblocking(false).is_ok() {
+                                if let Ok(stream) = stream.into_std()
+                                    && stream.set_nonblocking(false).is_ok() {
                                         handle_dv_stream(stream, cfg, &dv);
                                     }
-                                }
                             });
                         }
                         Err(_) => break,
@@ -2296,7 +2295,7 @@ mod tests {
 
         // BlockGroup (0xA0) must still be present.
         assert!(
-            all.iter().any(|&b| b == 0xA0),
+            all.contains(&0xA0),
             "BlockGroup must be present in output"
         );
     }

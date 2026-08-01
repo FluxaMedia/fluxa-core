@@ -30,7 +30,7 @@ pub(super) fn resolve_player_response(
     let stream_url = adaptive_pair
         .as_ref()
         .map(|(video_url, _, _)| video_url.to_owned())
-        .or_else(|| progressive_url)
+        .or(progressive_url)
         .or_else(|| {
             payload
                 .pointer("/streamingData/hlsManifestUrl")

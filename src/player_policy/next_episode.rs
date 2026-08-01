@@ -77,8 +77,8 @@ pub(crate) fn select_next_episode_stream_json(
         .and_then(Value::as_str)
         .filter(|s| !s.is_empty());
 
-    if try_binge {
-        if let Some(group) = cur_binge {
+    if try_binge
+        && let Some(group) = cur_binge {
             let matched = streams.iter().find(|s| {
                 s.get("behaviorHints")
                     .and_then(|h| h.get("bingeGroup"))
@@ -90,10 +90,9 @@ pub(crate) fn select_next_episode_stream_json(
                 return serde_json::to_string(s).ok();
             }
         }
-    }
 
-    if mode == "regex" && !regex_pat.is_empty() {
-        if let Ok(re) = regex::RegexBuilder::new(regex_pat)
+    if mode == "regex" && !regex_pat.is_empty()
+        && let Ok(re) = regex::RegexBuilder::new(regex_pat)
             .case_insensitive(true)
             .build()
         {
@@ -119,20 +118,17 @@ pub(crate) fn select_next_episode_stream_json(
                 return serde_json::to_string(matched).ok();
             }
         }
-    }
 
     if let Some(addon_name) = current
         .get("addonName")
         .and_then(Value::as_str)
         .filter(|value| !value.is_empty())
-    {
-        if let Some(matched) = streams.iter().find(|stream| {
+        && let Some(matched) = streams.iter().find(|stream| {
             stream.get("addonName").and_then(Value::as_str) == Some(addon_name)
                 && episode_ok(stream)
         }) {
             return serde_json::to_string(matched).ok();
         }
-    }
 
     streams
         .iter()

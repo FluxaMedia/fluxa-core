@@ -71,11 +71,10 @@ pub(super) fn value_array_is_empty(value: &Value) -> bool {
 
 pub(super) fn with_normalized_meta_trailers(mut meta: Value) -> Value {
     let trailers = normalize_meta_trailers(&meta);
-    if !value_array_is_empty(&trailers) {
-        if let Some(obj) = meta.as_object_mut() {
+    if !value_array_is_empty(&trailers)
+        && let Some(obj) = meta.as_object_mut() {
             obj.insert("trailers".to_string(), trailers);
         }
-    }
     meta
 }
 
