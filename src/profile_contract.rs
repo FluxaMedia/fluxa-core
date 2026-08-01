@@ -25,7 +25,6 @@ struct TokenMergeRequest {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum AuthProvider {
     Trakt,
-    Mal,
     Simkl,
     Anilist,
     Stremio,
@@ -36,7 +35,6 @@ impl From<&str> for AuthProvider {
     fn from(value: &str) -> Self {
         match value {
             "trakt" => AuthProvider::Trakt,
-            "mal" => AuthProvider::Mal,
             "simkl" => AuthProvider::Simkl,
             "anilist" => AuthProvider::Anilist,
             "stremio" | "account" => AuthProvider::Stremio,
@@ -152,18 +150,6 @@ pub(crate) fn token_merge_plan_json(request_json: &str) -> Option<String> {
                 obj.insert("traktTokenExpiresAt".to_string(), e.clone());
             }
             obj.insert("traktLastSyncAt".to_string(), Value::Null);
-        }
-        AuthProvider::Mal => {
-            let token = auth.get("accessToken").or_else(|| auth.get("access_token"));
-            let refresh = auth
-                .get("refreshToken")
-                .or_else(|| auth.get("refresh_token"));
-            if let Some(t) = token {
-                obj.insert("malAccessToken".to_string(), t.clone());
-            }
-            if let Some(r) = refresh {
-                obj.insert("malRefreshToken".to_string(), r.clone());
-            }
         }
         AuthProvider::Simkl => {
             let token = auth.get("accessToken").or_else(|| auth.get("access_token"));

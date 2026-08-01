@@ -2,11 +2,9 @@ use super::{merge_external_watched_json, merge_external_watchlist_json};
 use crate::integration_settings::{accepts_progress_source, integration_settings_from_value};
 use serde_json::{Map, Value, json};
 
-pub(crate) fn external_sync_response_action(provider: &str, status_code: i64) -> &'static str {
+pub(crate) fn external_sync_response_action(_provider: &str, status_code: i64) -> &'static str {
     if (200..300).contains(&status_code) {
         "stamp_success"
-    } else if status_code == 401 && provider == "mal" {
-        "refresh_credentials"
     } else if status_code == 401 {
         "clear_credentials"
     } else {

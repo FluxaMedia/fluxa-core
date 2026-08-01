@@ -212,8 +212,6 @@ promoteExternalProgressPlan
 externalProviderActionPlan
 externalSyncRefreshRetryAction
 externalSyncResponseAction
-malWatchlistUpdate
-malWatchedUpdate
 profileSettingsMigrationPlan
 providerAvailabilityPlan
 providerSearchTerms

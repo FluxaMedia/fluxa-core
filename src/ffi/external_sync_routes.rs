@@ -24,8 +24,6 @@ pub(super) fn route_external_sync_trakt(method: &str, args_json: &str) -> Outcom
                 .to_string(),
             ))
         }
-        "malWatchedUpdate" => opt_json(external_sync::mal_list_update_json(args_json, true)),
-        "malWatchlistUpdate" => opt_json(external_sync::mal_list_update_json(args_json, false)),
         "providerCalendarItems" => opt_json(external_sync::provider_calendar_items_json(args_json)),
         "providerPaginationPlan" => {
             opt_json(external_sync::provider_pagination_plan_json(args_json))

@@ -1,7 +1,6 @@
 mod anilist;
 mod calendar;
 mod cross_provider;
-mod mal;
 mod merge;
 mod simkl;
 mod stremio;

@@ -1,5 +1,4 @@
 mod calendar;
-mod mal;
 mod merge;
 mod plan;
 mod simkl;
@@ -7,7 +6,6 @@ mod stremio;
 mod trakt;
 
 pub(crate) use calendar::provider_calendar_items_json;
-pub(crate) use mal::mal_list_update_json;
 pub(crate) use merge::{
     merge_continue_watching_lists_json, merge_external_watched_json, merge_external_watchlist_json,
     merge_watched_timestamped_json, merge_watchlist_timestamped_json, ranked_winner, saved_at_ms,

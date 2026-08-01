@@ -22,8 +22,6 @@ fn redirect_uri(service: &str) -> String {
 #[serde(rename_all = "camelCase")]
 pub struct ExchangeBody {
     code: String,
-    #[serde(default)]
-    code_verifier: Option<String>,
 }
 
 fn client() -> Result<reqwest::Client, String> {
@@ -84,30 +82,10 @@ async fn simkl_exchange(body: ExchangeBody) -> Result<String, (StatusCode, Strin
     forward(res, "SIMKL token exchange").await
 }
 
-async fn mal_exchange(body: ExchangeBody) -> Result<String, (StatusCode, String)> {
-    let client = client().map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
-    let res = client
-        .post("https://myanimelist.net/v1/oauth2/token")
-        .form(&[
-            ("client_id", env_or_empty("FLUXA_MAL_CLIENT_ID")),
-            ("grant_type", "authorization_code".to_string()),
-            ("code", body.code.clone()),
-            ("redirect_uri", redirect_uri("mal")),
-            (
-                "code_verifier",
-                body.code_verifier.clone().unwrap_or_default(),
-            ),
-        ])
-        .send()
-        .await;
-    forward(res, "MAL token exchange").await
-}
-
 async fn handle_exchange(Path(service): Path<String>, Json(body): Json<ExchangeBody>) -> Response {
     let result = match service.as_str() {
         "trakt" => trakt_exchange(body).await,
         "simkl" => simkl_exchange(body).await,
-        "mal" => mal_exchange(body).await,
         _ => Err((
             StatusCode::NOT_FOUND,
             format!("unknown oauth service `{service}`"),
