@@ -116,7 +116,9 @@ pub(super) async fn run(
             ctx.globals().set(
                 "__capture_result",
                 Function::new(ctx.clone(), move |s: String| {
-                    *captured_clone.lock().expect("capture lock poisoned") = Some(s);
+                    if let Ok(mut captured) = captured_clone.lock() {
+                        *captured = Some(s);
+                    }
                 })?,
             )?;
 
@@ -133,8 +135,8 @@ pub(super) async fn run(
 
     let result = captured
         .lock()
-        .expect("capture lock poisoned")
-        .take()
+        .ok()
+        .and_then(|mut captured| captured.take())
         .unwrap_or_else(|| "[]".to_string());
     Ok(result)
 }

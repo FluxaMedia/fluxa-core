@@ -106,7 +106,9 @@ pub(super) async fn run_settings_layout(code: String, scraper_id: String) -> Str
             ctx.globals().set(
                 "__capture_result",
                 Function::new(ctx.clone(), move |s: String| {
-                    *captured_clone.lock().expect("capture lock poisoned") = Some(s);
+                    if let Ok(mut captured) = captured_clone.lock() {
+                        *captured = Some(s);
+                    }
                 })?,
             )?;
 
@@ -123,11 +125,10 @@ pub(super) async fn run_settings_layout(code: String, scraper_id: String) -> Str
     }
     qjs_rt.idle().await;
 
-    
     captured
         .lock()
-        .expect("capture lock poisoned")
-        .take()
+        .ok()
+        .and_then(|mut captured| captured.take())
         .unwrap_or_else(|| "[]".to_string())
 }
 
