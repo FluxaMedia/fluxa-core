@@ -17,6 +17,12 @@ pub const PLUGIN_MAX_REQUEST_BODY_BYTES: usize = 1_048_576;
 pub const PLUGIN_MAX_RESPONSE_BODY_BYTES: usize = 8 * 1_048_576;
 
 pub fn plugin_http_request_error(request: &PluginHttpRequest) -> Option<&'static str> {
+    if !matches!(
+        request.method.to_ascii_uppercase().as_str(),
+        "GET" | "HEAD" | "POST"
+    ) {
+        return Some("plugin request method is not allowed");
+    }
     let lower = request.url.to_ascii_lowercase();
     if !(lower.starts_with("http://") || lower.starts_with("https://")) {
         return Some("only http and https plugin URLs are allowed");

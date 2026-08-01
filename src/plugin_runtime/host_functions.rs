@@ -16,7 +16,12 @@ fn native_fetch(
     body: Option<String>,
     follow_redirects: bool,
 ) -> String {
-    let headers: HashMap<String, String> = serde_json::from_str(&headers_json).unwrap_or_default();
+    let headers: HashMap<String, String> = match serde_json::from_str(&headers_json) {
+        Ok(headers) => headers,
+        Err(_) => {
+            return "{\"ok\":false,\"status\":0,\"body\":\"\",\"error\":\"invalid plugin request headers\"}".to_string();
+        }
+    };
     let request = PluginHttpRequest {
         method,
         url,
