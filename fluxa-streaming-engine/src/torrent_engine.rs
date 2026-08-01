@@ -106,6 +106,7 @@ struct PlaybackTelemetry {
 #[serde(rename_all = "camelCase")]
 struct TelemetryEvent {
     link: String,
+    session_id: String,
     event: String,
     elapsed_ms: Option<u64>,
 }
@@ -174,7 +175,8 @@ struct EngineState {
     prioritized_files: Arc<Mutex<HashMap<usize, TorrentFileFocus>>>,
     playback_windows: Arc<Mutex<HashMap<(usize, usize), PlaybackWindow>>>,
     playback_sessions: Arc<Mutex<HashMap<(usize, usize), PlaybackSession>>>,
-    playback_telemetry: Arc<Mutex<HashMap<usize, PlaybackTelemetry>>>,
+    playback_telemetry: Arc<Mutex<HashMap<(usize, String), PlaybackTelemetry>>>,
+    active_telemetry_sessions: Arc<Mutex<HashMap<usize, String>>>,
     /// Root cancellation per torrent. Probe readers use child tokens too, so
     /// they cannot outlive playback deactivation or cache eviction.
     torrent_cancellations: Arc<Mutex<HashMap<usize, CancellationToken>>>,
@@ -255,9 +257,8 @@ pub fn start_torrent_server(
     let thread_access_token = access_token.trim().to_string();
 
     let thread = thread::spawn(move || {
-        let worker_threads = std::thread::available_parallelism()
-            .map(|n| n.get().clamp(2, 8))
-            .unwrap_or(2);
+        let worker_threads = torrent_worker_threads();
+        let concurrent_init_limit = if cfg!(target_os = "android") { 2 } else { 4 };
         let runtime = match tokio::runtime::Builder::new_multi_thread()
             .enable_all()
             .worker_threads(worker_threads)
@@ -282,7 +283,7 @@ pub fn start_torrent_server(
                 listen_port_range: Some(49152..65535),
                 enable_upnp_port_forwarding: true,
                 disable_upload: true,
-                concurrent_init_limit: Some(2),
+                concurrent_init_limit: Some(concurrent_init_limit),
                 trackers: [
                     "udp://tracker.opentrackr.org:1337/announce",
                     "udp://open.demonii.com:1337/announce",
@@ -339,6 +340,7 @@ pub fn start_torrent_server(
                 playback_windows: Arc::new(Mutex::new(HashMap::new())),
                 playback_sessions: Arc::new(Mutex::new(HashMap::new())),
                 playback_telemetry: Arc::new(Mutex::new(HashMap::new())),
+                active_telemetry_sessions: Arc::new(Mutex::new(HashMap::new())),
                 torrent_cancellations: Arc::new(Mutex::new(HashMap::new())),
                 lifecycle: Arc::new(Mutex::new(HashMap::new())),
                 active_torrent: Arc::new(Mutex::new(None)),
@@ -608,6 +610,7 @@ async fn torrents(
                     }
                 }
                 cancel_torrent_root(&state, id);
+                clear_playback_telemetry(&state, id);
                 if let Ok(mut lifecycle) = state.lifecycle.lock() {
                     lifecycle.remove(&id);
                 }
@@ -640,14 +643,36 @@ async fn record_telemetry(
     let Some(id) = lookup_known_link(&state, Some(&event.link)) else {
         return error_response(StatusCode::NOT_FOUND, "torrent not found");
     };
+    if event.session_id.is_empty() || event.session_id.len() > 128 {
+        return error_response(StatusCode::BAD_REQUEST, "invalid telemetry session");
+    }
+    if event.event == "sessionStarted" {
+        let mut active_sessions = match state.active_telemetry_sessions.lock() {
+            Ok(sessions) => sessions,
+            Err(_) => {
+                return error_response(StatusCode::INTERNAL_SERVER_ERROR, "telemetry unavailable");
+            }
+        };
+        active_sessions.insert(id, event.session_id.clone());
+    } else if state
+        .active_telemetry_sessions
+        .lock()
+        .ok()
+        .and_then(|sessions| sessions.get(&id).cloned())
+        .as_deref()
+        != Some(event.session_id.as_str())
+    {
+        return error_response(StatusCode::CONFLICT, "telemetry session is not active");
+    }
     let mut telemetry = match state.playback_telemetry.lock() {
         Ok(telemetry) => telemetry,
         Err(_) => {
             return error_response(StatusCode::INTERNAL_SERVER_ERROR, "telemetry unavailable");
         }
     };
-    let entry = telemetry.entry(id).or_default();
+    let entry = telemetry.entry((id, event.session_id)).or_default();
     match event.event.as_str() {
+        "sessionStarted" => {}
         "firstFrame" => entry.first_frame_ms = event.elapsed_ms.or(entry.first_frame_ms),
         "stallStarted" => entry.stall_count = entry.stall_count.saturating_add(1),
         "stallEnded" => {
@@ -1058,7 +1083,14 @@ async fn status_response(
         .playback_telemetry
         .lock()
         .ok()
-        .and_then(|telemetry| telemetry.get(&id).copied())
+        .and_then(|telemetry| {
+            state
+                .active_telemetry_sessions
+                .lock()
+                .ok()
+                .and_then(|sessions| sessions.get(&id).cloned())
+                .and_then(|session_id| telemetry.get(&(id, session_id)).copied())
+        })
         .unwrap_or_default();
     let scheduler = window.map(|window| {
         json!({
@@ -1233,6 +1265,7 @@ async fn activate_torrent(state: &EngineState, torrent_id: usize) {
 
 async fn deactivate_torrent(state: &EngineState, torrent_id: usize) {
     cancel_torrent_root(state, torrent_id);
+    clear_playback_telemetry(state, torrent_id);
     let files = state
         .playback_windows
         .lock()
@@ -1274,6 +1307,31 @@ async fn deactivate_torrent(state: &EngineState, torrent_id: usize) {
         .api
         .api_torrent_action_pause(TorrentIdOrHash::Id(torrent_id))
         .await;
+}
+
+fn clear_playback_telemetry(state: &EngineState, torrent_id: usize) {
+    if let Ok(mut telemetry) = state.playback_telemetry.lock() {
+        telemetry.retain(|(id, _), _| *id != torrent_id);
+    }
+    if let Ok(mut sessions) = state.active_telemetry_sessions.lock() {
+        sessions.remove(&torrent_id);
+    }
+}
+
+fn torrent_worker_threads() -> usize {
+    let available = std::thread::available_parallelism()
+        .map(|value| value.get())
+        .unwrap_or(2);
+    let platform_default = if cfg!(target_os = "android") {
+        available.clamp(2, 4)
+    } else {
+        available.clamp(2, 16)
+    };
+    std::env::var("FLUXA_TORRENT_WORKERS")
+        .ok()
+        .and_then(|value| value.parse::<usize>().ok())
+        .filter(|value| (1..=32).contains(value))
+        .unwrap_or(platform_default)
 }
 
 /// Prewarming resolves metadata and discovers peers but must not keep an idle
@@ -1385,6 +1443,7 @@ async fn enforce_cache_limit(state: &EngineState) {
                 }
             }
             cancel_torrent_root(state, torrent_id);
+            clear_playback_telemetry(state, torrent_id);
             debug_log(format!(
                 "[TorrServer] evicted inactive torrent={torrent_id} for cache limit"
             ));
