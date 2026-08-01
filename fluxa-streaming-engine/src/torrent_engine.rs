@@ -80,9 +80,10 @@ struct EngineState {
     preload_size: Arc<Mutex<u64>>,
     known_links: Arc<Mutex<HashMap<String, usize>>>,
     prioritized_files: Arc<Mutex<HashMap<usize, TorrentFileFocus>>>,
-    // A short-lived per-link lock shares an add operation for one magnet while
-    // allowing unrelated metadata lookups to progress independently.
+    // A per-link lock serializes retries for one magnet while allowing
+    // unrelated metadata lookups to progress independently.
     in_flight_adds: Arc<AsyncMutex<HashMap<String, Arc<AsyncMutex<()>>>>>,
+    pending_adds: Arc<Mutex<HashSet<String>>>,
     access_token: Arc<String>,
 }
 
@@ -235,6 +236,7 @@ pub fn start_torrent_server(
                 known_links: Arc::new(Mutex::new(HashMap::new())),
                 prioritized_files: Arc::new(Mutex::new(HashMap::new())),
                 in_flight_adds: Arc::new(AsyncMutex::new(HashMap::new())),
+                pending_adds: Arc::new(Mutex::new(HashSet::new())),
                 access_token: Arc::new(thread_access_token),
             };
             tokio::spawn(peer_stats_logger(state.clone()));
@@ -435,7 +437,7 @@ async fn torrents(
                 Some(id) => id,
                 None => {
                     let resolving = match request.link.as_deref() {
-                        Some(link) => add_is_pending(&state, link).await,
+                        Some(link) => add_is_pending(&state, link),
                         None => false,
                     };
                     return Json(empty_status_json(resolving)).into_response();
@@ -494,7 +496,7 @@ async fn stream_fname(
                 .await
                 .into_response();
         }
-        return Json(empty_status_json(add_is_pending(&state, &query.link).await)).into_response();
+        return Json(empty_status_json(add_is_pending(&state, &query.link))).into_response();
     }
 
     // Stream request: ensure_torrent does its own add+lookup. Calling it
@@ -652,6 +654,7 @@ async fn ensure_torrent(
     if let Some(file_id) = only_file {
         options.only_files = Some(vec![file_id]);
     }
+    set_add_pending(state, link, true);
     let add_started = std::time::Instant::now();
     let response = tokio::time::timeout(
         metadata_timeout,
@@ -663,11 +666,11 @@ async fn ensure_torrent(
     let response = match response {
         Ok(Ok(response)) => response,
         Ok(Err(error)) => {
-            state.in_flight_adds.lock().await.remove(link);
+            set_add_pending(state, link, false);
             return Err(format!("{error:#}"));
         }
         Err(_) => {
-            state.in_flight_adds.lock().await.remove(link);
+            set_add_pending(state, link, false);
             debug_log(format!(
                 "[TorrServer][timing] metadata timed out after {:?} link={}",
                 add_started.elapsed(),
@@ -677,7 +680,7 @@ async fn ensure_torrent(
         }
     };
     let Some(id) = response.id else {
-        state.in_flight_adds.lock().await.remove(link);
+        set_add_pending(state, link, false);
         return Err("torrent metadata is not ready".to_string());
     };
     debug_log(format!(
@@ -688,7 +691,7 @@ async fn ensure_torrent(
     if let Some(title) = title {
         remember_link(state, title, id);
     }
-    state.in_flight_adds.lock().await.remove(link);
+    set_add_pending(state, link, false);
     Ok((id, response.details))
 }
 
@@ -711,8 +714,22 @@ fn empty_status_json(resolving: bool) -> Value {
     })
 }
 
-async fn add_is_pending(state: &EngineState, link: &str) -> bool {
-    state.in_flight_adds.lock().await.contains_key(link.trim())
+fn set_add_pending(state: &EngineState, link: &str, pending: bool) {
+    if let Ok(mut pending_adds) = state.pending_adds.lock() {
+        if pending {
+            pending_adds.insert(link.to_string());
+        } else {
+            pending_adds.remove(link);
+        }
+    }
+}
+
+fn add_is_pending(state: &EngineState, link: &str) -> bool {
+    state
+        .pending_adds
+        .lock()
+        .map(|pending| pending.contains(link.trim()))
+        .unwrap_or(false)
 }
 
 async fn status_response(
