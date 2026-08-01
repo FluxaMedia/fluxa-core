@@ -66,6 +66,10 @@ pub(crate) fn text_matches_episode(text: &str, season: i32, episode: i32) -> boo
         || contains_spaced_episode(text, season, episode)
 }
 
+#[expect(
+    clippy::indexing_slicing,
+    reason = "loop and cursor guards establish all byte and ASCII slice bounds"
+)]
 fn dash_episode_matches(text: &str, episode: i32) -> Option<bool> {
     let lower = text.to_ascii_lowercase();
     let bytes = lower.as_bytes();
@@ -127,6 +131,10 @@ pub(crate) fn stream_matches_episode(video_id: &str, fields: &[String]) -> bool 
     !contains_any_compact_episode(&text)
 }
 
+#[expect(
+    clippy::indexing_slicing,
+    reason = "cursor bounds are checked before every compact-code byte access"
+)]
 pub(crate) fn contains_any_compact_episode(text: &str) -> bool {
     let lower = text.to_ascii_lowercase();
     let bytes = lower.as_bytes();

@@ -1,5 +1,9 @@
 // pub rather than pub(crate): re-exported under fuzz_targets for the `fuzz/`
 // crate (see lib.rs). Not part of the supported public API otherwise.
+#[expect(
+    clippy::indexing_slicing,
+    reason = "raw-byte bounds are checked before percent-decoding reads"
+)]
 pub fn percent_decode_component(value: &str) -> String {
     let mut bytes = Vec::with_capacity(value.len());
     let raw = value.as_bytes();

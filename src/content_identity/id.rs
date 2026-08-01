@@ -2,6 +2,10 @@ use super::helpers::{TMDB_ID_PREFIX, imdb_regex};
 
 // pub rather than pub(crate): re-exported under fuzz_targets for the `fuzz/`
 // crate (see lib.rs). Not part of the supported public API otherwise.
+#[expect(
+    clippy::indexing_slicing,
+    reason = "length checks guard all split-part indexing"
+)]
 pub fn parse_episode_locator(raw: &str) -> Option<(String, i32, i32)> {
     let parts = raw
         .split(':')
@@ -37,6 +41,10 @@ pub fn parse_episode_locator(raw: &str) -> Option<(String, i32, i32)> {
 // episode number — callers that match against a specific target use that to
 // reject a longer digit run than what they're looking for (e.g. "S01E100"
 // shouldn't count as a match for episode 10).
+#[expect(
+    clippy::indexing_slicing,
+    reason = "cursor bounds are checked before each byte or ASCII slice access"
+)]
 pub(crate) fn scan_compact_episode_codes(text: &str) -> Vec<(i32, i32, bool)> {
     let lower = text.to_ascii_lowercase();
     let bytes = lower.as_bytes();
@@ -108,6 +116,10 @@ pub(crate) fn episode_id(base_id: &str, season: i32, episode: i32) -> String {
     format!("{base_id}:{season}:{episode}")
 }
 
+#[expect(
+    clippy::indexing_slicing,
+    reason = "part lengths are checked before video-id component indexing"
+)]
 pub(crate) fn parse_video_id_json(id: &str) -> String {
     let parts: Vec<&str> = id.split(':').collect();
     let mut map = serde_json::Map::new();
@@ -151,8 +163,9 @@ pub(crate) fn build_trakt_ids_json(video_id: &str) -> Option<String> {
         return serde_json::to_string(&serde_json::json!({"imdb": imdb})).ok();
     }
     if let Some(tmdb) = parsed.get("tmdb").and_then(serde_json::Value::as_str)
-        && let Ok(n) = tmdb.parse::<i64>() {
-            return serde_json::to_string(&serde_json::json!({"tmdb": n})).ok();
-        }
+        && let Ok(n) = tmdb.parse::<i64>()
+    {
+        return serde_json::to_string(&serde_json::json!({"tmdb": n})).ok();
+    }
     None
 }
