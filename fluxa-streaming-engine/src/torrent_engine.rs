@@ -102,11 +102,18 @@ struct PlaybackTelemetry {
     stall_duration_ms: u64,
 }
 
+#[derive(Clone)]
+struct ActiveTelemetrySession {
+    id: String,
+    generation: u64,
+}
+
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct TelemetryEvent {
     link: String,
     session_id: String,
+    session_generation: u64,
     event: String,
     elapsed_ms: Option<u64>,
 }
@@ -176,7 +183,7 @@ struct EngineState {
     playback_windows: Arc<Mutex<HashMap<(usize, usize), PlaybackWindow>>>,
     playback_sessions: Arc<Mutex<HashMap<(usize, usize), PlaybackSession>>>,
     playback_telemetry: Arc<Mutex<HashMap<(usize, String), PlaybackTelemetry>>>,
-    active_telemetry_sessions: Arc<Mutex<HashMap<usize, String>>>,
+    active_telemetry_sessions: Arc<Mutex<HashMap<usize, ActiveTelemetrySession>>>,
     /// Root cancellation per torrent. Probe readers use child tokens too, so
     /// they cannot outlive playback deactivation or cache eviction.
     torrent_cancellations: Arc<Mutex<HashMap<usize, CancellationToken>>>,
@@ -646,24 +653,45 @@ async fn record_telemetry(
     if event.session_id.is_empty() || event.session_id.len() > 128 {
         return error_response(StatusCode::BAD_REQUEST, "invalid telemetry session");
     }
-    if event.event == "sessionStarted" {
-        let mut active_sessions = match state.active_telemetry_sessions.lock() {
-            Ok(sessions) => sessions,
-            Err(_) => {
-                return error_response(StatusCode::INTERNAL_SERVER_ERROR, "telemetry unavailable");
+    let mut active_sessions = match state.active_telemetry_sessions.lock() {
+        Ok(sessions) => sessions,
+        Err(_) => {
+            return error_response(StatusCode::INTERNAL_SERVER_ERROR, "telemetry unavailable");
+        }
+    };
+    match active_sessions.get(&id) {
+        Some(active) if event.session_generation < active.generation => {
+            return error_response(StatusCode::CONFLICT, "stale telemetry session");
+        }
+        Some(active)
+            if event.session_generation == active.generation && event.session_id != active.id =>
+        {
+            return error_response(StatusCode::CONFLICT, "telemetry session mismatch");
+        }
+        Some(active) if event.session_generation > active.generation => {
+            active_sessions.insert(
+                id,
+                ActiveTelemetrySession {
+                    id: event.session_id.clone(),
+                    generation: event.session_generation,
+                },
+            );
+            if let Ok(mut telemetry) = state.playback_telemetry.lock() {
+                telemetry.retain(|(stored_id, _), _| *stored_id != id);
             }
-        };
-        active_sessions.insert(id, event.session_id.clone());
-    } else if state
-        .active_telemetry_sessions
-        .lock()
-        .ok()
-        .and_then(|sessions| sessions.get(&id).cloned())
-        .as_deref()
-        != Some(event.session_id.as_str())
-    {
-        return error_response(StatusCode::CONFLICT, "telemetry session is not active");
+        }
+        None => {
+            active_sessions.insert(
+                id,
+                ActiveTelemetrySession {
+                    id: event.session_id.clone(),
+                    generation: event.session_generation,
+                },
+            );
+        }
+        _ => {}
     }
+    drop(active_sessions);
     let mut telemetry = match state.playback_telemetry.lock() {
         Ok(telemetry) => telemetry,
         Err(_) => {
@@ -672,7 +700,6 @@ async fn record_telemetry(
     };
     let entry = telemetry.entry((id, event.session_id)).or_default();
     match event.event.as_str() {
-        "sessionStarted" => {}
         "firstFrame" => entry.first_frame_ms = event.elapsed_ms.or(entry.first_frame_ms),
         "stallStarted" => entry.stall_count = entry.stall_count.saturating_add(1),
         "stallEnded" => {
@@ -1079,17 +1106,17 @@ async fn status_response(
             window.smoothed_download_bps * 8.0 / window.estimated_bitrate_bps.max(1) as f64
         })
         .unwrap_or(0.0);
+    let active_session = state
+        .active_telemetry_sessions
+        .lock()
+        .ok()
+        .and_then(|sessions| sessions.get(&id).cloned());
     let playback_telemetry = state
         .playback_telemetry
         .lock()
         .ok()
         .and_then(|telemetry| {
-            state
-                .active_telemetry_sessions
-                .lock()
-                .ok()
-                .and_then(|sessions| sessions.get(&id).cloned())
-                .and_then(|session_id| telemetry.get(&(id, session_id)).copied())
+            active_session.and_then(|session| telemetry.get(&(id, session.id)).copied())
         })
         .unwrap_or_default();
     let scheduler = window.map(|window| {
