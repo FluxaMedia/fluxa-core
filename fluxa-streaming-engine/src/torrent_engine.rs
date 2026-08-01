@@ -14,6 +14,7 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
 use std::io::SeekFrom;
+use std::future::Future;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 use std::net::SocketAddr;
@@ -105,7 +106,12 @@ impl<R: tokio::io::AsyncRead + Unpin> tokio::io::AsyncRead for CancellableReader
         cx: &mut Context<'_>,
         buf: &mut tokio::io::ReadBuf<'_>,
     ) -> Poll<std::io::Result<()>> {
-        if self.cancel.is_cancelled() {
+        let cancelled = {
+            let cancelled = self.cancel.cancelled();
+            tokio::pin!(cancelled);
+            cancelled.poll(cx).is_ready()
+        };
+        if cancelled {
             return Poll::Ready(Err(std::io::Error::new(
                 std::io::ErrorKind::Interrupted,
                 "playback session cancelled",
