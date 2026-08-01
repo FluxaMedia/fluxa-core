@@ -13,6 +13,57 @@ use std::time::Duration;
 
 pub(super) const PLUGIN_TIMEOUT_SECS: u64 = 60;
 pub(super) const PLUGIN_MEMORY_LIMIT: usize = 256 * 1024 * 1024;
+pub const PLUGIN_MAX_REQUEST_BODY_BYTES: usize = 1_048_576;
+pub const PLUGIN_MAX_RESPONSE_BODY_BYTES: usize = 8 * 1_048_576;
+
+pub fn plugin_http_request_error(request: &PluginHttpRequest) -> Option<&'static str> {
+    let lower = request.url.to_ascii_lowercase();
+    if !(lower.starts_with("http://") || lower.starts_with("https://")) {
+        return Some("only http and https plugin URLs are allowed");
+    }
+    let authority = lower
+        .split("//")
+        .nth(1)?
+        .split('/')
+        .next()?
+        .split('@')
+        .next_back()?;
+    let host = authority.split(':').next().unwrap_or(authority);
+    let private_172 = host
+        .strip_prefix("172.")
+        .and_then(|rest| rest.split('.').next())
+        .and_then(|part| part.parse::<u8>().ok())
+        .is_some_and(|second| (16..=31).contains(&second));
+    if host == "localhost"
+        || host.ends_with(".localhost")
+        || host == "::1"
+        || host.starts_with("127.")
+        || host.starts_with("10.")
+        || host.starts_with("192.168.")
+        || host.starts_with("169.254.")
+        || host.starts_with("0.")
+        || private_172
+        || host.starts_with("fc")
+        || host.starts_with("fd")
+        || host.starts_with("fe80:")
+    {
+        return Some("private or loopback plugin URL is not allowed");
+    }
+    if let Some(body) = &request.body
+        && body.len() > PLUGIN_MAX_REQUEST_BODY_BYTES
+    {
+        return Some("plugin request body exceeds limit");
+    }
+    if request.headers.keys().any(|key| {
+        !matches!(
+            key.to_ascii_lowercase().as_str(),
+            "accept" | "accept-language" | "content-type" | "origin" | "referer" | "user-agent"
+        )
+    }) {
+        return Some("plugin request contains a disallowed header");
+    }
+    None
+}
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[cfg_attr(feature = "uniffi-bindings", derive(uniffi::Record))]
@@ -113,6 +164,20 @@ mod tests {
 
     fn mock_client() -> Arc<dyn PluginHttpClient> {
         Arc::new(MockHttpClient)
+    }
+
+    #[test]
+    fn plugin_request_policy_rejects_private_hosts_and_credentials() {
+        let mut request = PluginHttpRequest {
+            url: "http://127.0.0.1/admin".to_string(),
+            ..PluginHttpRequest::default()
+        };
+        assert!(plugin_http_request_error(&request).is_some());
+        request.url = "https://example.com/".to_string();
+        request
+            .headers
+            .insert("Authorization".to_string(), "secret".to_string());
+        assert!(plugin_http_request_error(&request).is_some());
     }
 
     fn run_scraper(code: &str, tmdb_id: &str, media_type: &str) -> String {

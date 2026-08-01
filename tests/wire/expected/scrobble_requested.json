@@ -15,21 +15,5 @@
     }
   ],
   "revision": 1,
-  "state": {
-    "pendingEffects": [
-      {
-        "generation": 1,
-        "id": "fx-1",
-        "payload": {
-          "actionName": "pause",
-          "itemId": "tt1",
-          "metaType": "movie",
-          "profile": null,
-          "progress": 42.5,
-          "token": "trakt-token"
-        },
-        "type": "enqueueTraktScrobble"
-      }
-    ]
-  }
+  "state": {}
 }

@@ -1,5 +1,8 @@
 use super::dom_bridge::DomBridge;
-use super::{PluginHttpClient, PluginHttpRequest, crypto_bridge};
+use super::{
+    PLUGIN_MAX_RESPONSE_BODY_BYTES, PluginHttpClient, PluginHttpRequest, crypto_bridge,
+    plugin_http_request_error,
+};
 use rquickjs::{Ctx, Function};
 use std::collections::HashMap;
 use std::rc::Rc;
@@ -14,18 +17,31 @@ fn native_fetch(
     follow_redirects: bool,
 ) -> String {
     let headers: HashMap<String, String> = serde_json::from_str(&headers_json).unwrap_or_default();
-    let response = client.fetch(PluginHttpRequest {
+    let request = PluginHttpRequest {
         method,
         url,
         headers,
         body,
         follow_redirects,
-    });
+    };
+    if let Some(error) = plugin_http_request_error(&request) {
+        return format!(
+            "{{\"ok\":false,\"status\":0,\"body\":\"\",\"error\":{}}}",
+            serde_json::to_string(error).unwrap_or_else(|_| "\"plugin request rejected\"".into())
+        );
+    }
+    let mut response = client.fetch(request);
+    if response.body.len() > PLUGIN_MAX_RESPONSE_BODY_BYTES {
+        response.body.truncate(PLUGIN_MAX_RESPONSE_BODY_BYTES);
+        response.ok = false;
+        response.error = Some("plugin response body exceeds limit".to_string());
+    }
     format!(
-        "{{\"ok\":{},\"status\":{},\"body\":{}}}",
+        "{{\"ok\":{},\"status\":{},\"body\":{},\"error\":{}}}",
         response.ok,
         response.status,
-        serde_json::to_string(&response.body).unwrap_or_else(|_| "\"\"".into())
+        serde_json::to_string(&response.body).unwrap_or_else(|_| "\"\"".into()),
+        serde_json::to_string(&response.error).unwrap_or_else(|_| "null".into())
     )
 }
 

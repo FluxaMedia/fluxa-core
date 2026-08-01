@@ -180,10 +180,22 @@ mod tests {
     #[test]
     fn stream_url_omits_missing_or_invalid_duration() {
         let missing = build_torrent_stream_url(
-            "http://127.0.0.1:8090", "magnet:?xt=urn:btih:abc", "Example", None, true, false, None,
+            "http://127.0.0.1:8090",
+            "magnet:?xt=urn:btih:abc",
+            "Example",
+            None,
+            true,
+            false,
+            None,
         );
         let zero = build_torrent_stream_url(
-            "http://127.0.0.1:8090", "magnet:?xt=urn:btih:abc", "Example", None, true, false, Some(0),
+            "http://127.0.0.1:8090",
+            "magnet:?xt=urn:btih:abc",
+            "Example",
+            None,
+            true,
+            false,
+            Some(0),
         );
 
         assert!(!missing.contains("durationMs="));

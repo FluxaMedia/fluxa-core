@@ -13,14 +13,14 @@ use librqbit::{
 use serde::Deserialize;
 use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
-use std::io::SeekFrom;
 use std::future::Future;
-use std::pin::Pin;
-use std::task::{Context, Poll};
+use std::io::SeekFrom;
 use std::net::SocketAddr;
 use std::path::PathBuf;
+use std::pin::Pin;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
+use std::task::{Context, Poll};
 use std::thread;
 use std::time::{Duration, Instant};
 use tokio::io::{AsyncReadExt, AsyncSeekExt};
@@ -95,6 +95,21 @@ struct PlaybackSession {
     cancel: CancellationToken,
 }
 
+#[derive(Default, Clone, Copy)]
+struct PlaybackTelemetry {
+    first_frame_ms: Option<u64>,
+    stall_count: u64,
+    stall_duration_ms: u64,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct TelemetryEvent {
+    link: String,
+    event: String,
+    elapsed_ms: Option<u64>,
+}
+
 struct CancellableReader<R> {
     inner: R,
     // Keep the cancellation future alive while the underlying rqbit reader is
@@ -159,6 +174,7 @@ struct EngineState {
     prioritized_files: Arc<Mutex<HashMap<usize, TorrentFileFocus>>>,
     playback_windows: Arc<Mutex<HashMap<(usize, usize), PlaybackWindow>>>,
     playback_sessions: Arc<Mutex<HashMap<(usize, usize), PlaybackSession>>>,
+    playback_telemetry: Arc<Mutex<HashMap<usize, PlaybackTelemetry>>>,
     /// Root cancellation per torrent. Probe readers use child tokens too, so
     /// they cannot outlive playback deactivation or cache eviction.
     torrent_cancellations: Arc<Mutex<HashMap<usize, CancellationToken>>>,
@@ -322,6 +338,7 @@ pub fn start_torrent_server(
                 prioritized_files: Arc::new(Mutex::new(HashMap::new())),
                 playback_windows: Arc::new(Mutex::new(HashMap::new())),
                 playback_sessions: Arc::new(Mutex::new(HashMap::new())),
+                playback_telemetry: Arc::new(Mutex::new(HashMap::new())),
                 torrent_cancellations: Arc::new(Mutex::new(HashMap::new())),
                 lifecycle: Arc::new(Mutex::new(HashMap::new())),
                 active_torrent: Arc::new(Mutex::new(None)),
@@ -337,6 +354,7 @@ pub fn start_torrent_server(
                 .route("/health", get(health))
                 .route("/settings", post(update_settings))
                 .route("/torrents", post(torrents))
+                .route("/telemetry", post(record_telemetry))
                 .route("/stream/fname", get(stream_fname))
                 .with_state(state);
 
@@ -609,6 +627,37 @@ async fn torrents(
         }
         _ => error_response(StatusCode::BAD_REQUEST, "unsupported torrent action"),
     }
+}
+
+async fn record_telemetry(
+    State(state): State<EngineState>,
+    ConnectInfo(remote_addr): ConnectInfo<SocketAddr>,
+    Json(event): Json<TelemetryEvent>,
+) -> Response {
+    if !request_authorized(&state, remote_addr, None) {
+        return error_response(StatusCode::UNAUTHORIZED, "unauthorized");
+    }
+    let Some(id) = lookup_known_link(&state, Some(&event.link)) else {
+        return error_response(StatusCode::NOT_FOUND, "torrent not found");
+    };
+    let mut telemetry = match state.playback_telemetry.lock() {
+        Ok(telemetry) => telemetry,
+        Err(_) => {
+            return error_response(StatusCode::INTERNAL_SERVER_ERROR, "telemetry unavailable");
+        }
+    };
+    let entry = telemetry.entry(id).or_default();
+    match event.event.as_str() {
+        "firstFrame" => entry.first_frame_ms = event.elapsed_ms.or(entry.first_frame_ms),
+        "stallStarted" => entry.stall_count = entry.stall_count.saturating_add(1),
+        "stallEnded" => {
+            entry.stall_duration_ms = entry
+                .stall_duration_ms
+                .saturating_add(event.elapsed_ms.unwrap_or_default())
+        }
+        _ => return error_response(StatusCode::BAD_REQUEST, "unsupported telemetry event"),
+    }
+    (StatusCode::OK, Json(json!({}))).into_response()
 }
 
 async fn stream_fname(
@@ -954,10 +1003,7 @@ async fn status_response(
         .and_then(|stats| stats.live.as_ref())
         .map(|live| live.snapshot.peer_stats.seen)
         .unwrap_or(0);
-    let peer_quality = state
-        .api
-        .api_peer_quality(TorrentIdOrHash::Id(id))
-        .ok();
+    let peer_quality = state.api.api_peer_quality(TorrentIdOrHash::Id(id)).ok();
     let preload_size = state.preload_size.lock().map(|value| *value).unwrap_or(0);
     let mut window = focus_file.and_then(|file_id| playback_window_for(state, id, file_id));
     let playback_offset = window.map(|window| window.playback_offset).unwrap_or(0);
@@ -972,7 +1018,9 @@ async fn status_response(
                     TorrentIdOrHash::Id(id),
                     file_id,
                     playback_offset,
-                    window.map(|window| window.warm_ahead_bytes).unwrap_or(preload_size),
+                    window
+                        .map(|window| window.warm_ahead_bytes)
+                        .unwrap_or(preload_size),
                 )
                 .ok()
                 .map(|response| response.contiguous_bytes)
@@ -1002,8 +1050,29 @@ async fn status_response(
         })
         .unwrap_or(0.0);
     let speed_to_bitrate_ratio = window
-        .map(|window| window.smoothed_download_bps * 8.0 / window.estimated_bitrate_bps.max(1) as f64)
+        .map(|window| {
+            window.smoothed_download_bps * 8.0 / window.estimated_bitrate_bps.max(1) as f64
+        })
         .unwrap_or(0.0);
+    let playback_telemetry = state
+        .playback_telemetry
+        .lock()
+        .ok()
+        .and_then(|telemetry| telemetry.get(&id).copied())
+        .unwrap_or_default();
+    let scheduler = window.map(|window| {
+        json!({
+            "torrentId": window.torrent_id,
+            "fileId": window.file_id,
+            "urgentAheadBytes": window.urgent_ahead_bytes,
+            "warmAheadBytes": window.warm_ahead_bytes,
+            "contiguousReadyBytes": window.contiguous_ready_bytes,
+            "seekGeneration": window.seek_generation,
+            "seekElapsedMs": window.seek_started_at.map(|started| started.elapsed().as_millis() as u64),
+            "windowAgeMs": window.updated_at.elapsed().as_millis() as u64,
+            "wasReady": window.was_ready,
+        })
+    });
     let stat = match stats.as_ref().map(|stats| stats.state) {
         Some(TorrentStatsState::Live)
             if loaded_size >= target_buffer_bytes && target_buffer_bytes > 0 =>
@@ -1044,6 +1113,17 @@ async fn status_response(
         "phase": playback_phase(stats.as_ref(), loaded_size, target_buffer_bytes, window),
         "playback_offset": playback_offset,
         "requested_end": window.map(|window| window.requested_end).unwrap_or(0),
+        "telemetry": {
+            "downloadSpeedBps": download_speed,
+            "speedToBitrateRatio": speed_to_bitrate_ratio,
+            "bufferedAheadBytes": loaded_size,
+            "bufferedAheadSeconds": buffered_ahead_seconds,
+            "phase": playback_phase(stats.as_ref(), loaded_size, target_buffer_bytes, window),
+            "scheduler": scheduler,
+            "firstFrameMs": playback_telemetry.first_frame_ms,
+            "stallCount": playback_telemetry.stall_count,
+            "stallDurationMs": playback_telemetry.stall_duration_ms
+        },
         "file_stats": file_stats
     }))
 }
@@ -1229,7 +1309,9 @@ async fn prewarm_reaper(state: EngineState) {
                 .api
                 .api_torrent_action_pause(TorrentIdOrHash::Id(torrent_id))
                 .await;
-            debug_log(format!("[TorrServer] paused idle prewarm torrent={torrent_id}"));
+            debug_log(format!(
+                "[TorrServer] paused idle prewarm torrent={torrent_id}"
+            ));
         }
         enforce_cache_limit(&state).await;
     }
@@ -1239,7 +1321,9 @@ async fn enforce_cache_limit(state: &EngineState) {
     let Some(limit) = state.cache_limit_bytes.lock().ok().and_then(|limit| *limit) else {
         return;
     };
-    let snapshots = state.api.api_torrent_list_ext(ApiTorrentListOpts { with_stats: true });
+    let snapshots = state
+        .api
+        .api_torrent_list_ext(ApiTorrentListOpts { with_stats: true });
     let mut entries = state
         .lifecycle
         .lock()
@@ -1254,7 +1338,11 @@ async fn enforce_cache_limit(state: &EngineState) {
                         id,
                         lifecycle.active,
                         lifecycle.last_accessed,
-                        torrent.stats.as_ref().map(|stats| stats.progress_bytes).unwrap_or(0),
+                        torrent
+                            .stats
+                            .as_ref()
+                            .map(|stats| stats.progress_bytes)
+                            .unwrap_or(0),
                     ))
                 })
                 .collect::<Vec<_>>()
@@ -1297,7 +1385,9 @@ async fn enforce_cache_limit(state: &EngineState) {
                 }
             }
             cancel_torrent_root(state, torrent_id);
-            debug_log(format!("[TorrServer] evicted inactive torrent={torrent_id} for cache limit"));
+            debug_log(format!(
+                "[TorrServer] evicted inactive torrent={torrent_id} for cache limit"
+            ));
         }
     }
 }
@@ -1331,13 +1421,17 @@ fn playback_session_for(
         .ok()
         .and_then(|windows| windows.get(&key).map(|window| window.playback_offset));
     if let Ok(mut sessions) = state.playback_sessions.lock() {
-        let seek = previous_offset.is_some_and(|previous| offset.abs_diff(previous) > seek_threshold);
+        let seek =
+            previous_offset.is_some_and(|previous| offset.abs_diff(previous) > seek_threshold);
         if seek {
             if let Some(previous) = sessions.get(&key) {
                 previous.cancel.cancel();
             }
         }
-        let generation = sessions.get(&key).map(|session| session.generation).unwrap_or(0)
+        let generation = sessions
+            .get(&key)
+            .map(|session| session.generation)
+            .unwrap_or(0)
             + u64::from(seek || !sessions.contains_key(&key));
         let session = sessions.entry(key).or_insert_with(|| PlaybackSession {
             generation,
@@ -1393,7 +1487,12 @@ fn is_probe_range(
     is_probe_for_window(window, offset, length, MAX_PROBE_BYTES)
 }
 
-fn is_probe_for_window(window: PlaybackWindow, offset: u64, length: u64, max_probe_bytes: u64) -> bool {
+fn is_probe_for_window(
+    window: PlaybackWindow,
+    offset: u64,
+    length: u64,
+    max_probe_bytes: u64,
+) -> bool {
     length <= max_probe_bytes
         && offset.abs_diff(window.playback_offset)
             > (window.warm_ahead_bytes / 4).max(max_probe_bytes)
@@ -1417,7 +1516,9 @@ fn playback_phase(
         Some(TorrentStatsState::Paused) => "stalled",
         Some(TorrentStatsState::Live)
             if window.is_some_and(|window| {
-                window.seek_started_at.is_some_and(|started| started.elapsed() < Duration::from_secs(2))
+                window
+                    .seek_started_at
+                    .is_some_and(|started| started.elapsed() < Duration::from_secs(2))
             }) =>
         {
             "seeking"
@@ -1528,8 +1629,18 @@ mod tests {
             seek_started_at: None,
             updated_at: std::time::Instant::now(),
         };
-        assert!(is_probe_for_window(window, 500 * 1024 * 1024, 1024, 2 * 1024 * 1024));
-        assert!(!is_probe_for_window(window, 500 * 1024 * 1024, 8 * 1024 * 1024, 2 * 1024 * 1024));
+        assert!(is_probe_for_window(
+            window,
+            500 * 1024 * 1024,
+            1024,
+            2 * 1024 * 1024
+        ));
+        assert!(!is_probe_for_window(
+            window,
+            500 * 1024 * 1024,
+            8 * 1024 * 1024,
+            2 * 1024 * 1024
+        ));
     }
 
     #[test]

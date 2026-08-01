@@ -245,7 +245,10 @@ pub(crate) fn start_local_stream_server(
         port,
     };
     let thread = thread::spawn(move || {
-        let Ok(runtime) = tokio::runtime::Builder::new_current_thread().enable_all().build() else {
+        let Ok(runtime) = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+        else {
             return;
         };
         runtime.block_on(async move {

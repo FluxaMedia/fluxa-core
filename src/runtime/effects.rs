@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 
 /// Exhaustive catalog of all effect types the headless engine can emit.
 ///
@@ -60,6 +61,57 @@ pub enum EffectKind {
 }
 
 impl EffectKind {
+    pub const ALL: &[Self] = &[
+        Self::ClearPlaybackProgress,
+        Self::EnqueueOfflineDownload,
+        Self::EnqueueTraktScrobble,
+        Self::ExchangeAuthCode,
+        Self::ExecutePlugin,
+        Self::FetchAddonManifest,
+        Self::FetchAddonResource,
+        Self::FetchCatalogPage,
+        Self::FetchDiscoverPage,
+        Self::FetchDetailSecondary,
+        Self::FetchDetailStreams,
+        Self::FetchIntroSegments,
+        Self::FetchMetaDetail,
+        Self::FetchMetaDetailLookup,
+        Self::FetchPluginManifest,
+        Self::FetchSeasonEpisodes,
+        Self::FetchSubtitles,
+        Self::FetchYoutubeTrailerPlayer,
+        Self::FetchYoutubeTrailerPlayerScript,
+        Self::FetchYoutubeTrailerWatchConfig,
+        Self::LoadStreams,
+        Self::NotifyReleasedEpisodes,
+        Self::PrefetchDetailStreams,
+        Self::PrefetchNextEpisodeStreams,
+        Self::PrepareDirectPlayback,
+        Self::ReadCalendarMonth,
+        Self::ReadDetailLocalState,
+        Self::ReadDiscoverCatalogFilters,
+        Self::ReadHomeBootstrap,
+        Self::RefreshContinueWatching,
+        Self::ReadLibraryState,
+        Self::ReadPlaybackProgress,
+        Self::RefreshAuthToken,
+        Self::RefreshInstalledAddons,
+        Self::ReplaceExternalContinueWatching,
+        Self::ResolveIntroImdbId,
+        Self::RunAuthFlow,
+        Self::RunDiscover,
+        Self::RunExternalSync,
+        Self::RunSearch,
+        Self::StartTorrentStream,
+        Self::StopTorrent,
+        Self::SyncExternalIntegration,
+        Self::SyncWatchedState,
+        Self::UpdateCalendarWidget,
+        Self::WriteFeedback,
+        Self::WriteLibraryCommand,
+        Self::WritePlaybackProgress,
+        Self::WriteSettings,
+    ];
     pub fn as_str(self) -> &'static str {
         match self {
             EffectKind::ClearPlaybackProgress => "clearPlaybackProgress",
@@ -196,7 +248,10 @@ pub struct EffectEnvelope {
     pub payload: serde_json::Value,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub group_id: Option<String>,
-    #[serde(default = "default_priority", skip_serializing_if = "is_default_priority")]
+    #[serde(
+        default = "default_priority",
+        skip_serializing_if = "is_default_priority"
+    )]
     pub priority: u8,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub dedupe_key: Option<String>,
@@ -210,11 +265,9 @@ impl EffectEnvelope {
     pub fn new(id: String, kind: EffectKind, generation: u64, payload: serde_json::Value) -> Self {
         let (group_id, priority, cache_policy, timeout_ms) = effect_schedule(kind);
         Self {
-            dedupe_key: group_id.as_ref().and_then(|_| {
-                serde_json::to_string(&payload)
-                    .ok()
-                    .map(|payload_key| format!("{}:{generation}:{payload_key}", kind.as_str()))
-            }),
+            dedupe_key: group_id
+                .as_ref()
+                .and_then(|_| payload_dedupe_key(kind, generation, &payload)),
             id,
             kind: kind.as_str().to_owned(),
             generation,
@@ -241,6 +294,20 @@ impl EffectEnvelope {
     }
 }
 
+fn payload_dedupe_key(
+    kind: EffectKind,
+    generation: u64,
+    payload: &serde_json::Value,
+) -> Option<String> {
+    let payload = serde_json::to_string(payload).ok()?;
+    let digest = Sha256::digest(payload.as_bytes());
+    let hash = digest
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect::<String>();
+    Some(format!("{}:{generation}:{hash}", kind.as_str()))
+}
+
 fn default_priority() -> u8 {
     100
 }
@@ -256,16 +323,32 @@ fn effect_schedule(kind: EffectKind) -> (Option<String>, u8, Option<String>, Opt
         | EffectKind::FetchDetailStreams
         | EffectKind::PrefetchDetailStreams
         | EffectKind::PrefetchNextEpisodeStreams
-        | EffectKind::RefreshInstalledAddons => (Some("addon".to_string()), 50, Some("default".to_string()), Some(15_000)),
-        EffectKind::RunSearch | EffectKind::RunDiscover => (Some("addon".to_string()), 40, Some("default".to_string()), Some(15_000)),
-        EffectKind::ExecutePlugin => (Some("plugin".to_string()), 60, Some("no-store".to_string()), Some(10_000)),
+        | EffectKind::RefreshInstalledAddons => (
+            Some("addon".to_string()),
+            50,
+            Some("default".to_string()),
+            Some(15_000),
+        ),
+        EffectKind::RunSearch | EffectKind::RunDiscover => (
+            Some("addon".to_string()),
+            40,
+            Some("default".to_string()),
+            Some(15_000),
+        ),
+        EffectKind::ExecutePlugin => (
+            Some("plugin".to_string()),
+            60,
+            Some("no-store".to_string()),
+            Some(10_000),
+        ),
         _ => (None, 100, None, None),
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::EffectKind;
+    use super::{EffectEnvelope, EffectKind};
+    use serde_json::json;
 
     #[test]
     fn as_str_and_from_str_roundtrip_for_every_variant() {
@@ -327,5 +410,37 @@ mod tests {
     #[test]
     fn from_str_rejects_unknown_value() {
         assert_eq!(EffectKind::from_str("notAnEffect"), None);
+    }
+
+    #[test]
+    fn scheduled_effect_dedupe_keys_hash_the_payload() {
+        let first = EffectEnvelope::new(
+            "fx-1".to_string(),
+            EffectKind::FetchAddonResource,
+            7,
+            json!({ "url": "https://example.com/one", "token": "secret" }),
+        );
+        let duplicate = EffectEnvelope::new(
+            "fx-2".to_string(),
+            EffectKind::FetchAddonResource,
+            7,
+            json!({ "url": "https://example.com/one", "token": "secret" }),
+        );
+        let different = EffectEnvelope::new(
+            "fx-3".to_string(),
+            EffectKind::FetchAddonResource,
+            7,
+            json!({ "url": "https://example.com/two", "token": "secret" }),
+        );
+
+        assert_eq!(first.dedupe_key, duplicate.dedupe_key);
+        assert_ne!(first.dedupe_key, different.dedupe_key);
+        assert!(
+            !first
+                .dedupe_key
+                .as_deref()
+                .unwrap_or_default()
+                .contains("secret")
+        );
     }
 }

@@ -1,7 +1,12 @@
 use serde_json::{Value, json};
 use std::collections::HashMap;
 
-fn request_plan(url: String, method: &str, headers: &[(&str, String)], body: Option<&Value>) -> Value {
+fn request_plan(
+    url: String,
+    method: &str,
+    headers: &[(&str, String)],
+    body: Option<&Value>,
+) -> Value {
     let headers_obj: serde_json::Map<String, Value> = headers
         .iter()
         .map(|(k, v)| (k.to_string(), Value::String(v.clone())))
@@ -19,7 +24,9 @@ pub(crate) fn intro_db_segments_plan_json(args_json: &str) -> Option<String> {
     let imdb_id = args.get("imdbId").and_then(Value::as_str)?;
     let season = args.get("season").and_then(Value::as_i64)?;
     let episode = args.get("episode").and_then(Value::as_i64)?;
-    let url = format!("https://api.introdb.app/segments?imdb_id={imdb_id}&season={season}&episode={episode}");
+    let url = format!(
+        "https://api.introdb.app/segments?imdb_id={imdb_id}&season={season}&episode={episode}"
+    );
     serde_json::to_string(&request_plan(url, "GET", &[], None)).ok()
 }
 
@@ -64,7 +71,9 @@ pub(crate) fn skipdb_segments_plan_json(args_json: &str) -> Option<String> {
     let imdb_id = args.get("imdbId").and_then(Value::as_str)?;
     let season = args.get("season").and_then(Value::as_i64)?;
     let episode = args.get("episode").and_then(Value::as_i64)?;
-    let url = format!("https://api.skipdb.tv/api/segments?imdb_id={imdb_id}&season={season}&episode={episode}");
+    let url = format!(
+        "https://api.skipdb.tv/api/segments?imdb_id={imdb_id}&season={season}&episode={episode}"
+    );
     serde_json::to_string(&request_plan(url, "GET", &[], None)).ok()
 }
 
@@ -135,7 +144,10 @@ fn clean_anilist_title(title: &str) -> String {
     let trimmed = title.trim_end();
     if let Some(idx) = trimmed.rfind(" (") {
         let inner = &trimmed[idx + 2..];
-        if trimmed.ends_with(')') && inner.len() == 5 && inner[..4].chars().all(|c| c.is_ascii_digit()) {
+        if trimmed.ends_with(')')
+            && inner.len() == 5
+            && inner[..4].chars().all(|c| c.is_ascii_digit())
+        {
             return trimmed[..idx].trim().to_string();
         }
     }
@@ -603,10 +615,22 @@ fn the_introdb_canonical_type(wire: &str) -> &'static str {
 pub(crate) fn the_introdb_media_plan_json(args_json: &str) -> Option<String> {
     let args: Value = serde_json::from_str(args_json).ok()?;
     let tmdb_id = args.get("tmdbId").and_then(Value::as_i64);
-    let imdb_id = args.get("imdbId").and_then(Value::as_str).filter(|s| s.starts_with("tt"));
-    let season = args.get("season").and_then(Value::as_i64).filter(|s| *s > 0);
-    let episode = args.get("episode").and_then(Value::as_i64).filter(|e| *e > 0);
-    let duration_ms = args.get("durationMs").and_then(Value::as_i64).filter(|d| *d > 0);
+    let imdb_id = args
+        .get("imdbId")
+        .and_then(Value::as_str)
+        .filter(|s| s.starts_with("tt"));
+    let season = args
+        .get("season")
+        .and_then(Value::as_i64)
+        .filter(|s| *s > 0);
+    let episode = args
+        .get("episode")
+        .and_then(Value::as_i64)
+        .filter(|e| *e > 0);
+    let duration_ms = args
+        .get("durationMs")
+        .and_then(Value::as_i64)
+        .filter(|d| *d > 0);
 
     let mut query = match (tmdb_id, imdb_id) {
         (Some(id), _) => format!("tmdb_id={id}"),
@@ -625,12 +649,18 @@ pub(crate) fn the_introdb_media_plan_json(args_json: &str) -> Option<String> {
 
 pub(crate) fn parse_the_introdb_segments_json(args_json: &str) -> Option<String> {
     let args: Value = serde_json::from_str(args_json).ok()?;
-    let response: Value = serde_json::from_str(args.get("responseJson").and_then(Value::as_str)?).ok()?;
-    let duration_ms = args.get("durationMs").and_then(Value::as_i64).filter(|d| *d > 0);
+    let response: Value =
+        serde_json::from_str(args.get("responseJson").and_then(Value::as_str)?).ok()?;
+    let duration_ms = args
+        .get("durationMs")
+        .and_then(Value::as_i64)
+        .filter(|d| *d > 0);
 
     let mut segments = Vec::new();
     for wire_type in &["intro", "recap", "credits", "preview"] {
-        let Some(items) = response.get(*wire_type).and_then(Value::as_array) else { continue };
+        let Some(items) = response.get(*wire_type).and_then(Value::as_array) else {
+            continue;
+        };
         let canonical = the_introdb_canonical_type(wire_type);
         for item in items {
             let start_ms = item.get("start_ms").and_then(Value::as_i64).unwrap_or(0);
@@ -660,8 +690,14 @@ pub(crate) fn the_introdb_submit_plan_json(args_json: &str) -> Option<String> {
     let end_sec = args.get("endSec").and_then(Value::as_f64);
     let video_duration_ms = args.get("videoDurationMs").and_then(Value::as_i64);
     let imdb_id = args.get("imdbId").and_then(Value::as_str);
-    let season = args.get("season").and_then(Value::as_i64).filter(|s| *s > 0);
-    let episode = args.get("episode").and_then(Value::as_i64).filter(|e| *e > 0);
+    let season = args
+        .get("season")
+        .and_then(Value::as_i64)
+        .filter(|s| *s > 0);
+    let episode = args
+        .get("episode")
+        .and_then(Value::as_i64)
+        .filter(|e| *e > 0);
 
     let mut body = json!({
         "tmdb_id": tmdb_id,
@@ -727,8 +763,10 @@ mod tests {
                 .iter()
                 .any(|s| s["type"] == "intro" && s["startTime"] == 0 && s["endTime"] == 62000)
         );
-        assert!(segments.iter().any(|s| s["type"] == "outro"
-            && s["startTime"] == 3180000
-            && s["endTime"] == 3240000));
+        assert!(
+            segments.iter().any(|s| s["type"] == "outro"
+                && s["startTime"] == 3180000
+                && s["endTime"] == 3240000)
+        );
     }
 }

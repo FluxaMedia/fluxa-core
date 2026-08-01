@@ -8,25 +8,20 @@ use crate::runtime::{EffectEnvelope, EffectKind};
 
 impl HeadlessEngine {
     pub(super) fn complete_effect(&mut self, result: EffectResultInput) -> Vec<EffectEnvelope> {
-        let Some(effect) = self
-            .state
-            .pending_effects
-            .iter()
-            .find(|effect| effect.id == result.effect_id)
-            .cloned()
-        else {
+        let Some(effect) = self.take_pending_effect(&result.effect_id) else {
             return vec![];
         };
         let generation = effect.generation;
-        // Unknown effect type (e.g. stale build mismatch between platform and core) — drop silently.
+        // A stale build mismatch still needs to clear the runtime registry entry. The FFI
+        // boundary has no structured logging facility yet, so keep this non-fatal while making
+        // the mismatch observable to hosts that collect stderr.
         let Some(kind) = EffectKind::from_str(&effect.kind) else {
+            eprintln!(
+                "fluxa-core contract mismatch: completion for unknown effect type '{}' (id '{}', generation {})",
+                effect.kind, effect.id, effect.generation
+            );
             return vec![];
         };
-        self.state
-            .pending_effects
-            .retain(|pending| pending.id != result.effect_id);
-        self.delivered_effect_ids.remove(&result.effect_id);
-        self.effect_created_at.remove(&result.effect_id);
         let effect_type = kind.as_str();
 
         // No wildcard arm: adding an EffectKind variant without handling it here is a compile error.

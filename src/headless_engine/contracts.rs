@@ -400,6 +400,4 @@ pub(super) struct StatePatch {
     pub trailer: Option<super::trailer::TrailerState>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub plugins: Option<super::plugins::PluginsState>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub pending_effects: Option<Vec<EffectEnvelope>>,
 }

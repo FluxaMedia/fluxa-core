@@ -8,6 +8,7 @@ pub(super) fn route_core_contract(method: &str, args_json: &str) -> Outcome {
                 .and_then(|o| o.get("portable").and_then(Value::as_bool))
                 .unwrap_or(false),
         )),
+        "coreContractManifest" => into_json(core_contract::core_contract_manifest_json()),
 
         _ => Err(fail(
             ErrorKind::UnknownMethod,
@@ -80,9 +81,9 @@ pub(super) fn route_profile_avatar_pack(method: &str, args_json: &str) -> Outcom
         // args_json IS the request object for all of these. The platform owns
         // the HTTP calls between plans; this crate only validates and maps the
         // GitHub responses into the stable UI contract.
-        "profileAvatarPackManifestPlan" => {
-            opt_json(profile_avatar_pack::profile_avatar_pack_manifest_plan_json(args_json))
-        }
+        "profileAvatarPackManifestPlan" => opt_json(
+            profile_avatar_pack::profile_avatar_pack_manifest_plan_json(args_json),
+        ),
         "profileAvatarPackRepositoryPlan" => {
             opt_json(profile_avatar_pack::profile_avatar_pack_repository_plan_json(args_json))
         }

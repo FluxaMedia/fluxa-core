@@ -9,9 +9,9 @@ pub(super) fn route_intro_segments(method: &str, args_json: &str) -> Outcome {
         "skipdbSegmentsPlan" => opt_json(intro_segments::skipdb_segments_plan_json(args_json)),
         "skipdbSubmitPlan" => opt_json(intro_segments::skipdb_submit_plan_json(args_json)),
         "parseSkipdbSegments" => opt_json(intro_segments::parse_skipdb_segments_json(args_json)),
-        "parsePublicmetadbSegments" => opt_json(
-            intro_segments::parse_publicmetadb_segments_json(args_json),
-        ),
+        "parsePublicmetadbSegments" => {
+            opt_json(intro_segments::parse_publicmetadb_segments_json(args_json))
+        }
         "anilistMalId" => opt_json(intro_segments::anilist_mal_id_json(args_json)),
         "anilistId" => opt_json(intro_segments::anilist_id_json(args_json)),
         "anilistMediaIdPlan" => opt_json(intro_segments::anilist_media_id_plan_json(args_json)),
@@ -21,12 +21,12 @@ pub(super) fn route_intro_segments(method: &str, args_json: &str) -> Outcome {
             opt_json(intro_segments::anime_skip_find_show_plan_json(args_json))
         }
         "animeSkipShowId" => opt_json(intro_segments::anime_skip_show_id_json(args_json)),
-        "animeSkipFindEpisodesPlan" => {
-            opt_json(intro_segments::anime_skip_find_episodes_plan_json(args_json))
-        }
-        "animeSkipFindTimestampsPlan" => {
-            opt_json(intro_segments::anime_skip_find_timestamps_plan_json(args_json))
-        }
+        "animeSkipFindEpisodesPlan" => opt_json(
+            intro_segments::anime_skip_find_episodes_plan_json(args_json),
+        ),
+        "animeSkipFindTimestampsPlan" => opt_json(
+            intro_segments::anime_skip_find_timestamps_plan_json(args_json),
+        ),
         "parseAnimeSkipResults" => {
             opt_json(intro_segments::parse_anime_skip_results_json(args_json))
         }
@@ -34,9 +34,7 @@ pub(super) fn route_intro_segments(method: &str, args_json: &str) -> Outcome {
         "parseTheIntroDbSegments" => {
             opt_json(intro_segments::parse_the_introdb_segments_json(args_json))
         }
-        "theIntroDbSubmitPlan" => {
-            opt_json(intro_segments::the_introdb_submit_plan_json(args_json))
-        }
+        "theIntroDbSubmitPlan" => opt_json(intro_segments::the_introdb_submit_plan_json(args_json)),
         "uniqueIntroSegments" => {
             let args = object(args_json)?;
             opt_json(intro_segments::unique_intro_segments_json(

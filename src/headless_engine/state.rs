@@ -14,7 +14,6 @@ use super::search::SearchState;
 use super::settings::SettingsState;
 use super::sync::SyncState;
 use super::trailer::TrailerState;
-use crate::runtime::EffectEnvelope;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::ops::{Deref, DerefMut};
 
@@ -205,7 +204,6 @@ pub(super) struct EngineState {
     pub(super) offline: Tracked<OfflineState>,
     pub(super) trailer: Tracked<TrailerState>,
     pub(super) plugins: Tracked<PluginsState>,
-    pub(super) pending_effects: Tracked<Vec<EffectEnvelope>>,
     #[serde(rename = "_runtime")]
     pub(super) runtime: RuntimeGenerations,
 }
@@ -230,7 +228,6 @@ impl EngineState {
             offline: self.offline.take_if_dirty(),
             trailer: self.trailer.take_if_dirty(),
             plugins: self.plugins.take_if_dirty(),
-            pending_effects: self.pending_effects.take_if_dirty(),
         }
     }
 }

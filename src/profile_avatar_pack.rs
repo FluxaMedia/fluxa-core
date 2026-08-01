@@ -213,7 +213,10 @@ fn direct_manifest_url(input: &str) -> Option<String> {
 fn is_manifest_filename(url: &str) -> bool {
     let path = url.split('?').next().unwrap_or(url);
     let filename = path.rsplit('/').next().unwrap_or("");
-    matches!(filename.to_ascii_lowercase().as_str(), "pack.json" | "json.pack")
+    matches!(
+        filename.to_ascii_lowercase().as_str(),
+        "pack.json" | "json.pack"
+    )
 }
 
 fn parse_repository_url(input: &str) -> Option<GitHubRepository> {
@@ -250,8 +253,10 @@ fn extract_target_path(rest: &str) -> Option<String> {
     }
     let path = percent_decode(path);
     let (directory, filename) = path.rsplit_once('/').unwrap_or(("", &path));
-    let directory = if matches!(filename.to_ascii_lowercase().as_str(), "pack.json" | "json.pack")
-    {
+    let directory = if matches!(
+        filename.to_ascii_lowercase().as_str(),
+        "pack.json" | "json.pack"
+    ) {
         directory
     } else {
         path.as_str()
@@ -465,7 +470,10 @@ mod tests {
             .unwrap(),
         )
         .unwrap();
-        assert_eq!(output["manifestUrl"], "https://example.com/packs/solo-leveling/pack.json");
+        assert_eq!(
+            output["manifestUrl"],
+            "https://example.com/packs/solo-leveling/pack.json"
+        );
     }
 
     #[test]

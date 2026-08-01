@@ -372,6 +372,15 @@ mod tests {
     }
 
     #[test]
+    fn lifecycle_create_rejects_malformed_initial_state() {
+        for method in ["engine.create", "app.create"] {
+            let result = parse(&core_invoke(method, "{ malformed"));
+            assert_eq!(result["ok"], json!(false));
+            assert_eq!(result["error"]["kind"], json!("invalid_args"));
+        }
+    }
+
+    #[test]
     fn calendar_plan_methods_route_and_compute() {
         let candidates = parse(&core_invoke(
             "calendarSeasonCandidates",

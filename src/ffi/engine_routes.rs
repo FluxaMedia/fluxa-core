@@ -2,9 +2,14 @@ use super::*;
 
 pub(super) fn route_engine_lifecycle(method: &str, args_json: &str) -> Outcome {
     match method {
-        "engine.create" => Ok(json!(
-            headless_engine::create_headless_engine(args_json) as i64
-        )),
+        "engine.create" => {
+            let handle = headless_engine::create_headless_engine(args_json);
+            if handle == 0 {
+                Err(fail(ErrorKind::InvalidArgs, "invalid initial engine state"))
+            } else {
+                Ok(json!(handle as i64))
+            }
+        }
         "engine.snapshot" => result_json(
             headless_engine::headless_engine_snapshot_json(handle(args_json)?),
             method,
@@ -33,7 +38,14 @@ pub(super) fn route_engine_lifecycle(method: &str, args_json: &str) -> Outcome {
             args_json
         )?))),
         "core.drainErrorLog" => opt_json(Some(crate::log_sink::drain_core_log_json())),
-        "app.create" => Ok(json!(app_state::create_app_core_state(args_json) as i64)),
+        "app.create" => {
+            let handle = app_state::create_app_core_state(args_json);
+            if handle == 0 {
+                Err(fail(ErrorKind::InvalidArgs, "invalid initial app state"))
+            } else {
+                Ok(json!(handle as i64))
+            }
+        }
         "app.state" => result_json(app_state::app_core_state_json(handle(args_json)?), method),
         "app.dispatch" => {
             let args = object(args_json)?;

@@ -201,13 +201,13 @@ fn expire_stale_pending_effects_drops_old_but_not_recent_effects() {
 
     // Still well within the window — nothing genuinely in flight should be dropped.
     engine.expire_stale_pending_effects(Instant::now());
-    assert_eq!(engine.state.pending_effects.len(), 2);
+    assert_eq!(engine.pending_effects.len(), 2);
 
     // Past the expiry window — abandoned effects (platform never called
     // complete_effect) get swept from all three bookkeeping collections.
     let far_future = Instant::now() + Duration::from_secs(301);
     engine.expire_stale_pending_effects(far_future);
-    assert!(engine.state.pending_effects.is_empty());
+    assert!(engine.pending_effects.is_empty());
     assert!(engine.delivered_effect_ids.is_empty());
     assert!(engine.effect_created_at.is_empty());
 }

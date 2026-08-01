@@ -13,7 +13,11 @@ impl HeadlessEngine {
         payload: P,
     ) -> EffectEnvelope {
         let payload = serde_json::to_value(&payload).unwrap_or(Value::Null);
-        self.effect_raw(kind.as_str(), generation, payload)
+        let id = format!("fx-{}", self.next_effect_id);
+        self.next_effect_id += 1;
+        let envelope = EffectEnvelope::new(id.clone(), kind, generation, payload);
+        self.register_effect(id, envelope.clone());
+        envelope
     }
 
     // For pass-through of effects emitted by sub-modules (e.g. player_flow) where
@@ -27,9 +31,24 @@ impl HeadlessEngine {
         let id = format!("fx-{}", self.next_effect_id);
         self.next_effect_id += 1;
         let envelope = EffectEnvelope::raw(id.clone(), kind, generation, payload);
-        self.state.pending_effects.push(envelope.clone());
-        self.effect_created_at.insert(id, Instant::now());
+        self.register_effect(id, envelope.clone());
         envelope
+    }
+
+    fn register_effect(&mut self, id: String, envelope: EffectEnvelope) {
+        self.pending_effects.push(envelope);
+        self.effect_created_at.insert(id, Instant::now());
+    }
+
+    pub(super) fn take_pending_effect(&mut self, id: &str) -> Option<EffectEnvelope> {
+        let index = self
+            .pending_effects
+            .iter()
+            .position(|effect| effect.id == id)?;
+        let effect = self.pending_effects.remove(index);
+        self.delivered_effect_ids.remove(id);
+        self.effect_created_at.remove(id);
+        Some(effect)
     }
 
     // Drops any pending effect old enough that it's almost certainly been abandoned by
@@ -37,7 +56,6 @@ impl HeadlessEngine {
     // every dispatch/complete_effect so no background timer is needed.
     pub(super) fn expire_stale_pending_effects(&mut self, now: Instant) {
         let stale_ids: Vec<String> = self
-            .state
             .pending_effects
             .iter()
             .filter(|effect| {
@@ -48,7 +66,7 @@ impl HeadlessEngine {
             .map(|effect| effect.id.clone())
             .collect();
         for id in &stale_ids {
-            self.state.pending_effects.retain(|effect| &effect.id != id);
+            self.pending_effects.retain(|effect| &effect.id != id);
             self.delivered_effect_ids.remove(id);
             self.effect_created_at.remove(id);
         }
@@ -80,11 +98,52 @@ impl HeadlessEngine {
     }
 
     pub(super) fn undelivered_pending_effects(&self) -> Vec<EffectEnvelope> {
-        self.state
-            .pending_effects
+        self.pending_effects
             .iter()
             .filter(|effect| !self.delivered_effect_ids.contains(&effect.id))
             .cloned()
             .collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::headless_engine::contracts::{EffectResultInput, EffectStatus};
+    use serde_json::json;
+
+    #[test]
+    fn typed_effects_use_their_schedule_metadata() {
+        let mut engine = HeadlessEngine::default();
+
+        let effect = engine.effect(
+            EffectKind::FetchCatalogPage,
+            3,
+            json!({ "url": "https://example.com/catalog" }),
+        );
+
+        assert_eq!(effect.group_id.as_deref(), Some("addon"));
+        assert_eq!(effect.priority, 50);
+        assert_eq!(effect.cache_policy.as_deref(), Some("default"));
+        assert_eq!(effect.timeout_ms, Some(15_000));
+        assert!(effect.dedupe_key.is_some());
+    }
+
+    #[test]
+    fn unknown_effect_completion_removes_the_runtime_entry() {
+        let mut engine = HeadlessEngine::default();
+        let effect = engine.effect_raw("effectFromNewerCore", 1, json!({}));
+
+        let effects = engine.complete_effect(EffectResultInput {
+            effect_id: effect.id,
+            status: EffectStatus::Ok,
+            value: serde_json::Value::Null,
+            error: serde_json::Value::Null,
+        });
+
+        assert!(effects.is_empty());
+        assert!(engine.pending_effects.is_empty());
+        assert!(engine.delivered_effect_ids.is_empty());
+        assert!(engine.effect_created_at.is_empty());
     }
 }

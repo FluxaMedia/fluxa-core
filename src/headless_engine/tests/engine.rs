@@ -17,3 +17,20 @@ fn engines_lock_survives_a_panic_while_held_by_another_thread() {
     assert!(headless_engine_snapshot_json(handle).is_some());
     assert!(destroy_headless_engine(handle));
 }
+
+#[test]
+fn poisoned_engine_handle_is_rejected_without_affecting_other_handles() {
+    let poisoned_handle = create_headless_engine("{}");
+    let healthy_handle = create_headless_engine("{}");
+    let poisoned_engine = lock_engines().get(&poisoned_handle).unwrap().clone();
+    let poisoner = std::thread::spawn(move || {
+        let _guard = poisoned_engine.lock().unwrap();
+        panic!("simulated engine update panic");
+    });
+    assert!(poisoner.join().is_err());
+
+    assert!(headless_engine_snapshot_json(poisoned_handle).is_none());
+    assert!(headless_engine_snapshot_json(healthy_handle).is_some());
+    assert!(destroy_headless_engine(poisoned_handle));
+    assert!(destroy_headless_engine(healthy_handle));
+}

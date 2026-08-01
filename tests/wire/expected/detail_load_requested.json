@@ -58,29 +58,6 @@
       "userAddons": [],
       "visibleStreams": [],
       "watchedVideoIds": []
-    },
-    "pendingEffects": [
-      {
-        "generation": 1,
-        "id": "fx-1",
-        "payload": {
-          "contentType": "movie",
-          "id": "tt1",
-          "language": "en",
-          "profile": null,
-          "sourceAddonCatalogType": "",
-          "sourceAddonTransportUrl": ""
-        },
-        "type": "fetchMetaDetail"
-      },
-      {
-        "generation": 1,
-        "id": "fx-2",
-        "payload": {
-          "id": "tt1"
-        },
-        "type": "readPlaybackProgress"
-      }
-    ]
+    }
   }
 }

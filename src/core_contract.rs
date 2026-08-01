@@ -1,4 +1,5 @@
 use crate::headless_engine;
+use crate::runtime::EffectKind;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -143,6 +144,17 @@ pub fn core_capabilities_json(portable: bool) -> String {
     serde_json::to_string(&capabilities).unwrap_or_else(|_| "{}".to_string())
 }
 
+/// Machine-readable source for generated bindings, docs and contract drift tests.
+pub fn core_contract_manifest_json() -> String {
+    serde_json::json!({
+        "version": env!("CARGO_PKG_VERSION"),
+        "methods": ["engine.create", "engine.snapshot", "engine.dispatch", "engine.completeEffect", "engine.destroy", "app.create", "app.state", "app.dispatch", "app.destroy"],
+        "effectEnvelope": {"required": ["id", "type", "generation", "payload"], "optional": ["groupId", "priority", "dedupeKey", "cachePolicy", "timeoutMs"]},
+        "effectTypes": EffectKind::ALL.iter().map(|kind| kind.as_str()).collect::<Vec<_>>(),
+        "capabilities": {"native": CoreCapabilitySet::android_default(), "portable": CoreCapabilitySet::portable_minimum()},
+    }).to_string()
+}
+
 fn parse_dispatch_result(json: &str) -> Option<CoreDispatchResult> {
     let raw = serde_json::from_str::<Value>(json).ok()?;
     let state = raw.get("state").cloned().unwrap_or(Value::Null);
@@ -157,7 +169,10 @@ fn parse_dispatch_result(json: &str) -> Option<CoreDispatchResult> {
         })
         .unwrap_or_default();
     Some(CoreDispatchResult {
-        revision: raw.get("revision").and_then(Value::as_u64).unwrap_or_default(),
+        revision: raw
+            .get("revision")
+            .and_then(Value::as_u64)
+            .unwrap_or_default(),
         state: CoreState { value: state },
         effects,
     })

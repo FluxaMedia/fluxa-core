@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -255,25 +255,31 @@ struct AppCoreAction {
 }
 
 static NEXT_HANDLE: AtomicU64 = AtomicU64::new(1);
-static STORE: OnceLock<Mutex<HashMap<u64, AppCoreState>>> = OnceLock::new();
+static STORE: OnceLock<Mutex<HashMap<u64, Arc<Mutex<AppCoreState>>>>> = OnceLock::new();
 
-fn store() -> &'static Mutex<HashMap<u64, AppCoreState>> {
+fn store() -> &'static Mutex<HashMap<u64, Arc<Mutex<AppCoreState>>>> {
     STORE.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
 // See headless_engine::lock_engines — recovering from poison keeps this store
 // usable after a single caught panic instead of going dark for every handle.
-fn lock_store() -> std::sync::MutexGuard<'static, HashMap<u64, AppCoreState>> {
+fn lock_store() -> std::sync::MutexGuard<'static, HashMap<u64, Arc<Mutex<AppCoreState>>>> {
     store()
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
 pub fn create_app_core_state(initial_json: &str) -> u64 {
-    let state = serde_json::from_str(initial_json).unwrap_or_default();
+    let state = match serde_json::from_str(initial_json) {
+        Ok(state) => state,
+        Err(error) => {
+            crate::log_sink::record("create_app_core_state", &error.to_string());
+            return 0;
+        }
+    };
     let mut states = lock_store();
     let handle = NEXT_HANDLE.fetch_add(1, Ordering::Relaxed);
-    states.insert(handle, state);
+    states.insert(handle, Arc::new(Mutex::new(state)));
     handle
 }
 
@@ -282,21 +288,42 @@ pub fn destroy_app_core_state(handle: u64) -> bool {
 }
 
 pub fn app_core_state_json(handle: u64) -> Option<String> {
-    let states = lock_store();
-    states
-        .get(&handle)
-        .and_then(|state| serde_json::to_string(state).ok())
+    let state = lock_store().get(&handle)?.clone();
+    let snapshot = lock_app_state(&state)?.clone();
+    serde_json::to_string(&snapshot).ok()
 }
 
 pub fn app_core_dispatch_json(handle: u64, action_json: &str) -> Option<String> {
-    let action: AppCoreAction = serde_json::from_str(action_json).ok()?;
-    let mut states = lock_store();
-    let state = states.get_mut(&handle)?;
-    reduce(state, action);
-    serde_json::to_string(state).ok()
+    let action: AppCoreAction = serde_json::from_str(action_json)
+        .map_err(|error| {
+            crate::log_sink::record("app_core_dispatch_json", &error.to_string());
+        })
+        .ok()?;
+    let state = lock_store().get(&handle)?.clone();
+    let snapshot = {
+        let mut state = lock_app_state(&state)?;
+        if !reduce(&mut state, action) {
+            crate::log_sink::record("app_core_dispatch_json", "unknown action");
+            return None;
+        }
+        state.clone()
+    };
+    serde_json::to_string(&snapshot).ok()
 }
 
-fn reduce(state: &mut AppCoreState, action: AppCoreAction) {
+fn lock_app_state(
+    state: &Arc<Mutex<AppCoreState>>,
+) -> Option<std::sync::MutexGuard<'_, AppCoreState>> {
+    match state.lock() {
+        Ok(guard) => Some(guard),
+        Err(_) => {
+            crate::log_sink::record("app_core_state", "poisoned handle; recreate the app state");
+            None
+        }
+    }
+}
+
+fn reduce(state: &mut AppCoreState, action: AppCoreAction) -> bool {
     match action.action_type.as_str() {
         "setHomeCategories" => state.home.categories = array_or_empty(action.value),
         "setHomeLoading" => state.home.is_loading = action.value.as_bool().unwrap_or(false),
@@ -347,8 +374,9 @@ fn reduce(state: &mut AppCoreState, action: AppCoreAction) {
         "setCalendarLoading" => state.calendar.is_loading = action.value.as_bool().unwrap_or(false),
         "setLibraryUiState" => state.library.ui_state = action.value,
         "playerResetForEpisode" => reset_player_for_episode(&mut state.player, action.video_id),
-        _ => {}
+        _ => return false,
     }
+    true
 }
 
 fn array_or_empty(value: Value) -> Value {
