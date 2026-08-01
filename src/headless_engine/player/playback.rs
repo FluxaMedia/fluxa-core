@@ -52,12 +52,14 @@ pub(in crate::headless_engine) fn dispatch_resolve_playback(
     engine.state.player.player_error = Value::Null;
     if stream_policy::is_torrent_playback_url(&url) {
         let stream_value = stream.unwrap_or(Value::Null);
-        let file_idx = stream_value["fileIdx"].as_i64();
-        let preferred_filename = stream_value["effectiveFilename"]
-            .as_str()
+        let file_idx = stream_value.get("fileIdx").and_then(Value::as_i64);
+        let preferred_filename = stream_value
+            .get("effectiveFilename")
+            .and_then(Value::as_str)
             .map(ToString::to_string);
-        let sources = stream_value["sources"]
-            .as_array()
+        let sources = stream_value
+            .get("sources")
+            .and_then(Value::as_array)
             .cloned()
             .unwrap_or_default();
         vec![engine.effect(

@@ -27,16 +27,35 @@ pub(in crate::headless_engine) fn complete(
                     dispatch_streams_loaded(
                         engine,
                         result.value.as_array().cloned().unwrap_or_default(),
-                        pending["currentVideoId"].as_str().map(ToString::to_string),
-                        Some(pending["initialStreamIndex"].as_i64().unwrap_or(0) as i32),
-                        pending["savedUrl"].as_str().map(ToString::to_string),
-                        pending["savedTitle"].as_str().map(ToString::to_string),
-                        pending["sourceSelectionMode"]
-                            .as_str()
+                        pending
+                            .get("currentVideoId")
+                            .and_then(Value::as_str)
                             .map(ToString::to_string),
-                        pending["regexPattern"].as_str().map(ToString::to_string),
-                        pending["preferredBingeGroup"]
-                            .as_str()
+                        Some(
+                            pending
+                                .get("initialStreamIndex")
+                                .and_then(Value::as_i64)
+                                .unwrap_or(0) as i32,
+                        ),
+                        pending
+                            .get("savedUrl")
+                            .and_then(Value::as_str)
+                            .map(ToString::to_string),
+                        pending
+                            .get("savedTitle")
+                            .and_then(Value::as_str)
+                            .map(ToString::to_string),
+                        pending
+                            .get("sourceSelectionMode")
+                            .and_then(Value::as_str)
+                            .map(ToString::to_string),
+                        pending
+                            .get("regexPattern")
+                            .and_then(Value::as_str)
+                            .map(ToString::to_string),
+                        pending
+                            .get("preferredBingeGroup")
+                            .and_then(Value::as_str)
                             .map(ToString::to_string),
                     );
                 } else {

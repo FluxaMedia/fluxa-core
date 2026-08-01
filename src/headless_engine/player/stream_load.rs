@@ -75,8 +75,12 @@ pub(in crate::headless_engine) fn dispatch_next_episode_prefetch(
         .prefetching_next_video_id
         .as_str()
         .is_some_and(|v| v == next_video_id);
-    let already_cached = engine.state.player.prefetched_next_episode["videoId"]
-        .as_str()
+    let already_cached = engine
+        .state
+        .player
+        .prefetched_next_episode
+        .get("videoId")
+        .and_then(Value::as_str)
         .is_some_and(|v| v == next_video_id);
     if already_prefetching || already_cached {
         return vec![];
@@ -124,26 +128,27 @@ pub(in crate::headless_engine) fn dispatch_load_streams(
     let mut save_effects = Vec::new();
     if let (Some(outgoing_video_id), Some(raw)) = (current_video_id.clone(), outgoing_progress)
         && outgoing_video_id != initial_video_id.clone().unwrap_or_default()
-            && let Ok(progress) = serde_json::from_value::<OutgoingProgress>(raw) {
-                save_effects.extend(library::dispatch_save_progress(
-                    engine,
-                    profile.clone(),
-                    progress.meta,
-                    progress.time_offset,
-                    progress.duration,
-                    Some(outgoing_video_id),
-                    progress.last_stream_index,
-                    progress.last_episode_name,
-                    progress.last_episode_season,
-                    progress.last_episode_number,
-                    progress.last_episode_thumbnail,
-                    progress.last_stream_url,
-                    progress.last_stream_title,
-                    progress.last_audio_language,
-                    progress.last_subtitle_language,
-                    progress.scrobble_trakt_pause,
-                ));
-            }
+        && let Ok(progress) = serde_json::from_value::<OutgoingProgress>(raw)
+    {
+        save_effects.extend(library::dispatch_save_progress(
+            engine,
+            profile.clone(),
+            progress.meta,
+            progress.time_offset,
+            progress.duration,
+            Some(outgoing_video_id),
+            progress.last_stream_index,
+            progress.last_episode_name,
+            progress.last_episode_season,
+            progress.last_episode_number,
+            progress.last_episode_thumbnail,
+            progress.last_stream_url,
+            progress.last_stream_title,
+            progress.last_audio_language,
+            progress.last_subtitle_language,
+            progress.scrobble_trakt_pause,
+        ));
+    }
 
     let generation = engine.bump_generation(GenerationKey::Player);
     let mut initial_streams = initial_streams.unwrap_or_default();
@@ -204,20 +209,21 @@ pub(in crate::headless_engine) fn dispatch_load_streams(
             .unwrap_or("unknown")
             .to_string();
         if kind == "loadStreams"
-            && let Value::Object(map) = &mut payload {
-                map.insert(
-                    "initialStreams".to_string(),
-                    pending_value["initialStreams"].clone(),
-                );
-                map.insert("title".to_string(), pending_value["title"].clone());
-                map.insert(
-                    "originalName".to_string(),
-                    pending_value["originalName"].clone(),
-                );
-                map.insert("year".to_string(), pending_value["year"].clone());
-                map.insert("language".to_string(), pending_value["language"].clone());
-                map.insert("profile".to_string(), pending_value["profile"].clone());
-            }
+            && let Value::Object(map) = &mut payload
+        {
+            map.insert(
+                "initialStreams".to_string(),
+                pending_value["initialStreams"].clone(),
+            );
+            map.insert("title".to_string(), pending_value["title"].clone());
+            map.insert(
+                "originalName".to_string(),
+                pending_value["originalName"].clone(),
+            );
+            map.insert("year".to_string(), pending_value["year"].clone());
+            map.insert("language".to_string(), pending_value["language"].clone());
+            map.insert("profile".to_string(), pending_value["profile"].clone());
+        }
         engine.effect_raw(&kind, generation, payload)
     }));
     save_effects
