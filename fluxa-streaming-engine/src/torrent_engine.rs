@@ -660,10 +660,7 @@ async fn record_telemetry(
     if event.session_id.is_empty() || event.session_id.len() > 128 {
         return error_response(StatusCode::BAD_REQUEST, "invalid telemetry session");
     }
-    if !matches!(
-        event.event.as_str(),
-        "firstFrame" | "stallStarted" | "stallEnded"
-    ) {
+    if !telemetry_event_is_supported(&event.event) {
         return error_response(StatusCode::BAD_REQUEST, "unsupported telemetry event");
     }
     let mut telemetry = match state.telemetry.lock() {
@@ -672,18 +669,42 @@ async fn record_telemetry(
             return error_response(StatusCode::INTERNAL_SERVER_ERROR, "telemetry unavailable");
         }
     };
-    match telemetry.active_sessions.get(&id) {
+    if let Err(error) = apply_telemetry_event(&mut telemetry, id, &event) {
+        let status = match error {
+            "stale telemetry session" | "telemetry session mismatch" => StatusCode::CONFLICT,
+            _ => StatusCode::BAD_REQUEST,
+        };
+        return error_response(status, error);
+    }
+    (StatusCode::OK, Json(json!({}))).into_response()
+}
+
+fn telemetry_event_is_supported(event: &str) -> bool {
+    matches!(event, "firstFrame" | "stallStarted" | "stallEnded")
+}
+
+fn apply_telemetry_event(
+    telemetry: &mut TelemetryState,
+    torrent_id: usize,
+    event: &TelemetryEvent,
+) -> Result<(), &'static str> {
+    // This guard deliberately lives before all session mutations as well as in
+    // the HTTP handler, so callers cannot accidentally promote an invalid event.
+    if !telemetry_event_is_supported(&event.event) {
+        return Err("unsupported telemetry event");
+    }
+    match telemetry.active_sessions.get(&torrent_id) {
         Some(active) if event.session_generation < active.generation => {
-            return error_response(StatusCode::CONFLICT, "stale telemetry session");
+            return Err("stale telemetry session");
         }
         Some(active)
             if event.session_generation == active.generation && event.session_id != active.id =>
         {
-            return error_response(StatusCode::CONFLICT, "telemetry session mismatch");
+            return Err("telemetry session mismatch");
         }
         Some(active) if event.session_generation > active.generation => {
             telemetry.active_sessions.insert(
-                id,
+                torrent_id,
                 ActiveTelemetrySession {
                     id: event.session_id.clone(),
                     generation: event.session_generation,
@@ -691,11 +712,11 @@ async fn record_telemetry(
             );
             telemetry
                 .records
-                .retain(|(stored_id, _), _| *stored_id != id);
+                .retain(|(stored_id, _), _| *stored_id != torrent_id);
         }
         None => {
             telemetry.active_sessions.insert(
-                id,
+                torrent_id,
                 ActiveTelemetrySession {
                     id: event.session_id.clone(),
                     generation: event.session_generation,
@@ -704,7 +725,10 @@ async fn record_telemetry(
         }
         _ => {}
     }
-    let entry = telemetry.records.entry((id, event.session_id)).or_default();
+    let entry = telemetry
+        .records
+        .entry((torrent_id, event.session_id.clone()))
+        .or_default();
     match event.event.as_str() {
         "firstFrame" => entry.first_frame_ms = event.elapsed_ms.or(entry.first_frame_ms),
         "stallStarted" => entry.stall_count = entry.stall_count.saturating_add(1),
@@ -713,9 +737,9 @@ async fn record_telemetry(
                 .stall_duration_ms
                 .saturating_add(event.elapsed_ms.unwrap_or_default())
         }
-        _ => unreachable!("telemetry event was validated before mutating state"),
+        _ => unreachable!("unsupported event was rejected before mutating telemetry"),
     }
-    (StatusCode::OK, Json(json!({}))).into_response()
+    Ok(())
 }
 
 async fn stream_fname(
@@ -1340,9 +1364,13 @@ async fn deactivate_torrent(state: &EngineState, torrent_id: usize) {
 
 fn clear_playback_telemetry(state: &EngineState, torrent_id: usize) {
     if let Ok(mut telemetry) = state.telemetry.lock() {
-        telemetry.records.retain(|(id, _), _| *id != torrent_id);
-        telemetry.active_sessions.remove(&torrent_id);
+        clear_telemetry_for_torrent(&mut telemetry, torrent_id);
     }
+}
+
+fn clear_telemetry_for_torrent(telemetry: &mut TelemetryState, torrent_id: usize) {
+    telemetry.records.retain(|(id, _), _| *id != torrent_id);
+    telemetry.active_sessions.remove(&torrent_id);
 }
 
 fn torrent_worker_threads() -> usize {
@@ -1644,8 +1672,10 @@ use http::*;
 mod tests {
     use super::http::update_file_focus;
     use super::{
-        CancellableReader, FileRole, PlaybackWindow, TorrentFileFocus, TorrentLifecycle,
-        is_probe_for_window, parse_range, playback_buffer_targets, should_deactivate_prewarm,
+        ActiveTelemetrySession, CancellableReader, FileRole, PlaybackTelemetry, PlaybackWindow,
+        TelemetryEvent, TelemetryState, TorrentFileFocus, TorrentLifecycle, apply_telemetry_event,
+        clear_telemetry_for_torrent, is_probe_for_window, parse_range, playback_buffer_targets,
+        should_deactivate_prewarm,
     };
     use axum::http::HeaderValue;
     use std::collections::HashMap;
@@ -1656,6 +1686,119 @@ mod tests {
 
     fn range(value: &str, length: u64) -> Result<Option<(u64, u64)>, ()> {
         parse_range(Some(&HeaderValue::from_str(value).unwrap()), length)
+    }
+
+    fn telemetry_event(session_id: &str, generation: u64, event: &str) -> TelemetryEvent {
+        TelemetryEvent {
+            link: String::new(),
+            session_id: session_id.to_string(),
+            session_generation: generation,
+            event: event.to_string(),
+            elapsed_ms: Some(42),
+        }
+    }
+
+    #[test]
+    fn telemetry_rejects_stale_generation() {
+        let mut telemetry = TelemetryState::default();
+        apply_telemetry_event(
+            &mut telemetry,
+            7,
+            &telemetry_event("current", 2, "firstFrame"),
+        )
+        .unwrap();
+
+        assert_eq!(
+            apply_telemetry_event(&mut telemetry, 7, &telemetry_event("old", 1, "firstFrame")),
+            Err("stale telemetry session")
+        );
+        assert_eq!(telemetry.active_sessions.get(&7).unwrap().id, "current");
+    }
+
+    #[test]
+    fn telemetry_rejects_different_session_at_same_generation() {
+        let mut telemetry = TelemetryState::default();
+        apply_telemetry_event(
+            &mut telemetry,
+            7,
+            &telemetry_event("first", 2, "firstFrame"),
+        )
+        .unwrap();
+
+        assert_eq!(
+            apply_telemetry_event(
+                &mut telemetry,
+                7,
+                &telemetry_event("second", 2, "firstFrame")
+            ),
+            Err("telemetry session mismatch")
+        );
+        assert_eq!(telemetry.active_sessions.get(&7).unwrap().id, "first");
+    }
+
+    #[test]
+    fn telemetry_higher_generation_replaces_and_clears_old_records() {
+        let mut telemetry = TelemetryState::default();
+        apply_telemetry_event(
+            &mut telemetry,
+            7,
+            &telemetry_event("first", 1, "firstFrame"),
+        )
+        .unwrap();
+        apply_telemetry_event(
+            &mut telemetry,
+            7,
+            &telemetry_event("second", 2, "stallStarted"),
+        )
+        .unwrap();
+
+        assert_eq!(telemetry.active_sessions.get(&7).unwrap().id, "second");
+        assert_eq!(telemetry.records.len(), 1);
+        assert!(telemetry.records.contains_key(&(7, "second".to_string())));
+    }
+
+    #[test]
+    fn telemetry_invalid_event_does_not_change_active_session() {
+        let mut telemetry = TelemetryState::default();
+        telemetry.active_sessions.insert(
+            7,
+            ActiveTelemetrySession {
+                id: "current".to_string(),
+                generation: 2,
+            },
+        );
+
+        assert_eq!(
+            apply_telemetry_event(&mut telemetry, 7, &telemetry_event("invalid", 99, "nope")),
+            Err("unsupported telemetry event")
+        );
+        let active = telemetry.active_sessions.get(&7).unwrap();
+        assert_eq!(active.id, "current");
+        assert_eq!(active.generation, 2);
+    }
+
+    #[test]
+    fn telemetry_teardown_removes_session_and_records() {
+        let mut telemetry = TelemetryState::default();
+        telemetry.active_sessions.insert(
+            7,
+            ActiveTelemetrySession {
+                id: "session".to_string(),
+                generation: 1,
+            },
+        );
+        telemetry
+            .records
+            .insert((7, "session".to_string()), PlaybackTelemetry::default());
+        telemetry
+            .records
+            .insert((8, "other".to_string()), PlaybackTelemetry::default());
+
+        clear_telemetry_for_torrent(&mut telemetry, 7);
+
+        assert!(!telemetry.active_sessions.contains_key(&7));
+        assert!(!telemetry.records.contains_key(&(7, "session".to_string())));
+        assert!(telemetry.records.contains_key(&(8, "other".to_string())));
     }
 
     #[test]
