@@ -203,7 +203,9 @@ pub(crate) fn start_dv_rewrite_local_stream_server(
                             let dv = dv_config.clone();
                             tokio::task::spawn_blocking(move || {
                                 if let Ok(stream) = stream.into_std() {
-                                    handle_dv_stream(stream, cfg, &dv);
+                                    if stream.set_nonblocking(false).is_ok() {
+                                        handle_dv_stream(stream, cfg, &dv);
+                                    }
                                 }
                             });
                         }

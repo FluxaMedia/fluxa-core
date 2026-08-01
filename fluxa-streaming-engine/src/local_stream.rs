@@ -259,7 +259,9 @@ pub(crate) fn start_local_stream_server(
                             let request_config = config.clone();
                             tokio::task::spawn_blocking(move || {
                                 if let Ok(stream) = stream.into_std() {
-                                    handle_local_stream(stream, request_config);
+                                    if stream.set_nonblocking(false).is_ok() {
+                                        handle_local_stream(stream, request_config);
+                                    }
                                 }
                             });
                         }

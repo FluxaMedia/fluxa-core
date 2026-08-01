@@ -84,6 +84,7 @@ struct PlaybackWindow {
     smoothed_download_bps: f64,
     seek_generation: u64,
     was_ready: bool,
+    seek_started_at: Option<Instant>,
     updated_at: Instant,
 }
 
@@ -498,8 +499,18 @@ async fn torrents(
                 Ok((id, details)) => {
                     touch_torrent_lifecycle(&state, id, !request.prewarm);
                     let focus = request.file_id.or_else(|| largest_file_id(&details));
-                    if let Some(file_id) = focus {
-                        prioritize_stream_file(&state, id, file_id, request.role).await;
+                    if !request.prewarm {
+                        if let Some(file_id) = focus {
+                            prioritize_stream_file(&state, id, file_id, request.role).await;
+                        }
+                    } else {
+                        let delayed_state = state.clone();
+                        tokio::spawn(async move {
+                            // Give DHT/trackers a short discovery interval, then stop
+                            // transfer work. A later play request resumes this torrent.
+                            tokio::time::sleep(Duration::from_secs(10)).await;
+                            deactivate_torrent(&delayed_state, id).await;
+                        });
                     }
                     status_response(&state, id, Some(details), focus)
                         .await
@@ -527,7 +538,7 @@ async fn torrents(
             if let Some(file_id) = request.file_id {
                 prioritize_stream_file(&state, id, file_id, request.role).await;
             }
-            touch_torrent_lifecycle(&state, id, true);
+            touch_torrent_lifecycle(&state, id, false);
             status_response(&state, id, None, request.file_id)
                 .await
                 .into_response()
@@ -563,6 +574,12 @@ async fn torrents(
                         *active = None;
                     }
                 }
+            }
+            Json(json!({})).into_response()
+        }
+        "deactivate" => {
+            if let Some(id) = lookup_known_link(&state, request.link.as_deref()) {
+                deactivate_torrent(&state, id).await;
             }
             Json(json!({})).into_response()
         }
@@ -627,7 +644,7 @@ async fn stream_fname(
         details.files.as_ref().map(|f| f.len()).unwrap_or(0)
     ));
     prioritize_stream_file(&state, id, file_id, query.role).await;
-    activate_torrent(&state, id);
+    activate_torrent(&state, id).await;
     let _ = state
         .api
         .api_torrent_action_start(TorrentIdOrHash::Id(id))
@@ -924,12 +941,16 @@ async fn status_response(
         .and_then(|file_id| {
             state
                 .api
-                .api_contiguous_bytes_from(TorrentIdOrHash::Id(id), file_id, playback_offset)
+                .api_contiguous_bytes_from_with_limit(
+                    TorrentIdOrHash::Id(id),
+                    file_id,
+                    playback_offset,
+                    window.map(|window| window.warm_ahead_bytes).unwrap_or(preload_size),
+                )
                 .ok()
                 .map(|response| response.contiguous_bytes)
         })
         .unwrap_or(0);
-    let progress_loaded_size = loaded_size.min(preload_size);
     if let Some(mut current) = window {
         current.contiguous_ready_bytes = loaded_size;
         current.smoothed_download_bps = if current.smoothed_download_bps == 0.0 {
@@ -954,7 +975,7 @@ async fn status_response(
         })
         .unwrap_or(0.0);
     let speed_to_bitrate_ratio = window
-        .map(|window| window.smoothed_download_bps / window.estimated_bitrate_bps.max(1) as f64)
+        .map(|window| window.smoothed_download_bps * 8.0 / window.estimated_bitrate_bps.max(1) as f64)
         .unwrap_or(0.0);
     let stat = match stats.as_ref().map(|stats| stats.state) {
         Some(TorrentStatsState::Live)
@@ -983,7 +1004,7 @@ async fn status_response(
         "stat": stat,
         "stat_string": stats.as_ref().map(|stats| stats.state.to_string()).unwrap_or_else(|| "initializing".to_string()),
         "error": stats.as_ref().and_then(|stats| stats.error.as_deref()),
-        "preload": if preload_size == 0 { 0 } else { ((progress_loaded_size as f64 / preload_size as f64) * 100.0).round() as i64 },
+        "preload": if target_buffer_bytes == 0 { 0 } else { ((loaded_size.min(target_buffer_bytes) as f64 / target_buffer_bytes as f64) * 100.0).round() as i64 },
         "loaded_size": loaded_size,
         "streamed_size": 0,
         "preload_size": preload_size,
@@ -1037,6 +1058,7 @@ fn remember_playback_window(
                 was_ready: previous
                     .map(|window| window.was_ready && !seek)
                     .unwrap_or(false),
+                seek_started_at: seek.then(Instant::now),
                 updated_at: Instant::now(),
             },
         );
@@ -1070,19 +1092,17 @@ fn touch_torrent_lifecycle(state: &EngineState, torrent_id: usize, active: bool)
     }
 }
 
-fn activate_torrent(state: &EngineState, torrent_id: usize) {
+async fn activate_torrent(state: &EngineState, torrent_id: usize) {
     let previous = state
         .active_torrent
         .lock()
         .map(|mut active| active.replace(torrent_id))
         .ok()
         .flatten();
+    if let Some(previous) = previous.filter(|previous| *previous != torrent_id) {
+        deactivate_torrent(state, previous).await;
+    }
     if let Ok(mut lifecycle) = state.lifecycle.lock() {
-        if let Some(previous) = previous.filter(|previous| *previous != torrent_id) {
-            if let Some(entry) = lifecycle.get_mut(&previous) {
-                entry.active = false;
-            }
-        }
         let entry = lifecycle.entry(torrent_id).or_insert(TorrentLifecycle {
             last_accessed: Instant::now(),
             prewarmed: false,
@@ -1093,6 +1113,50 @@ fn activate_torrent(state: &EngineState, torrent_id: usize) {
         entry.prewarmed = false;
         entry.last_accessed = Instant::now();
     }
+}
+
+async fn deactivate_torrent(state: &EngineState, torrent_id: usize) {
+    let files = state
+        .playback_windows
+        .lock()
+        .map(|mut windows| {
+            let files = windows
+                .keys()
+                .filter(|(id, _)| *id == torrent_id)
+                .map(|(_, file_id)| *file_id)
+                .collect::<Vec<_>>();
+            windows.retain(|(id, _), _| *id != torrent_id);
+            files
+        })
+        .unwrap_or_default();
+    for file_id in files {
+        let _ = state
+            .api
+            .api_clear_streaming_window(TorrentIdOrHash::Id(torrent_id), file_id);
+    }
+    if let Ok(mut sessions) = state.playback_sessions.lock() {
+        for session in sessions
+            .extract_if(|(id, _), _| *id == torrent_id)
+            .map(|(_, session)| session)
+        {
+            session.cancel.cancel();
+        }
+    }
+    if let Ok(mut lifecycle) = state.lifecycle.lock() {
+        if let Some(entry) = lifecycle.get_mut(&torrent_id) {
+            entry.active = false;
+            entry.last_accessed = Instant::now();
+        }
+    }
+    if let Ok(mut active) = state.active_torrent.lock() {
+        if *active == Some(torrent_id) {
+            *active = None;
+        }
+    }
+    let _ = state
+        .api
+        .api_torrent_action_pause(TorrentIdOrHash::Id(torrent_id))
+        .await;
 }
 
 /// Prewarming resolves metadata and discovers peers but must not keep an idle
@@ -1175,11 +1239,25 @@ async fn enforce_cache_limit(state: &EngineState) {
             .is_ok()
         {
             used = used.saturating_sub(bytes);
+            if let Ok(mut links) = state.known_links.lock() {
+                links.retain(|_, known_id| *known_id != torrent_id);
+            }
             if let Ok(mut lifecycle) = state.lifecycle.lock() {
                 lifecycle.remove(&torrent_id);
             }
             if let Ok(mut focus) = state.prioritized_files.lock() {
                 focus.remove(&torrent_id);
+            }
+            if let Ok(mut windows) = state.playback_windows.lock() {
+                windows.retain(|(id, _), _| *id != torrent_id);
+            }
+            if let Ok(mut sessions) = state.playback_sessions.lock() {
+                for session in sessions
+                    .extract_if(|(id, _), _| *id == torrent_id)
+                    .map(|(_, session)| session)
+                {
+                    session.cancel.cancel();
+                }
             }
             debug_log(format!("[TorrServer] evicted inactive torrent={torrent_id} for cache limit"));
         }
@@ -1256,7 +1334,7 @@ fn playback_phase(
         Some(TorrentStatsState::Paused) => "stalled",
         Some(TorrentStatsState::Live)
             if window.is_some_and(|window| {
-                window.seek_generation > 0 && window.updated_at.elapsed() < Duration::from_secs(2)
+                window.seek_started_at.is_some_and(|started| started.elapsed() < Duration::from_secs(2))
             }) =>
         {
             "seeking"
