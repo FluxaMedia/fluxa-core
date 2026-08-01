@@ -111,6 +111,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
 use std::thread;
 use std::time::Duration;
+use tokio::net::TcpListener as TokioTcpListener;
 
 use crate::local_stream::{
     LocalStreamConfig, LocalStreamHandle, build_proxy_client, local_stream_servers,
@@ -187,19 +188,31 @@ pub(crate) fn start_dv_rewrite_local_stream_server(
     };
 
     let thread = thread::spawn(move || {
-        while !thread_stop.load(Ordering::Relaxed) {
-            match listener.accept() {
-                Ok((stream, _)) => {
-                    let cfg = config.clone();
-                    let dv = dv_config.clone();
-                    thread::spawn(move || handle_dv_stream(stream, cfg, &dv));
+        let Ok(runtime) = tokio::runtime::Builder::new_current_thread().enable_all().build() else {
+            return;
+        };
+        runtime.block_on(async move {
+            let Ok(listener) = TokioTcpListener::from_std(listener) else {
+                return;
+            };
+            while !thread_stop.load(Ordering::Relaxed) {
+                tokio::select! {
+                    accepted = listener.accept() => match accepted {
+                        Ok((stream, _)) => {
+                            let cfg = config.clone();
+                            let dv = dv_config.clone();
+                            tokio::task::spawn_blocking(move || {
+                                if let Ok(stream) = stream.into_std() {
+                                    handle_dv_stream(stream, cfg, &dv);
+                                }
+                            });
+                        }
+                        Err(_) => break,
+                    },
+                    _ = tokio::time::sleep(Duration::from_millis(100)) => {}
                 }
-                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                    thread::sleep(Duration::from_millis(40));
-                }
-                Err(_) => break,
             }
-        }
+        });
     });
 
     local_stream_servers().lock().ok()?.insert(

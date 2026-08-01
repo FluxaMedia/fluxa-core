@@ -8,6 +8,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::thread;
 use std::time::Duration;
+use tokio::net::TcpListener as TokioTcpListener;
 
 const PROXY_USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
 const MAX_LOCAL_STREAM_CONNECTIONS: usize = 32;
@@ -244,18 +245,30 @@ pub(crate) fn start_local_stream_server(
         port,
     };
     let thread = thread::spawn(move || {
-        while !thread_stop.load(Ordering::Relaxed) {
-            match listener.accept() {
-                Ok((stream, _)) => {
-                    let request_config = config.clone();
-                    thread::spawn(move || handle_local_stream(stream, request_config));
+        let Ok(runtime) = tokio::runtime::Builder::new_current_thread().enable_all().build() else {
+            return;
+        };
+        runtime.block_on(async move {
+            let Ok(listener) = TokioTcpListener::from_std(listener) else {
+                return;
+            };
+            while !thread_stop.load(Ordering::Relaxed) {
+                tokio::select! {
+                    accepted = listener.accept() => match accepted {
+                        Ok((stream, _)) => {
+                            let request_config = config.clone();
+                            tokio::task::spawn_blocking(move || {
+                                if let Ok(stream) = stream.into_std() {
+                                    handle_local_stream(stream, request_config);
+                                }
+                            });
+                        }
+                        Err(_) => break,
+                    },
+                    _ = tokio::time::sleep(Duration::from_millis(100)) => {}
                 }
-                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
-                    thread::sleep(Duration::from_millis(5));
-                }
-                Err(_) => break,
             }
-        }
+        });
     });
     local_stream_servers().lock().ok()?.insert(
         id.clone(),
