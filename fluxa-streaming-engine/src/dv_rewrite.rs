@@ -171,7 +171,7 @@ pub(crate) fn start_dv_rewrite_local_stream_server(
 
     let id = next_local_stream_id();
     let bind_port = preferred_port.clamp(0, u16::MAX as i32) as u16;
-    let listener = TcpListener::bind(("0.0.0.0", bind_port)).ok()?;
+    let listener = TcpListener::bind(("127.0.0.1", bind_port)).ok()?;
     let port = listener.local_addr().ok()?.port();
     listener.set_nonblocking(true).ok()?;
 
@@ -219,6 +219,12 @@ pub(crate) fn start_dv_rewrite_local_stream_server(
 }
 
 fn handle_dv_stream(mut stream: TcpStream, config: LocalStreamConfig, dv: &DvRewriteConfig) {
+    let Some(_connection_guard) =
+        crate::local_stream::ActiveConnectionGuard::try_acquire(config.active_connections.clone())
+    else {
+        write_simple_response(&mut stream, "503 Service Unavailable");
+        return;
+    };
     let Some(request) = parse_request(&mut stream) else {
         write_simple_response(&mut stream, "400 Bad Request");
         return;

@@ -62,11 +62,33 @@ pub(super) async fn prioritize_stream_file(
     // Keep one current video file plus active auxiliary files. Moving through
     // a season pack replaces the old video instead of accumulating episodes;
     // subtitles remain selectable without evicting that primary video.
-    let only_files = state
+    let (only_files, previous_primary) = state
         .prioritized_files
         .lock()
-        .map(|mut files| update_file_focus(files.entry(torrent_id).or_default(), file_id, role))
-        .unwrap_or(None);
+        .map(|mut files| {
+            let focus = files.entry(torrent_id).or_default();
+            let previous = focus.primary_video;
+            let selected = update_file_focus(focus, file_id, role);
+            let replaced_primary = matches!(role, FileRole::Video)
+                .then_some(previous)
+                .flatten()
+                .filter(|previous| *previous != file_id);
+            (selected, replaced_primary)
+        })
+        .unwrap_or((None, None));
+    if let Some(previous_file) = previous_primary {
+        let _ = state
+            .api
+            .api_clear_streaming_window(TorrentIdOrHash::Id(torrent_id), previous_file);
+        if let Ok(mut windows) = state.playback_windows.lock() {
+            windows.remove(&(torrent_id, previous_file));
+        }
+        if let Ok(mut sessions) = state.playback_sessions.lock() {
+            if let Some(session) = sessions.remove(&(torrent_id, previous_file)) {
+                session.cancel.cancel();
+            }
+        }
+    }
     let Some(only_files) = only_files else {
         return;
     };

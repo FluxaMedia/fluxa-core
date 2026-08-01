@@ -152,7 +152,8 @@ async fn start_torrent_inner(state: &AppState, body: StartTorrentBody) -> Result
         "rejectedIndex": Value::Null,
         "baseUrl": base_url,
         "play": true,
-        "stat": false
+        "stat": false,
+        "durationMs": stream.get("durationMs").and_then(Value::as_u64)
     });
     let runtime_json = FluxaCore::torrent_runtime_info_json(&runtime_request.to_string())
         .ok_or_else(|| "torrent runtime info could not be resolved".to_string())?;

@@ -18,6 +18,7 @@ pub(crate) struct TorrentRuntimeRequest {
     base_url: String,
     play: bool,
     stat: bool,
+    duration_ms: Option<u64>,
 }
 
 pub(crate) fn query_encode(value: &str) -> String {
@@ -30,6 +31,7 @@ pub(crate) fn build_torrent_stream_url(
     file_idx: Option<i32>,
     play: bool,
     stat: bool,
+    duration_ms: Option<u64>,
 ) -> String {
     let base = format!("{}/stream/fname", base_url.trim_end_matches('/'));
     let mut query = format!("link={}", query_encode(link));
@@ -41,6 +43,9 @@ pub(crate) fn build_torrent_stream_url(
     }
     if stat {
         query.push_str("&stat");
+    }
+    if let Some(duration_ms) = duration_ms.filter(|duration| *duration > 0) {
+        query.push_str(&format!("&durationMs={duration_ms}"));
     }
     query.push_str(&format!("&title={}", query_encode(title)));
     format!("{base}?{query}")
@@ -63,6 +68,7 @@ pub(crate) fn torrent_runtime_info_json(request_json: &str) -> Option<String> {
         selected_file_idx,
         request.play,
         request.stat,
+        request.duration_ms,
     );
     serde_json::to_string(&json!({
         "normalizedLink": normalized_link,
@@ -150,4 +156,37 @@ pub(crate) fn torrent_ready_budget_json() -> String {
         "maxPeerRetriesSingleSource": 2,
     })
     .to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::build_torrent_stream_url;
+
+    #[test]
+    fn stream_url_preserves_positive_duration_for_scheduler() {
+        let url = build_torrent_stream_url(
+            "http://127.0.0.1:8090",
+            "magnet:?xt=urn:btih:abc",
+            "Example",
+            Some(3),
+            true,
+            false,
+            Some(5_400_000),
+        );
+
+        assert!(url.contains("durationMs=5400000"), "{url}");
+    }
+
+    #[test]
+    fn stream_url_omits_missing_or_invalid_duration() {
+        let missing = build_torrent_stream_url(
+            "http://127.0.0.1:8090", "magnet:?xt=urn:btih:abc", "Example", None, true, false, None,
+        );
+        let zero = build_torrent_stream_url(
+            "http://127.0.0.1:8090", "magnet:?xt=urn:btih:abc", "Example", None, true, false, Some(0),
+        );
+
+        assert!(!missing.contains("durationMs="));
+        assert!(!zero.contains("durationMs="));
+    }
 }

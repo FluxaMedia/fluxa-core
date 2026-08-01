@@ -64,12 +64,12 @@ pub(crate) fn next_local_stream_id() -> String {
     format!("{:016x}", hasher.finish())
 }
 
-struct ActiveConnectionGuard {
+pub(crate) struct ActiveConnectionGuard {
     counter: Arc<AtomicUsize>,
 }
 
 impl ActiveConnectionGuard {
-    fn try_acquire(counter: Arc<AtomicUsize>) -> Option<Self> {
+    pub(crate) fn try_acquire(counter: Arc<AtomicUsize>) -> Option<Self> {
         let previous = counter.fetch_add(1, Ordering::AcqRel);
         if previous >= MAX_LOCAL_STREAM_CONNECTIONS {
             counter.fetch_sub(1, Ordering::AcqRel);
@@ -226,7 +226,10 @@ pub(crate) fn start_local_stream_server(
     let headers = serde_json::from_str::<HashMap<String, String>>(headers_json).unwrap_or_default();
     let id = next_local_stream_id();
     let bind_port = preferred_port.clamp(0, u16::MAX as i32) as u16;
-    let listener = TcpListener::bind(("0.0.0.0", bind_port)).ok()?;
+    // These proxies are for the local player. Binding loopback avoids making
+    // a header-bearing upstream URL reachable from the LAN without an auth
+    // token (casting uses the token-protected companion server instead).
+    let listener = TcpListener::bind(("127.0.0.1", bind_port)).ok()?;
     let port = listener.local_addr().ok()?.port();
     listener.set_nonblocking(true).ok()?;
 
