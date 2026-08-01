@@ -9,7 +9,7 @@ Every interaction follows this pattern:
 ```
 1. Host calls dispatch(handle, actionJson)
 2. Core updates state, produces a list of effects
-3. Core returns { state, effects }
+3. Core returns { revision, state, effects }
 4. Host executes each effect
 5. Host calls completeEffect(handle, { effectId, result })
 6. Core may produce more effects in response — goto 4
@@ -35,10 +35,13 @@ Every `dispatch` and `completeEffect` call returns the same JSON envelope:
 }
 ```
 
-- `state` is the full serialized `EngineState`. Platforms snapshot this and use it to render UI.
+- `state` is a `StatePatch`: only UI/domain branches changed by this operation. Platforms merge it into their current UI state. Use `snapshot` when a complete state is required.
 - `effects` is the list of work the platform must execute. An empty array means no I/O is needed.
 - `id` is an opaque monotonically-increasing string (`"fx-N"`). The platform echoes it back in `completeEffect`.
 - `generation` lets the platform discard completions that arrived after a newer dispatch superseded them.
+- Pending effects are runtime-only. They are never included in `state` or snapshots because effect payloads may contain credentials.
+
+The machine-readable source for lifecycle methods, effect names and envelope fields is `core_invoke("coreContractManifest", {})`.
 
 ## completeEffect shape
 

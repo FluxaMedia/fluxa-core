@@ -31,7 +31,7 @@ The core never initiates anything. Every state transition begins with the platfo
 | `core_invoke(method, args_json)` | Desktop + Swift | `src/ffi.rs` |
 | JNI externs | Android | `src/bindings/jni.rs` |
 
-`FluxaCore` is intentionally minimal — exactly 8 methods that `fluxa-desktop` calls directly. Everything else goes through `core_invoke` (for desktop/Swift) or raw JNI bindings (for Android). There is no shared registration table: wiring a new capability to a platform means adding it to the right file for that platform.
+`FluxaCore` is intentionally minimal and contains only methods with verified desktop callers. Everything else goes through `core_invoke` (for desktop/Swift) or raw JNI bindings (for Android). `coreContractManifest` exposes the shared lifecycle/effect contract for generated bindings and drift checks.
 
 ## Module map
 

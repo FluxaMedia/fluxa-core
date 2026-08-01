@@ -11,11 +11,18 @@ All types are defined in `src/runtime/effects.rs` (`EffectKind`). The string val
   "id": "fx-7",
   "type": "fetchAddonResource",
   "generation": 4,
-  "payload": { ... }
+  "payload": { ... },
+  "groupId": "addon",
+  "priority": 50,
+  "dedupeKey": "fetchAddonResource:4:<sha256>",
+  "cachePolicy": "default",
+  "timeoutMs": 15000
 }
 ```
 
 `id` is echoed back verbatim in `completeEffect`. `generation` is for staleness detection — the platform can discard completions whose generation is lower than the current engine generation.
+
+Scheduling fields are optional and are present for effects with a policy. `dedupeKey` hashes the canonical payload; it never embeds payload contents. Hosts must not place effect payloads in persistent UI state.
 
 ## Effect types
 
