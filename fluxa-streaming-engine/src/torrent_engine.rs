@@ -1341,8 +1341,13 @@ fn is_probe_range(
     let Some(window) = playback_window_for(state, torrent_id, file_id) else {
         return false;
     };
-    length <= MAX_PROBE_BYTES
-        && offset.abs_diff(window.playback_offset) > (window.warm_ahead_bytes / 4).max(MAX_PROBE_BYTES)
+    is_probe_for_window(window, offset, length, MAX_PROBE_BYTES)
+}
+
+fn is_probe_for_window(window: PlaybackWindow, offset: u64, length: u64, max_probe_bytes: u64) -> bool {
+    length <= max_probe_bytes
+        && offset.abs_diff(window.playback_offset)
+            > (window.warm_ahead_bytes / 4).max(max_probe_bytes)
 }
 
 fn store_playback_window(state: &EngineState, window: PlaybackWindow) {
@@ -1404,7 +1409,7 @@ use http::*;
 #[cfg(test)]
 mod tests {
     use super::http::update_file_focus;
-    use super::{FileRole, TorrentFileFocus, parse_range, playback_buffer_targets};
+    use super::{FileRole, TorrentFileFocus, PlaybackWindow, is_probe_for_window, parse_range, playback_buffer_targets};
     use axum::http::HeaderValue;
 
     fn range(value: &str, length: u64) -> Result<Option<(u64, u64)>, ()> {
@@ -1447,6 +1452,27 @@ mod tests {
         assert_eq!(bitrate, 80_000_000);
         assert_eq!(urgent, 250_000_000);
         assert_eq!(warm, 450_000_000);
+    }
+
+    #[test]
+    fn distant_small_range_is_a_probe_not_a_seek() {
+        let window = PlaybackWindow {
+            torrent_id: 1,
+            file_id: 0,
+            playback_offset: 32 * 1024 * 1024,
+            requested_end: 0,
+            contiguous_ready_bytes: 0,
+            estimated_bitrate_bps: 0,
+            urgent_ahead_bytes: 0,
+            warm_ahead_bytes: 64 * 1024 * 1024,
+            smoothed_download_bps: 0.0,
+            seek_generation: 0,
+            was_ready: false,
+            seek_started_at: None,
+            updated_at: std::time::Instant::now(),
+        };
+        assert!(is_probe_for_window(window, 500 * 1024 * 1024, 1024, 2 * 1024 * 1024));
+        assert!(!is_probe_for_window(window, 500 * 1024 * 1024, 8 * 1024 * 1024, 2 * 1024 * 1024));
     }
 
     #[test]
