@@ -687,16 +687,23 @@ async fn stream_fname(
             let total_len = stream.len();
             match parse_range(headers.get("Range"), total_len) {
                 Ok(Some((start, end))) => {
-                    let cancellation = playback_session_for(&state, id, file_id, start);
-                    remember_playback_window(
-                        &state,
-                        id,
-                        file_id,
-                        start,
-                        total_len,
-                        query.duration_ms,
-                    );
-                    set_streaming_window(&state, id, file_id, start);
+                    let length = end.saturating_sub(start).saturating_add(1);
+                    let probe = is_probe_range(&state, id, file_id, start, length);
+                    let cancellation = if probe {
+                        CancellationToken::new()
+                    } else {
+                        let cancellation = playback_session_for(&state, id, file_id, start);
+                        remember_playback_window(
+                            &state,
+                            id,
+                            file_id,
+                            start,
+                            total_len,
+                            query.duration_ms,
+                        );
+                        set_streaming_window(&state, id, file_id, start);
+                        cancellation
+                    };
                     if let Err(error) = stream.seek(SeekFrom::Start(start)).await {
                         debug_log(format!(
                             "[TorrServer] seek failed torrent={id} file={file_id} start={start} len={total_len}: {error}"
@@ -707,7 +714,6 @@ async fn stream_fname(
                         );
                     }
                     status = StatusCode::PARTIAL_CONTENT;
-                    let length = end.saturating_sub(start).saturating_add(1);
                     insert_header(&mut output_headers, "Content-Length", length.to_string());
                     insert_header(
                         &mut output_headers,
@@ -1320,6 +1326,23 @@ fn playback_session_for(
         return session.cancel.clone();
     }
     CancellationToken::new()
+}
+
+/// MPV/FFmpeg may issue a tiny distant cue/index read without seeking the
+/// primary playback stream. Keep the live scheduler window in that case.
+fn is_probe_range(
+    state: &EngineState,
+    torrent_id: usize,
+    file_id: usize,
+    offset: u64,
+    length: u64,
+) -> bool {
+    const MAX_PROBE_BYTES: u64 = 2 * 1024 * 1024;
+    let Some(window) = playback_window_for(state, torrent_id, file_id) else {
+        return false;
+    };
+    length <= MAX_PROBE_BYTES
+        && offset.abs_diff(window.playback_offset) > (window.warm_ahead_bytes / 4).max(MAX_PROBE_BYTES)
 }
 
 fn store_playback_window(state: &EngineState, window: PlaybackWindow) {
