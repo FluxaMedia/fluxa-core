@@ -93,7 +93,10 @@ pub(crate) fn resolve_manifest_assets_json(descriptor_json: &str) -> Option<Stri
         .unwrap_or("")
         .to_string();
     let normalized_transport_url = normalize_manifest_url(&transport_url);
-    descriptor["transportUrl"] = Value::String(normalized_transport_url.clone());
+    descriptor.as_object_mut()?.insert(
+        "transportUrl".to_string(),
+        Value::String(normalized_transport_url.clone()),
+    );
 
     let manifest = descriptor.get_mut("manifest")?.as_object_mut()?;
     let logo = text_value(&Value::Object(manifest.clone()), "logo").map(str::to_string);
@@ -129,7 +132,10 @@ pub(crate) fn merge_live_manifest_json(
         .unwrap_or("")
         .to_string();
     let normalized_transport_url = normalize_manifest_url(&transport_url);
-    descriptor["transportUrl"] = Value::String(normalized_transport_url.clone());
+    descriptor.as_object_mut()?.insert(
+        "transportUrl".to_string(),
+        Value::String(normalized_transport_url.clone()),
+    );
 
     let current_manifest_snapshot = descriptor.get("manifest")?.clone();
     let current_manifest = current_manifest_snapshot.as_object()?;
