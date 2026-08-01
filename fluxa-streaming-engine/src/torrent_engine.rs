@@ -108,6 +108,12 @@ struct ActiveTelemetrySession {
     generation: u64,
 }
 
+#[derive(Default)]
+struct TelemetryState {
+    active_sessions: HashMap<usize, ActiveTelemetrySession>,
+    records: HashMap<(usize, String), PlaybackTelemetry>,
+}
+
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct TelemetryEvent {
@@ -182,8 +188,10 @@ struct EngineState {
     prioritized_files: Arc<Mutex<HashMap<usize, TorrentFileFocus>>>,
     playback_windows: Arc<Mutex<HashMap<(usize, usize), PlaybackWindow>>>,
     playback_sessions: Arc<Mutex<HashMap<(usize, usize), PlaybackSession>>>,
-    playback_telemetry: Arc<Mutex<HashMap<(usize, String), PlaybackTelemetry>>>,
-    active_telemetry_sessions: Arc<Mutex<HashMap<usize, ActiveTelemetrySession>>>,
+    // Session ownership and its measurements must be changed atomically. Keeping
+    // them together also prevents lock-order inversions between telemetry writes
+    // and torrent teardown.
+    telemetry: Arc<Mutex<TelemetryState>>,
     /// Root cancellation per torrent. Probe readers use child tokens too, so
     /// they cannot outlive playback deactivation or cache eviction.
     torrent_cancellations: Arc<Mutex<HashMap<usize, CancellationToken>>>,
@@ -346,8 +354,7 @@ pub fn start_torrent_server(
                 prioritized_files: Arc::new(Mutex::new(HashMap::new())),
                 playback_windows: Arc::new(Mutex::new(HashMap::new())),
                 playback_sessions: Arc::new(Mutex::new(HashMap::new())),
-                playback_telemetry: Arc::new(Mutex::new(HashMap::new())),
-                active_telemetry_sessions: Arc::new(Mutex::new(HashMap::new())),
+                telemetry: Arc::new(Mutex::new(TelemetryState::default())),
                 torrent_cancellations: Arc::new(Mutex::new(HashMap::new())),
                 lifecycle: Arc::new(Mutex::new(HashMap::new())),
                 active_torrent: Arc::new(Mutex::new(None)),
@@ -653,13 +660,19 @@ async fn record_telemetry(
     if event.session_id.is_empty() || event.session_id.len() > 128 {
         return error_response(StatusCode::BAD_REQUEST, "invalid telemetry session");
     }
-    let mut active_sessions = match state.active_telemetry_sessions.lock() {
-        Ok(sessions) => sessions,
+    if !matches!(
+        event.event.as_str(),
+        "firstFrame" | "stallStarted" | "stallEnded"
+    ) {
+        return error_response(StatusCode::BAD_REQUEST, "unsupported telemetry event");
+    }
+    let mut telemetry = match state.telemetry.lock() {
+        Ok(telemetry) => telemetry,
         Err(_) => {
             return error_response(StatusCode::INTERNAL_SERVER_ERROR, "telemetry unavailable");
         }
     };
-    match active_sessions.get(&id) {
+    match telemetry.active_sessions.get(&id) {
         Some(active) if event.session_generation < active.generation => {
             return error_response(StatusCode::CONFLICT, "stale telemetry session");
         }
@@ -669,19 +682,19 @@ async fn record_telemetry(
             return error_response(StatusCode::CONFLICT, "telemetry session mismatch");
         }
         Some(active) if event.session_generation > active.generation => {
-            active_sessions.insert(
+            telemetry.active_sessions.insert(
                 id,
                 ActiveTelemetrySession {
                     id: event.session_id.clone(),
                     generation: event.session_generation,
                 },
             );
-            if let Ok(mut telemetry) = state.playback_telemetry.lock() {
-                telemetry.retain(|(stored_id, _), _| *stored_id != id);
-            }
+            telemetry
+                .records
+                .retain(|(stored_id, _), _| *stored_id != id);
         }
         None => {
-            active_sessions.insert(
+            telemetry.active_sessions.insert(
                 id,
                 ActiveTelemetrySession {
                     id: event.session_id.clone(),
@@ -691,14 +704,7 @@ async fn record_telemetry(
         }
         _ => {}
     }
-    drop(active_sessions);
-    let mut telemetry = match state.playback_telemetry.lock() {
-        Ok(telemetry) => telemetry,
-        Err(_) => {
-            return error_response(StatusCode::INTERNAL_SERVER_ERROR, "telemetry unavailable");
-        }
-    };
-    let entry = telemetry.entry((id, event.session_id)).or_default();
+    let entry = telemetry.records.entry((id, event.session_id)).or_default();
     match event.event.as_str() {
         "firstFrame" => entry.first_frame_ms = event.elapsed_ms.or(entry.first_frame_ms),
         "stallStarted" => entry.stall_count = entry.stall_count.saturating_add(1),
@@ -707,7 +713,7 @@ async fn record_telemetry(
                 .stall_duration_ms
                 .saturating_add(event.elapsed_ms.unwrap_or_default())
         }
-        _ => return error_response(StatusCode::BAD_REQUEST, "unsupported telemetry event"),
+        _ => unreachable!("telemetry event was validated before mutating state"),
     }
     (StatusCode::OK, Json(json!({}))).into_response()
 }
@@ -1104,17 +1110,15 @@ async fn status_response(
             window.smoothed_download_bps * 8.0 / window.estimated_bitrate_bps.max(1) as f64
         })
         .unwrap_or(0.0);
-    let active_session = state
-        .active_telemetry_sessions
-        .lock()
-        .ok()
-        .and_then(|sessions| sessions.get(&id).cloned());
     let playback_telemetry = state
-        .playback_telemetry
+        .telemetry
         .lock()
         .ok()
         .and_then(|telemetry| {
-            active_session.and_then(|session| telemetry.get(&(id, session.id)).copied())
+            telemetry
+                .active_sessions
+                .get(&id)
+                .and_then(|session| telemetry.records.get(&(id, session.id.clone())).copied())
         })
         .unwrap_or_default();
     let scheduler = window.map(|window| {
@@ -1335,11 +1339,9 @@ async fn deactivate_torrent(state: &EngineState, torrent_id: usize) {
 }
 
 fn clear_playback_telemetry(state: &EngineState, torrent_id: usize) {
-    if let Ok(mut telemetry) = state.playback_telemetry.lock() {
-        telemetry.retain(|(id, _), _| *id != torrent_id);
-    }
-    if let Ok(mut sessions) = state.active_telemetry_sessions.lock() {
-        sessions.remove(&torrent_id);
+    if let Ok(mut telemetry) = state.telemetry.lock() {
+        telemetry.records.retain(|(id, _), _| *id != torrent_id);
+        telemetry.active_sessions.remove(&torrent_id);
     }
 }
 

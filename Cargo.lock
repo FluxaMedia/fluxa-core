@@ -1344,6 +1344,7 @@ dependencies = [
  "sha2 0.11.0",
  "tokio",
  "uniffi",
+ "url",
  "wasm-bindgen",
  "web-time",
 ]

@@ -10,6 +10,7 @@ use settings_layout::run_settings_layout;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
+use url::{Host, Url};
 
 pub(super) const PLUGIN_TIMEOUT_SECS: u64 = 60;
 pub(super) const PLUGIN_MEMORY_LIMIT: usize = 256 * 1024 * 1024;
@@ -23,36 +24,17 @@ pub fn plugin_http_request_error(request: &PluginHttpRequest) -> Option<&'static
     ) {
         return Some("plugin request method is not allowed");
     }
-    let lower = request.url.to_ascii_lowercase();
-    if !(lower.starts_with("http://") || lower.starts_with("https://")) {
+    let parsed = match Url::parse(&request.url) {
+        Ok(parsed) => parsed,
+        Err(_) => return Some("invalid plugin URL"),
+    };
+    if !matches!(parsed.scheme(), "http" | "https") {
         return Some("only http and https plugin URLs are allowed");
     }
-    let authority = lower
-        .split("//")
-        .nth(1)?
-        .split('/')
-        .next()?
-        .split('@')
-        .next_back()?;
-    let host = authority.split(':').next().unwrap_or(authority);
-    let private_172 = host
-        .strip_prefix("172.")
-        .and_then(|rest| rest.split('.').next())
-        .and_then(|part| part.parse::<u8>().ok())
-        .is_some_and(|second| (16..=31).contains(&second));
-    if host == "localhost"
-        || host.ends_with(".localhost")
-        || host == "::1"
-        || host.starts_with("127.")
-        || host.starts_with("10.")
-        || host.starts_with("192.168.")
-        || host.starts_with("169.254.")
-        || host.starts_with("0.")
-        || private_172
-        || host.starts_with("fc")
-        || host.starts_with("fd")
-        || host.starts_with("fe80:")
-    {
+    let Some(host) = parsed.host() else {
+        return Some("plugin URL is missing a host");
+    };
+    if !is_public_plugin_host(host) {
         return Some("private or loopback plugin URL is not allowed");
     }
     if let Some(body) = &request.body
@@ -69,6 +51,29 @@ pub fn plugin_http_request_error(request: &PluginHttpRequest) -> Option<&'static
         return Some("plugin request contains a disallowed header");
     }
     None
+}
+
+fn is_public_plugin_host(host: Host<&str>) -> bool {
+    match host {
+        Host::Ipv4(ip) => {
+            !ip.is_private() && !ip.is_loopback() && !ip.is_link_local() && !ip.is_unspecified()
+        }
+        Host::Ipv6(ip) => {
+            !ip.is_loopback()
+                && !ip.is_unspecified()
+                && !ip.is_unique_local()
+                && !ip.is_unicast_link_local()
+        }
+        Host::Domain(domain) => {
+            let domain = domain.trim_end_matches('.').to_ascii_lowercase();
+            domain != "localhost"
+                && !domain.ends_with(".localhost")
+                && domain
+                    .parse::<std::net::Ipv4Addr>()
+                    .map(|ip| is_public_plugin_host(Host::Ipv4(ip)))
+                    .unwrap_or(true)
+        }
+    }
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -95,6 +100,10 @@ pub struct PluginHttpResponse {
 
 #[cfg_attr(feature = "uniffi-bindings", uniffi::export(callback_interface))]
 pub trait PluginHttpClient: Send + Sync {
+    /// Before every connection, resolve the requested host and reject every
+    /// loopback, private, link-local, or unspecified A/AAAA result. Apply the
+    /// same check to every redirect target to prevent DNS rebinding and redirect
+    /// based SSRF; this core-side policy can only inspect the original URL.
     fn fetch(&self, request: PluginHttpRequest) -> PluginHttpResponse;
 }
 
@@ -188,6 +197,23 @@ mod tests {
             .headers
             .insert("Authorization".to_string(), "secret".to_string());
         assert!(plugin_http_request_error(&request).is_some());
+    }
+
+    #[test]
+    fn plugin_request_policy_rejects_bracketed_private_ipv6() {
+        for url in [
+            "http://[::1]/",
+            "http://[fc00::1]/",
+            "http://[fe80::1]/",
+            "http://localhost./",
+            "http://127.0.0.1./",
+        ] {
+            let request = PluginHttpRequest {
+                url: url.to_string(),
+                ..PluginHttpRequest::default()
+            };
+            assert!(plugin_http_request_error(&request).is_some(), "{url}");
+        }
     }
 
     fn run_scraper(code: &str, tmdb_id: &str, media_type: &str) -> String {
