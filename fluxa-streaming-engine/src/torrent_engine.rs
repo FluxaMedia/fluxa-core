@@ -28,7 +28,7 @@ use tokio::net::TcpListener;
 use tokio::sync::Mutex as AsyncMutex;
 use tokio::sync::oneshot;
 use tokio_util::io::ReaderStream;
-use tokio_util::sync::CancellationToken;
+use tokio_util::sync::{CancellationToken, WaitForCancellationFutureOwned};
 
 #[derive(Deserialize)]
 struct TorrRequest {
@@ -97,7 +97,18 @@ struct PlaybackSession {
 
 struct CancellableReader<R> {
     inner: R,
-    cancel: CancellationToken,
+    // Keep the cancellation future alive while the underlying rqbit reader is
+    // pending so cancelling its token wakes this reader immediately.
+    cancellation: Pin<Box<WaitForCancellationFutureOwned>>,
+}
+
+impl<R> CancellableReader<R> {
+    fn new(inner: R, cancel: CancellationToken) -> Self {
+        Self {
+            inner,
+            cancellation: Box::pin(cancel.cancelled_owned()),
+        }
+    }
 }
 
 impl<R: tokio::io::AsyncRead + Unpin> tokio::io::AsyncRead for CancellableReader<R> {
@@ -106,12 +117,7 @@ impl<R: tokio::io::AsyncRead + Unpin> tokio::io::AsyncRead for CancellableReader
         cx: &mut Context<'_>,
         buf: &mut tokio::io::ReadBuf<'_>,
     ) -> Poll<std::io::Result<()>> {
-        let cancelled = {
-            let cancelled = self.cancel.cancelled();
-            tokio::pin!(cancelled);
-            cancelled.poll(cx).is_ready()
-        };
-        if cancelled {
+        if self.cancellation.as_mut().poll(cx).is_ready() {
             return Poll::Ready(Err(std::io::Error::new(
                 std::io::ErrorKind::Interrupted,
                 "playback session cancelled",
@@ -153,6 +159,9 @@ struct EngineState {
     prioritized_files: Arc<Mutex<HashMap<usize, TorrentFileFocus>>>,
     playback_windows: Arc<Mutex<HashMap<(usize, usize), PlaybackWindow>>>,
     playback_sessions: Arc<Mutex<HashMap<(usize, usize), PlaybackSession>>>,
+    /// Root cancellation per torrent. Probe readers use child tokens too, so
+    /// they cannot outlive playback deactivation or cache eviction.
+    torrent_cancellations: Arc<Mutex<HashMap<usize, CancellationToken>>>,
     lifecycle: Arc<Mutex<HashMap<usize, TorrentLifecycle>>>,
     active_torrent: Arc<Mutex<Option<usize>>>,
     cache_limit_bytes: Arc<Mutex<Option<u64>>>,
@@ -313,6 +322,7 @@ pub fn start_torrent_server(
                 prioritized_files: Arc::new(Mutex::new(HashMap::new())),
                 playback_windows: Arc::new(Mutex::new(HashMap::new())),
                 playback_sessions: Arc::new(Mutex::new(HashMap::new())),
+                torrent_cancellations: Arc::new(Mutex::new(HashMap::new())),
                 lifecycle: Arc::new(Mutex::new(HashMap::new())),
                 active_torrent: Arc::new(Mutex::new(None)),
                 cache_limit_bytes: Arc::new(Mutex::new(None)),
@@ -515,7 +525,14 @@ async fn torrents(
                             // Give DHT/trackers a short discovery interval, then stop
                             // transfer work. A later play request resumes this torrent.
                             tokio::time::sleep(Duration::from_secs(10)).await;
-                            deactivate_torrent(&delayed_state, id).await;
+                            let should_deactivate = delayed_state
+                                .lifecycle
+                                .lock()
+                                .map(|lifecycle| should_deactivate_prewarm(&lifecycle, id))
+                                .unwrap_or(false);
+                            if should_deactivate {
+                                deactivate_torrent(&delayed_state, id).await;
+                            }
                         });
                     }
                     status_response(&state, id, Some(details), focus)
@@ -572,6 +589,7 @@ async fn torrents(
                         session.cancel.cancel();
                     }
                 }
+                cancel_torrent_root(&state, id);
                 if let Ok(mut lifecycle) = state.lifecycle.lock() {
                     lifecycle.remove(&id);
                 }
@@ -690,7 +708,7 @@ async fn stream_fname(
                     let length = end.saturating_sub(start).saturating_add(1);
                     let probe = is_probe_range(&state, id, file_id, start, length);
                     let cancellation = if probe {
-                        CancellationToken::new()
+                        torrent_cancellation_token(&state, id).child_token()
                     } else {
                         let cancellation = playback_session_for(&state, id, file_id, start);
                         remember_playback_window(
@@ -721,10 +739,7 @@ async fn stream_fname(
                         format!("bytes {start}-{end}/{total_len}"),
                     );
                     let body = Body::from_stream(ReaderStream::with_capacity(
-                        CancellableReader {
-                            inner: stream.take(length),
-                            cancel: cancellation,
-                        },
+                        CancellableReader::new(stream.take(length), cancellation),
                         65536,
                     ));
                     (status, output_headers, body).into_response()
@@ -735,7 +750,7 @@ async fn stream_fname(
                     set_streaming_window(&state, id, file_id, 0);
                     insert_header(&mut output_headers, "Content-Length", total_len.to_string());
                     let body = Body::from_stream(ReaderStream::with_capacity(
-                        CancellableReader { inner: stream, cancel: cancellation },
+                        CancellableReader::new(stream, cancellation),
                         65536,
                     ));
                     (status, output_headers, body).into_response()
@@ -1104,6 +1119,15 @@ fn touch_torrent_lifecycle(state: &EngineState, torrent_id: usize, active: bool)
     }
 }
 
+fn should_deactivate_prewarm(
+    lifecycle: &HashMap<usize, TorrentLifecycle>,
+    torrent_id: usize,
+) -> bool {
+    lifecycle
+        .get(&torrent_id)
+        .is_some_and(|entry| entry.prewarmed && !entry.active)
+}
+
 async fn activate_torrent(state: &EngineState, torrent_id: usize) {
     let previous = state
         .active_torrent
@@ -1128,6 +1152,7 @@ async fn activate_torrent(state: &EngineState, torrent_id: usize) {
 }
 
 async fn deactivate_torrent(state: &EngineState, torrent_id: usize) {
+    cancel_torrent_root(state, torrent_id);
     let files = state
         .playback_windows
         .lock()
@@ -1271,6 +1296,7 @@ async fn enforce_cache_limit(state: &EngineState) {
                     session.cancel.cancel();
                 }
             }
+            cancel_torrent_root(state, torrent_id);
             debug_log(format!("[TorrServer] evicted inactive torrent={torrent_id} for cache limit"));
         }
     }
@@ -1315,17 +1341,40 @@ fn playback_session_for(
             + u64::from(seek || !sessions.contains_key(&key));
         let session = sessions.entry(key).or_insert_with(|| PlaybackSession {
             generation,
-            cancel: CancellationToken::new(),
+            cancel: torrent_cancellation_token(state, torrent_id).child_token(),
         });
         if seek {
             *session = PlaybackSession {
                 generation,
-                cancel: CancellationToken::new(),
+                cancel: torrent_cancellation_token(state, torrent_id).child_token(),
             };
         }
         return session.cancel.clone();
     }
-    CancellationToken::new()
+    torrent_cancellation_token(state, torrent_id).child_token()
+}
+
+fn torrent_cancellation_token(state: &EngineState, torrent_id: usize) -> CancellationToken {
+    state
+        .torrent_cancellations
+        .lock()
+        .map(|mut cancellations| {
+            cancellations
+                .entry(torrent_id)
+                .or_insert_with(CancellationToken::new)
+                .clone()
+        })
+        // A poisoned bookkeeping lock must not break media serving. The
+        // standalone token still keeps the reader's local cancellation valid.
+        .unwrap_or_else(|_| CancellationToken::new())
+}
+
+fn cancel_torrent_root(state: &EngineState, torrent_id: usize) {
+    if let Ok(mut cancellations) = state.torrent_cancellations.lock() {
+        if let Some(token) = cancellations.remove(&torrent_id) {
+            token.cancel();
+        }
+    }
 }
 
 /// MPV/FFmpeg may issue a tiny distant cue/index read without seeking the
@@ -1409,8 +1458,16 @@ use http::*;
 #[cfg(test)]
 mod tests {
     use super::http::update_file_focus;
-    use super::{FileRole, TorrentFileFocus, PlaybackWindow, is_probe_for_window, parse_range, playback_buffer_targets};
+    use super::{
+        CancellableReader, FileRole, PlaybackWindow, TorrentFileFocus, TorrentLifecycle,
+        is_probe_for_window, parse_range, playback_buffer_targets, should_deactivate_prewarm,
+    };
     use axum::http::HeaderValue;
+    use std::collections::HashMap;
+    use std::time::Instant;
+    use tokio::io::AsyncReadExt;
+    use tokio::time::{Duration, timeout};
+    use tokio_util::sync::CancellationToken;
 
     fn range(value: &str, length: u64) -> Result<Option<(u64, u64)>, ()> {
         parse_range(Some(&HeaderValue::from_str(value).unwrap()), length)
@@ -1473,6 +1530,44 @@ mod tests {
         };
         assert!(is_probe_for_window(window, 500 * 1024 * 1024, 1024, 2 * 1024 * 1024));
         assert!(!is_probe_for_window(window, 500 * 1024 * 1024, 8 * 1024 * 1024, 2 * 1024 * 1024));
+    }
+
+    #[test]
+    fn delayed_prewarm_never_deactivates_active_playback() {
+        let mut lifecycle = HashMap::new();
+        lifecycle.insert(
+            7,
+            TorrentLifecycle {
+                last_accessed: Instant::now(),
+                prewarmed: true,
+                active: false,
+                estimated_cache_bytes: 0,
+            },
+        );
+        assert!(should_deactivate_prewarm(&lifecycle, 7));
+
+        lifecycle.get_mut(&7).unwrap().active = true;
+        assert!(!should_deactivate_prewarm(&lifecycle, 7));
+    }
+
+    #[tokio::test]
+    async fn cancellation_wakes_a_pending_reader() {
+        let (reader, _writer) = tokio::io::duplex(1);
+        let cancellation = CancellationToken::new();
+        let mut reader = CancellableReader::new(reader, cancellation.clone());
+        let read = tokio::spawn(async move {
+            let mut buffer = [0; 1];
+            reader.read(&mut buffer).await
+        });
+
+        tokio::task::yield_now().await;
+        cancellation.cancel();
+        let error = timeout(Duration::from_secs(1), read)
+            .await
+            .expect("cancellation should wake the pending reader")
+            .expect("reader task should not panic")
+            .expect_err("cancelled reader should fail");
+        assert_eq!(error.kind(), std::io::ErrorKind::Interrupted);
     }
 
     #[test]
