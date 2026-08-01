@@ -57,8 +57,10 @@ pub(crate) fn calendar_visibility_plan_json(request_json: &str) -> Option<String
         let key = calendar_item_identity(item);
         let score = calendar_item_detail_score(item);
         if let Some((index, current_score)) = seen.get_mut(&key) {
-            if score > *current_score {
-                unique[*index] = item;
+            if score > *current_score
+                && let Some(slot) = unique.get_mut(*index)
+            {
+                *slot = item;
                 *current_score = score;
             }
         } else {

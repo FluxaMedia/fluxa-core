@@ -15,9 +15,10 @@ pub(crate) fn stream_request_ids(
     let mut ids = Vec::new();
     if content_type != "series" {
         if is_tmdb_like_content_id(id)
-            && let Some(canonical) = canonical_base_id {
-                push_unique(&mut ids, canonical.to_string());
-            }
+            && let Some(canonical) = canonical_base_id
+        {
+            push_unique(&mut ids, canonical.to_string());
+        }
         push_unique(&mut ids, id.to_string());
         if let Some(detail) = detail_id {
             push_unique(&mut ids, detail.to_string());
@@ -287,9 +288,9 @@ pub(crate) fn stream_discovery_episode_context_json(
                     && !values
                         .iter()
                         .any(|value| value.as_str() == Some(title.as_str()))
-                    {
-                        values.push(Value::String(title));
-                    }
+                {
+                    values.push(Value::String(title));
+                }
             }
             if let Some(id) = string_field(episode, "id") {
                 season_episode_ids

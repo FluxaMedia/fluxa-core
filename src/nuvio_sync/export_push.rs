@@ -102,13 +102,13 @@ pub(crate) fn playback_progress_request_json(args_json: &str) -> Option<String> 
         .get("videoId")
         .and_then(Value::as_str)
         .unwrap_or_else(|| meta.get("id").and_then(Value::as_str).unwrap_or(""));
-    let parts: Vec<&str> = video.split(':').collect();
-    let season = (parts.len() == 3)
-        .then(|| parts[1].parse::<i64>().ok())
-        .flatten();
-    let episode = (parts.len() == 3)
-        .then(|| parts[2].parse::<i64>().ok())
-        .flatten();
+    let mut parts = video.split(':');
+    let (season, episode) = match (parts.next(), parts.next(), parts.next(), parts.next()) {
+        (Some(_), Some(season), Some(episode), None) => {
+            (season.parse::<i64>().ok(), episode.parse::<i64>().ok())
+        }
+        _ => (None, None),
+    };
     serde_json::to_string(&json!({"content_id": meta.get("id"), "content_type": meta.get("type"), "video_id": video, "position": args.get("position"), "duration": args.get("duration"), "last_watched": args.get("watchedAt"), "season": season, "episode": episode, "progress_key": if let (Some(s), Some(e)) = (season, episode) { format!("{}_s{s}e{e}", meta.get("id").and_then(Value::as_str).unwrap_or("")) } else { meta.get("id").and_then(Value::as_str).unwrap_or("").to_string() }})).ok()
 }
 

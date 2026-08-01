@@ -33,8 +33,6 @@ pub(crate) fn select_continue_watching_artwork_json(
         None
     };
 
-    
-
     if !is_horizontal {
         thumbnail
             .or(cw_poster)

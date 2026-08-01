@@ -191,19 +191,19 @@ pub(crate) fn supports_resource(
                 }
                 if let Some(content_type) = content_type
                     && !types.is_empty()
-                        && !types
-                            .iter()
-                            .any(|item| item.eq_ignore_ascii_case(content_type))
-                    {
-                        return false;
-                    }
+                    && !types
+                        .iter()
+                        .any(|item| item.eq_ignore_ascii_case(content_type))
+                {
+                    return false;
+                }
                 if let Some(id) = id
                     && canonical_resource_name(name) != "catalog"
-                        && !prefixes.is_empty()
-                        && !prefixes.iter().any(|prefix| id.starts_with(prefix))
-                    {
-                        return false;
-                    }
+                    && !prefixes.is_empty()
+                    && !prefixes.iter().any(|prefix| id.starts_with(prefix))
+                {
+                    return false;
+                }
                 true
             })
         })

@@ -8,6 +8,10 @@ use rquickjs::{AsyncContext, AsyncRuntime, CatchResultExt, Function};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "FFI scraper contract has eight independently optional wire fields"
+)]
 pub(super) async fn run(
     client: Arc<dyn PluginHttpClient>,
     code: String,

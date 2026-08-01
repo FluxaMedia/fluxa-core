@@ -62,16 +62,16 @@ pub(crate) fn stremio_library_mutation_plan_json(args_json: &str) -> Option<Stri
             if episodes.is_empty() {
                 meta.and_then(|source| item_value(source, json!({"lastWatched": timestamp, "timeOffset": 0, "duration": 0, "videoId": null, "timesWatched": if watched { 1 } else { 0 }, "flaggedWatched": if watched { 1 } else { 0 }}), json!({"lastWatched": timestamp}))).into_iter().collect()
             } else {
-                episodes.iter().filter_map(|episode| {
+                episodes.iter().map(|episode| {
                     let content_id = episode.get("contentId").and_then(Value::as_str).unwrap_or("");
                     let video_id = episode.get("videoId").and_then(Value::as_str).filter(|value| !value.is_empty()).map(str::to_string)
                         .unwrap_or_else(|| format!("{content_id}:{}:{}", episode.get("season").and_then(Value::as_i64).unwrap_or_default(), episode.get("episode").and_then(Value::as_i64).unwrap_or_default()));
-                    Some(json!({
+                    json!({
                         "_id": video_id, "name": episode.get("title").and_then(Value::as_str).or_else(|| meta.and_then(|value| value.get("name")).and_then(Value::as_str)).unwrap_or(""),
                         "type": episode.get("contentType"), "poster": meta.and_then(|value| value.get("poster")), "background": meta.and_then(|value| value.get("background")), "logo": meta.and_then(|value| value.get("logo")),
                         "state": {"lastWatched": timestamp, "timeOffset": 0, "duration": 0, "videoId": video_id, "timesWatched": if watched { 1 } else { 0 }, "flaggedWatched": if watched { 1 } else { 0 }},
                         "lastWatched": timestamp,
-                    }))
+                    })
                 }).collect()
             }
         }
@@ -107,7 +107,9 @@ pub(crate) fn stremio_watchlist_to_items_json(items_json: &str) -> Option<String
                 .and_then(Value::as_str)
                 .filter(|s| !s.is_empty())
             {
-                entry["poster"] = json!(poster);
+                entry
+                    .as_object_mut()?
+                    .insert("poster".to_string(), json!(poster));
             }
             Some(entry)
         })

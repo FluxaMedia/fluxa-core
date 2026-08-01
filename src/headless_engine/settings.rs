@@ -30,7 +30,9 @@ pub(super) fn dispatch(
     if !engine.state.settings.values.is_object() {
         engine.state.settings.values = serde_json::json!({});
     }
-    engine.state.settings.values[key.as_str()] = value.clone();
+    if let Some(values) = engine.state.settings.values.as_object_mut() {
+        values.insert(key.clone(), value.clone());
+    }
     vec![engine.effect(
         EffectKind::WriteSettings,
         generation,

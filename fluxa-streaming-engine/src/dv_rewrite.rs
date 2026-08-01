@@ -2294,10 +2294,7 @@ mod tests {
         );
 
         // BlockGroup (0xA0) must still be present.
-        assert!(
-            all.contains(&0xA0),
-            "BlockGroup must be present in output"
-        );
+        assert!(all.contains(&0xA0), "BlockGroup must be present in output");
     }
 
     #[test]

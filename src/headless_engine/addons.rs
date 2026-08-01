@@ -119,9 +119,10 @@ pub(super) fn complete(
             if generation == engine.state.runtime.get(GenerationKey::Addon) {
                 if result.status.is_ok() {
                     let manifest = result.value.clone();
-                    let id = manifest["transportUrl"]
-                        .as_str()
-                        .or_else(|| manifest["id"].as_str())
+                    let id = manifest
+                        .get("transportUrl")
+                        .and_then(Value::as_str)
+                        .or_else(|| manifest.get("id").and_then(Value::as_str))
                         .unwrap_or("unknown")
                         .to_string();
                     upsert_by_key(&mut engine.state.addons.installed, "id", &id, manifest);

@@ -61,9 +61,10 @@ fn matches_any(value: &str, needles: &[&str]) -> bool {
 
 fn push_text(parts: &mut Vec<String>, value: Option<&Value>) {
     if let Some(s) = value.and_then(Value::as_str)
-        && !s.trim().is_empty() {
-            parts.push(s.to_string());
-        }
+        && !s.trim().is_empty()
+    {
+        parts.push(s.to_string());
+    }
 }
 
 pub(crate) fn detect_anime_playback(
@@ -176,11 +177,11 @@ pub(crate) fn detect_anime_playback(
         .filter(|s| !s.is_empty());
     if let Some(addon_name) = stream_addon_name
         && matches_any(&addon_text, ANIME_PROVIDER_PATTERNS)
-            && matches_any(addon_name, ANIME_PROVIDER_PATTERNS)
-        {
-            confidence += 85;
-            reasons.push("anime addon");
-        }
+        && matches_any(addon_name, ANIME_PROVIDER_PATTERNS)
+    {
+        confidence += 85;
+        reasons.push("anime addon");
+    }
 
     if genres.iter().any(|g| normalize(g) == "animation")
         && matches_any(&all_text, JAPANESE_SIGNALS)

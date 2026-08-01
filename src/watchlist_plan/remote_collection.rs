@@ -104,13 +104,15 @@ pub(crate) fn remote_collection_request_plan_json(request_json: &str) -> Option<
                     .unwrap_or_else(|| json!("popularity.desc")),
             );
             if source_type == "COMPANY"
-                && let Some(id) = source_id {
-                    params.insert("with_companies".into(), json!(id));
-                }
+                && let Some(id) = source_id
+            {
+                params.insert("with_companies".into(), json!(id));
+            }
             if source_type == "NETWORK"
-                && let Some(id) = source_id {
-                    params.insert("with_networks".into(), json!(id));
-                }
+                && let Some(id) = source_id
+            {
+                params.insert("with_networks".into(), json!(id));
+            }
             let filters = source.get("filters").and_then(Value::as_object);
             for (input, output) in [
                 (

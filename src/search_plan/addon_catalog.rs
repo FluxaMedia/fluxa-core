@@ -51,9 +51,9 @@ fn metadata_feed_home_title(label: &str) -> String {
         .collect::<Vec<_>>();
     match parts.len() {
         0 => label.to_string(),
-        1 => parts[0].to_string(),
-        2 => parts[1].to_string(),
-        _ => parts[1..].join(" "),
+        1 => parts.first().unwrap_or(&label).to_string(),
+        2 => parts.get(1).unwrap_or(&label).to_string(),
+        _ => parts.get(1..).unwrap_or_default().join(" "),
     }
 }
 
@@ -373,9 +373,9 @@ pub(crate) fn resolve_transport_url_json(source_json: &str, addons_json: &str) -
         if let Some(ref wanted_addon_id) = src_addon_id
             && !(addon_id == *wanted_addon_id
                 || t_url.to_lowercase().contains(wanted_addon_id.as_str()))
-            {
-                continue;
-            }
+        {
+            continue;
+        }
         let catalogs = manifest
             .get("catalogs")
             .and_then(Value::as_array)

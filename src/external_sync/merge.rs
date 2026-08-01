@@ -9,9 +9,10 @@ pub(crate) fn merge_external_watchlist_json(local_json: &str, external_json: &st
         .collect();
     for item in external {
         if let Some(id) = item.get("id").and_then(Value::as_str)
-            && !local_ids.contains(id) {
-                local.push(item);
-            }
+            && !local_ids.contains(id)
+        {
+            local.push(item);
+        }
     }
     serde_json::to_string(&local).unwrap_or_else(|_| "[]".to_string())
 }
@@ -123,9 +124,10 @@ pub(crate) fn ranked_winner(
 ) -> bool {
     if ranking_mode == Some("most_recent_episode")
         && let (Some(ra), Some(rb)) = (episode_rank(a), episode_rank(b))
-            && ra != rb {
-                return ra > rb;
-            }
+        && ra != rb
+    {
+        return ra > rb;
+    }
     a_time >= b_time
 }
 
@@ -182,7 +184,11 @@ pub(crate) fn merge_continue_watching_lists_json(
         };
 
         if local_wins {
-            merged.push(local_item.unwrap().clone());
+            if let Some(local_item) = local_item {
+                merged.push(local_item.clone());
+            } else {
+                merged.push(ext_item.clone());
+            }
         } else {
             merged.push(ext_item.clone());
         }
@@ -194,7 +200,7 @@ pub(crate) fn merge_continue_watching_lists_json(
         }
     }
 
-    merged.sort_by(|a, b| saved_at_ms(b).cmp(&saved_at_ms(a)));
+    merged.sort_by_key(|item| std::cmp::Reverse(saved_at_ms(item)));
 
     serde_json::to_string(&merged).ok()
 }

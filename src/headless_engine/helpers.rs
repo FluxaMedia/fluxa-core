@@ -72,15 +72,17 @@ pub(super) fn value_array_is_empty(value: &Value) -> bool {
 pub(super) fn with_normalized_meta_trailers(mut meta: Value) -> Value {
     let trailers = normalize_meta_trailers(&meta);
     if !value_array_is_empty(&trailers)
-        && let Some(obj) = meta.as_object_mut() {
-            obj.insert("trailers".to_string(), trailers);
-        }
+        && let Some(obj) = meta.as_object_mut()
+    {
+        obj.insert("trailers".to_string(), trailers);
+    }
     meta
 }
 
 pub(super) fn normalize_meta_trailers(meta: &Value) -> Value {
-    let mut trailers = meta["trailers"]
-        .as_array()
+    let mut trailers = meta
+        .get("trailers")
+        .and_then(Value::as_array)
         .map(|items| {
             items
                 .iter()
@@ -92,14 +94,14 @@ pub(super) fn normalize_meta_trailers(meta: &Value) -> Value {
     // streams as `links: [{ trailers, provider }]` rather than the usual
     // `trailers` array. Preserve native trailer entries first, then append
     // these URLs as additional sources without duplicating a URL.
-    if let Some(links) = meta["links"].as_array() {
+    if let Some(links) = meta.get("links").and_then(Value::as_array) {
         for link in links {
             let Some(trailer) = normalize_meta_link_trailer(link) else {
                 continue;
             };
             let duplicate = trailers
                 .iter()
-                .any(|existing| existing["url"] == trailer["url"]);
+                .any(|existing| existing.get("url") == trailer.get("url"));
             if !duplicate {
                 trailers.push(trailer);
             }

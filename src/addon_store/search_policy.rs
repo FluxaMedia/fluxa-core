@@ -75,6 +75,10 @@ pub(crate) fn filter_enabled_addons_json(args_json: &str) -> Option<String> {
     serde_json::to_string(&filtered).ok()
 }
 
+#[expect(
+    clippy::expect_used,
+    reason = "static literal regex is validated at build review and cannot depend on input"
+)]
 fn manifest_url_regex() -> &'static Regex {
     static REGEX: OnceLock<Regex> = OnceLock::new();
     REGEX.get_or_init(|| {

@@ -154,6 +154,10 @@ pub fn app_core_dispatch_json(handle: i64, action_json: String) -> String {
 
 #[cfg(feature = "plugin-js-engine")]
 #[uniffi::export]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "UniFFI signature must preserve the existing platform ABI"
+)]
 pub fn execute_plugin_scraper(
     client: Box<dyn crate::plugin_runtime::PluginHttpClient>,
     code: String,

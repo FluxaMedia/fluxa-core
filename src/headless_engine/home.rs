@@ -248,10 +248,12 @@ pub(super) fn complete(
 ) -> Vec<EffectEnvelope> {
     match effect_type {
         "refreshContinueWatching" => {
-            if generation == engine.state.runtime.get(GenerationKey::Home) && result.status.is_ok()
-                && let Some(cw) = result.value.get("continueWatching") {
-                    engine.state.home.continue_watching = cw.clone();
-                }
+            if generation == engine.state.runtime.get(GenerationKey::Home)
+                && result.status.is_ok()
+                && let Some(cw) = result.value.get("continueWatching")
+            {
+                engine.state.home.continue_watching = cw.clone();
+            }
         }
         "readHomeBootstrap" => {
             if generation == engine.state.runtime.get(GenerationKey::Home) {

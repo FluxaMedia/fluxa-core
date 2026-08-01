@@ -118,19 +118,20 @@ pub(crate) fn tmdb_builtin_catalog_url(
         .get("genre")
         .and_then(Value::as_str)
         .filter(|s| !s.is_empty())
-        && let Some(genre_id) = tmdb_genre_id(content_type, genre_name) {
-            let genre_id_str = genre_id.to_string();
-            return tmdb_api_url(
-                &format!("3/discover/{tmdb_type}"),
-                api_key,
-                language,
-                &[
-                    ("with_genres", genre_id_str.as_str()),
-                    ("sort_by", "popularity.desc"),
-                    ("page", &page_str),
-                ],
-            );
-        }
+        && let Some(genre_id) = tmdb_genre_id(content_type, genre_name)
+    {
+        let genre_id_str = genre_id.to_string();
+        return tmdb_api_url(
+            &format!("3/discover/{tmdb_type}"),
+            api_key,
+            language,
+            &[
+                ("with_genres", genre_id_str.as_str()),
+                ("sort_by", "popularity.desc"),
+                ("page", &page_str),
+            ],
+        );
+    }
 
     tmdb_api_url(
         &format!("3/{tmdb_type}/popular"),

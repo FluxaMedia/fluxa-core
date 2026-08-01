@@ -429,9 +429,10 @@ pub fn stop_torrent_server(expected_generation: Option<u64>) -> bool {
         Err(_) => return false,
     };
     if let Some(expected) = expected_generation
-        && guard.as_ref().map(|h| h.generation) != Some(expected) {
-            return false;
-        }
+        && guard.as_ref().map(|h| h.generation) != Some(expected)
+    {
+        return false;
+    }
     let Some(mut handle) = guard.take() else {
         return false;
     };
@@ -505,13 +506,15 @@ async fn update_settings(
         return error_response(StatusCode::UNAUTHORIZED, "unauthorized");
     }
     if let Some(preload_mb) = settings.preload_size
-        && let Ok(mut preload_size) = state.preload_size.lock() {
-            *preload_size = preload_mb.saturating_mul(1024 * 1024);
-        }
+        && let Ok(mut preload_size) = state.preload_size.lock()
+    {
+        *preload_size = preload_mb.saturating_mul(1024 * 1024);
+    }
     if let Some(limit_mb) = settings.cache_limit_mb
-        && let Ok(mut cache_limit) = state.cache_limit_bytes.lock() {
-            *cache_limit = (limit_mb > 0).then(|| limit_mb.saturating_mul(1024 * 1024));
-        }
+        && let Ok(mut cache_limit) = state.cache_limit_bytes.lock()
+    {
+        *cache_limit = (limit_mb > 0).then(|| limit_mb.saturating_mul(1024 * 1024));
+    }
     (StatusCode::OK, Json(json!({}))).into_response()
 }
 
@@ -619,9 +622,10 @@ async fn torrents(
                     lifecycle.remove(&id);
                 }
                 if let Ok(mut active) = state.active_torrent.lock()
-                    && *active == Some(id) {
-                        *active = None;
-                    }
+                    && *active == Some(id)
+                {
+                    *active = None;
+                }
             }
             Json(json!({})).into_response()
         }
@@ -778,12 +782,12 @@ async fn stream_fname(
     if let Ok(handle) = state.api.mgr_handle(TorrentIdOrHash::Id(id))
         && let Err(e) =
             tokio::time::timeout(Duration::from_secs(60), handle.wait_until_initialized()).await
-        {
-            debug_log(format!(
-                "[TorrServer] wait_until_initialized timed out torrent={id}: {e}"
-            ));
-            return error_response(StatusCode::SERVICE_UNAVAILABLE, "torrent init timed out");
-        }
+    {
+        debug_log(format!(
+            "[TorrServer] wait_until_initialized timed out torrent={id}: {e}"
+        ));
+        return error_response(StatusCode::SERVICE_UNAVAILABLE, "torrent init timed out");
+    }
 
     match state.api.api_stream(TorrentIdOrHash::Id(id), file_id) {
         Ok(mut stream) => {
@@ -793,9 +797,10 @@ async fn stream_fname(
             if let Ok(mime) = state
                 .api
                 .torrent_file_mime_type(TorrentIdOrHash::Id(id), file_id)
-                && let Ok(value) = HeaderValue::from_str(mime) {
-                    output_headers.insert("Content-Type", value);
-                }
+                && let Ok(value) = HeaderValue::from_str(mime)
+            {
+                output_headers.insert("Content-Type", value);
+            }
             let total_len = stream.len();
             match parse_range(headers.get("Range"), total_len) {
                 Ok(Some((start, end))) => {
@@ -1029,9 +1034,10 @@ async fn status_response(
         })
         .unwrap_or(0.0);
     if let (Some(stats), Ok(mut lifecycle)) = (stats.as_ref(), state.lifecycle.lock())
-        && let Some(entry) = lifecycle.get_mut(&id) {
-            entry.estimated_cache_bytes = stats.progress_bytes;
-        }
+        && let Some(entry) = lifecycle.get_mut(&id)
+    {
+        entry.estimated_cache_bytes = stats.progress_bytes;
+    }
     let download_speed = stats
         .as_ref()
         .and_then(|stats| stats.live.as_ref())
@@ -1312,14 +1318,16 @@ async fn deactivate_torrent(state: &EngineState, torrent_id: usize) {
         }
     }
     if let Ok(mut lifecycle) = state.lifecycle.lock()
-        && let Some(entry) = lifecycle.get_mut(&torrent_id) {
-            entry.active = false;
-            entry.last_accessed = Instant::now();
-        }
+        && let Some(entry) = lifecycle.get_mut(&torrent_id)
+    {
+        entry.active = false;
+        entry.last_accessed = Instant::now();
+    }
     if let Ok(mut active) = state.active_torrent.lock()
-        && *active == Some(torrent_id) {
-            *active = None;
-        }
+        && *active == Some(torrent_id)
+    {
+        *active = None;
+    }
     let _ = state
         .api
         .api_torrent_action_pause(TorrentIdOrHash::Id(torrent_id))
@@ -1499,10 +1507,9 @@ fn playback_session_for(
     if let Ok(mut sessions) = state.playback_sessions.lock() {
         let seek =
             previous_offset.is_some_and(|previous| offset.abs_diff(previous) > seek_threshold);
-        if seek
-            && let Some(previous) = sessions.get(&key) {
-                previous.cancel.cancel();
-            }
+        if seek && let Some(previous) = sessions.get(&key) {
+            previous.cancel.cancel();
+        }
         let generation = sessions
             .get(&key)
             .map(|session| session.generation)
@@ -1540,9 +1547,10 @@ fn torrent_cancellation_token(state: &EngineState, torrent_id: usize) -> Cancell
 
 fn cancel_torrent_root(state: &EngineState, torrent_id: usize) {
     if let Ok(mut cancellations) = state.torrent_cancellations.lock()
-        && let Some(token) = cancellations.remove(&torrent_id) {
-            token.cancel();
-        }
+        && let Some(token) = cancellations.remove(&torrent_id)
+    {
+        token.cancel();
+    }
 }
 
 /// MPV/FFmpeg may issue a tiny distant cue/index read without seeking the

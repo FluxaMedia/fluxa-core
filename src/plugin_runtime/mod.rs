@@ -98,6 +98,10 @@ pub trait PluginHttpClient: Send + Sync {
     fn fetch(&self, request: PluginHttpRequest) -> PluginHttpResponse;
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "public scraper bridge mirrors the established FFI wire contract"
+)]
 pub fn execute_scraper(
     client: Arc<dyn PluginHttpClient>,
     code: String,

@@ -70,9 +70,9 @@ pub(super) fn dispatch_toggle_scraper(
         && let Some(scraper) = items
             .iter_mut()
             .find(|scraper| scraper["id"].as_str() == Some(scraper_id.as_str()))
-        {
-            scraper["enabled"] = Value::Bool(enabled);
-        }
+    {
+        scraper["enabled"] = Value::Bool(enabled);
+    }
     vec![]
 }
 
@@ -85,9 +85,9 @@ pub(super) fn dispatch_update_scraper_settings(
         && let Some(scraper) = items
             .iter_mut()
             .find(|scraper| scraper["id"].as_str() == Some(scraper_id.as_str()))
-        {
-            scraper["settings"] = settings;
-        }
+    {
+        scraper["settings"] = settings;
+    }
     vec![]
 }
 
@@ -106,19 +106,27 @@ pub(super) fn complete(
         return vec![];
     }
 
-    let manifest_url = result.value["manifestUrl"].as_str().unwrap_or_default();
-    let manifest = &result.value["manifest"];
+    let manifest_url = result
+        .value
+        .get("manifestUrl")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let manifest = result.value.get("manifest").unwrap_or(&Value::Null);
     if manifest_url.is_empty() || !manifest.is_object() {
         engine.state.plugins.error = normalize_error(Value::Null);
         return vec![];
     }
 
-    let scrapers = manifest["scrapers"].as_array().cloned().unwrap_or_default();
+    let scrapers = manifest
+        .get("scrapers")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
     let repository_entry = json!({
         "manifestUrl": manifest_url,
-        "name": manifest["name"],
-        "description": manifest["description"],
-        "version": manifest["version"],
+        "name": manifest.get("name").cloned().unwrap_or(Value::Null),
+        "description": manifest.get("description").cloned().unwrap_or(Value::Null),
+        "version": manifest.get("version").cloned().unwrap_or(Value::Null),
         "scraperCount": scrapers.len(),
     });
     upsert_by_key(
@@ -135,31 +143,50 @@ pub(super) fn complete(
         .as_array()
         .into_iter()
         .flatten()
-        .filter(|scraper| scraper["repositoryUrl"].as_str() == Some(manifest_url))
+        .filter(|scraper| {
+            scraper.get("repositoryUrl").and_then(Value::as_str) == Some(manifest_url)
+        })
         .filter_map(|scraper| {
-            scraper["id"]
-                .as_str()
+            scraper
+                .get("id")
+                .and_then(Value::as_str)
                 .map(|id| (id.to_string(), scraper.clone()))
         })
         .collect();
 
     if let Some(items) = engine.state.plugins.scrapers.as_array_mut() {
-        items.retain(|scraper| scraper["repositoryUrl"].as_str() != Some(manifest_url));
+        items.retain(|scraper| {
+            scraper.get("repositoryUrl").and_then(Value::as_str) != Some(manifest_url)
+        });
     }
     for mut scraper in scrapers {
-        scraper["repositoryUrl"] = Value::String(manifest_url.to_string());
-        let manifest_enabled = scraper["enabled"].as_bool().unwrap_or(true);
-        if let Some(previous) = scraper["id"].as_str().and_then(|id| previous_by_id.get(id)) {
+        let Some(scraper_fields) = scraper.as_object_mut() else {
+            continue;
+        };
+        scraper_fields.insert(
+            "repositoryUrl".to_string(),
+            Value::String(manifest_url.to_string()),
+        );
+        let manifest_enabled = scraper_fields
+            .get("enabled")
+            .and_then(Value::as_bool)
+            .unwrap_or(true);
+        let scraper_id = scraper_fields
+            .get("id")
+            .and_then(Value::as_str)
+            .map(str::to_string);
+        if let Some(previous) = scraper_id.and_then(|id| previous_by_id.get(&id)) {
             if manifest_enabled
-                && let Some(previous_enabled) = previous["enabled"].as_bool() {
-                    scraper["enabled"] = Value::Bool(previous_enabled);
-                }
+                && let Some(previous_enabled) = previous.get("enabled").and_then(Value::as_bool)
+            {
+                scraper_fields.insert("enabled".to_string(), Value::Bool(previous_enabled));
+            }
             if let Some(previous_settings) = previous.get("settings") {
-                scraper["settings"] = previous_settings.clone();
+                scraper_fields.insert("settings".to_string(), previous_settings.clone());
             }
         }
-        if scraper.get("settings").is_none() {
-            scraper["settings"] = json!({});
+        if !scraper_fields.contains_key("settings") {
+            scraper_fields.insert("settings".to_string(), json!({}));
         }
         if let Some(items) = engine.state.plugins.scrapers.as_array_mut() {
             items.push(scraper);

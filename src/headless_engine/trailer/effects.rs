@@ -78,8 +78,10 @@ pub(super) fn dispatch_player(
         "X-YouTube-Client-Name": "28",
         "X-YouTube-Client-Version": "1.56.21"
     });
-    if let Some(visitor_data) = config.visitor_data {
-        headers["X-Goog-Visitor-Id"] = Value::String(visitor_data);
+    if let Some(visitor_data) = config.visitor_data
+        && let Some(headers) = headers.as_object_mut()
+    {
+        headers.insert("X-Goog-Visitor-Id".to_string(), Value::String(visitor_data));
     }
     vec![engine.effect(
         EffectKind::FetchYoutubeTrailerPlayer,

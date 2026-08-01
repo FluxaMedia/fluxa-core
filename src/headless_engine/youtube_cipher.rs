@@ -66,15 +66,15 @@ fn decode_component(value: &str) -> Option<String> {
     let mut output = Vec::with_capacity(bytes.len());
     let mut index = 0;
     while index < bytes.len() {
-        if bytes[index] == b'%' && index + 2 < bytes.len() {
-            let hex = std::str::from_utf8(&bytes[index + 1..index + 3]).ok()?;
+        if bytes.get(index) == Some(&b'%') && index + 2 < bytes.len() {
+            let hex = std::str::from_utf8(bytes.get(index + 1..index + 3)?).ok()?;
             output.push(u8::from_str_radix(hex, 16).ok()?);
             index += 3;
         } else {
-            output.push(if bytes[index] == b'+' {
+            output.push(if bytes.get(index) == Some(&b'+') {
                 b' '
             } else {
-                bytes[index]
+                *bytes.get(index)?
             });
             index += 1;
         }

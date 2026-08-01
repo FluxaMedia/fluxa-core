@@ -160,10 +160,14 @@ pub(in crate::headless_engine) fn dispatch_load_streams(
     let mut effective_initial_video_id = initial_video_id.clone();
     if initial_streams.is_empty() {
         let prefetched = engine.state.player.prefetched_next_episode.clone();
-        let cached_video_id = prefetched["videoId"].as_str().map(str::to_string);
+        let cached_video_id = prefetched
+            .get("videoId")
+            .and_then(Value::as_str)
+            .map(str::to_string);
         if cached_video_id.is_some() && cached_video_id == current_video_id {
-            initial_streams = prefetched["streams"]
-                .as_array()
+            initial_streams = prefetched
+                .get("streams")
+                .and_then(Value::as_array)
                 .cloned()
                 .unwrap_or_default();
             effective_initial_video_id = cached_video_id;
@@ -211,18 +215,19 @@ pub(in crate::headless_engine) fn dispatch_load_streams(
         if kind == "loadStreams"
             && let Value::Object(map) = &mut payload
         {
-            map.insert(
-                "initialStreams".to_string(),
-                pending_value["initialStreams"].clone(),
-            );
-            map.insert("title".to_string(), pending_value["title"].clone());
-            map.insert(
-                "originalName".to_string(),
-                pending_value["originalName"].clone(),
-            );
-            map.insert("year".to_string(), pending_value["year"].clone());
-            map.insert("language".to_string(), pending_value["language"].clone());
-            map.insert("profile".to_string(), pending_value["profile"].clone());
+            for key in [
+                "initialStreams",
+                "title",
+                "originalName",
+                "year",
+                "language",
+                "profile",
+            ] {
+                map.insert(
+                    key.to_string(),
+                    pending_value.get(key).cloned().unwrap_or(Value::Null),
+                );
+            }
         }
         engine.effect_raw(&kind, generation, payload)
     }));

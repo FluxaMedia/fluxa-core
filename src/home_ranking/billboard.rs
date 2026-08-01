@@ -239,7 +239,7 @@ fn iso_date_part(date_str: &str) -> Option<&str> {
     let s = date_str.trim();
     let date_part = s.get(..10)?;
     let b = date_part.as_bytes();
-    if b[4] == b'-' && b[7] == b'-' {
+    if b.get(4) == Some(&b'-') && b.get(7) == Some(&b'-') {
         Some(date_part)
     } else {
         None

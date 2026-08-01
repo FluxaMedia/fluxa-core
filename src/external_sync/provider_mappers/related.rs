@@ -33,7 +33,8 @@ pub(crate) fn trakt_related_items_to_metas_json(
             let name = item.get("title").and_then(Value::as_str)?;
             let mut meta = json!({ "id": id, "type": content_type, "name": name });
             if let Some(year) = item.get("year").and_then(Value::as_i64) {
-                meta["releaseInfo"] = json!(year.to_string());
+                meta.as_object_mut()?
+                    .insert("releaseInfo".to_string(), json!(year.to_string()));
             }
             Some(meta)
         })
@@ -73,10 +74,12 @@ pub(crate) fn simkl_recommendation_to_meta_json(
     let meta_type = if type_str == "tv" { "series" } else { "movie" };
     let mut meta = json!({ "id": resolved_imdb, "type": meta_type, "name": title });
     if let Some(poster) = rec.get("poster").and_then(Value::as_str) {
-        meta["poster"] = json!(simkl_poster_url(poster));
+        meta.as_object_mut()?
+            .insert("poster".to_string(), json!(simkl_poster_url(poster)));
     }
     if let Some(year) = rec.get("year").and_then(Value::as_i64) {
-        meta["releaseInfo"] = json!(year.to_string());
+        meta.as_object_mut()?
+            .insert("releaseInfo".to_string(), json!(year.to_string()));
     }
     serde_json::to_string(&meta).ok()
 }

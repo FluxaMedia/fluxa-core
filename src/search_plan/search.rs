@@ -107,7 +107,9 @@ pub(crate) fn search_screen_plan_json(request_json: &str) -> Option<String> {
             if visible.is_empty() {
                 return None;
             }
-            category["items"] = Value::Array(visible);
+            category
+                .as_object_mut()?
+                .insert("items".to_string(), Value::Array(visible));
             Some(category)
         })
         .collect::<Vec<_>>();
@@ -224,8 +226,10 @@ pub(crate) fn recent_searches_plan_json(request_json: &str) -> Option<String> {
                         .is_none_or(|value| !value.eq_ignore_ascii_case(query))
                 });
                 let mut item = json!({"query": query});
-                if let Some(meta) = request.get("meta").filter(|value| !value.is_null()) {
-                    item["meta"] = meta.clone();
+                if let Some(meta) = request.get("meta").filter(|value| !value.is_null())
+                    && let Some(item) = item.as_object_mut()
+                {
+                    item.insert("meta".to_string(), meta.clone());
                 }
                 items.insert(0, item);
             }

@@ -125,17 +125,29 @@ fn parse_subtitle_cues(text: &str) -> Vec<Interval> {
         .collect()
 }
 
+#[expect(
+    clippy::expect_used,
+    reason = "static literal regex is not input-dependent"
+)]
 fn subtitle_tag_regex() -> &'static Regex {
     static VALUE: OnceLock<Regex> = OnceLock::new();
     VALUE.get_or_init(|| Regex::new(r"<[^>]+>").expect("valid subtitle tag regex"))
 }
 
+#[expect(
+    clippy::expect_used,
+    reason = "static literal regex is not input-dependent"
+)]
 fn timed_text_regex() -> &'static Regex {
     static VALUE: OnceLock<Regex> = OnceLock::new();
     VALUE
         .get_or_init(|| Regex::new(r#"(?s)<p\b([^>]*)>(.*?)</p>"#).expect("valid timed text regex"))
 }
 
+#[expect(
+    clippy::expect_used,
+    reason = "static literal regex is not input-dependent"
+)]
 fn timed_text_attribute_regex() -> &'static Regex {
     static VALUE: OnceLock<Regex> = OnceLock::new();
     VALUE.get_or_init(|| {
@@ -186,6 +198,10 @@ fn parse_timed_text_cues(text: &str) -> Vec<SubtitleCue> {
         .collect()
 }
 
+#[expect(
+    clippy::indexing_slicing,
+    reason = "line cursor is checked against the collected line count before each access"
+)]
 pub(crate) fn parse_subtitle_cues_with_text(text: &str) -> Vec<SubtitleCue> {
     let trimmed = text.trim_start();
     if trimmed.starts_with("<?xml") || trimmed.starts_with("<timedtext") {
@@ -202,25 +218,23 @@ pub(crate) fn parse_subtitle_cues_with_text(text: &str) -> Vec<SubtitleCue> {
                 (fields.get(1), fields.get(2), fields.get(9))
                 && let (Some(start), Some(end)) =
                     (parse_timestamp(start.trim()), parse_timestamp(end.trim()))
-                    && end > start {
-                        cues.push(SubtitleCue {
-                            start,
-                            end,
-                            text: text
-                                .replace("\\N", " ")
-                                .replace("{\\", "{")
-                                .trim()
-                                .to_string(),
-                        });
-                    }
+                && end > start
+            {
+                cues.push(SubtitleCue {
+                    start,
+                    end,
+                    text: text
+                        .replace("\\N", " ")
+                        .replace("{\\", "{")
+                        .trim()
+                        .to_string(),
+                });
+            }
             index += 1;
             continue;
         }
         if let Some((start, rest)) = line.split_once("-->") {
-            let end = rest
-                .split_whitespace()
-                .next()
-                .and_then(parse_timestamp);
+            let end = rest.split_whitespace().next().and_then(parse_timestamp);
             let start = parse_timestamp(start.trim());
             index += 1;
             let mut cue_text = Vec::new();
@@ -229,13 +243,14 @@ pub(crate) fn parse_subtitle_cues_with_text(text: &str) -> Vec<SubtitleCue> {
                 index += 1;
             }
             if let (Some(start), Some(end)) = (start, end)
-                && end > start {
-                    cues.push(SubtitleCue {
-                        start,
-                        end,
-                        text: decode_subtitle_text(&cue_text.join("\n")),
-                    });
-                }
+                && end > start
+            {
+                cues.push(SubtitleCue {
+                    start,
+                    end,
+                    text: decode_subtitle_text(&cue_text.join("\n")),
+                });
+            }
             continue;
         }
         index += 1;

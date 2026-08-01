@@ -80,7 +80,7 @@ pub(crate) fn replace_external_continue_watching_json(
     }
 
     let mut result: Vec<Value> = by_id.into_values().collect();
-    result.sort_by(|a, b| saved_at_ms(b).cmp(&saved_at_ms(a)));
+    result.sort_by_key(|item| std::cmp::Reverse(saved_at_ms(item)));
     serde_json::to_string(&result).unwrap_or_else(|_| "[]".to_string())
 }
 

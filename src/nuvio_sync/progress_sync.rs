@@ -35,9 +35,10 @@ pub(crate) fn library_to_watchlist_json(args_json: &str) -> Option<String> {
                 }
             }
             if let Some(genres) = item.get("genres").and_then(Value::as_array)
-                && !genres.is_empty() {
-                    out.insert("genres".into(), Value::Array(genres.clone()));
-                }
+                && !genres.is_empty()
+            {
+                out.insert("genres".into(), Value::Array(genres.clone()));
+            }
             out.insert("inWatchlist".into(), Value::Bool(true));
             Value::Object(out)
         })
@@ -192,11 +193,7 @@ pub(crate) fn import_merge_plan_json(args_json: &str) -> Option<String> {
         .and_then(Value::as_array)
         .map(|arr| arr.iter().filter_map(Value::as_str).collect());
     let dry_run = args.get("dryRun").and_then(Value::as_bool).unwrap_or(false);
-    let wants = |c: &str| {
-        categories
-            .as_ref()
-            .is_none_or(|cats| cats.contains(&c))
-    };
+    let wants = |c: &str| categories.as_ref().is_none_or(|cats| cats.contains(&c));
     let progress_count = args
         .get("watchProgress")
         .and_then(Value::as_array)

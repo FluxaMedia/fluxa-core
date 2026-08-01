@@ -70,7 +70,8 @@ pub(in crate::headless_engine) fn complete(
             let Some(request_id) = request_id else {
                 return vec![];
             };
-            if result.status.is_ok() && requires_player_script(&result.value)
+            if result.status.is_ok()
+                && requires_player_script(&result.value)
                 && let Some(script_url) = player_script_url(&result.value).or_else(|| {
                     engine
                         .state
@@ -78,12 +79,13 @@ pub(in crate::headless_engine) fn complete(
                         .watch_config
                         .as_ref()
                         .and_then(|config| config.player_script_url.clone())
-                }) {
-                    if let Some(request) = engine.state.trailer.requests.get_mut(&request_id) {
-                        request.player_response = Some(result.value.clone());
-                    }
-                    return player_script_effect(engine, generation, &request_id, script_url);
+                })
+            {
+                if let Some(request) = engine.state.trailer.requests.get_mut(&request_id) {
+                    request.player_response = Some(result.value.clone());
                 }
+                return player_script_effect(engine, generation, &request_id, script_url);
+            }
             let resolution = if result.status.is_ok() {
                 let max_height = engine
                     .state

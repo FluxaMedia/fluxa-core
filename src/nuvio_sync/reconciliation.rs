@@ -47,6 +47,10 @@ pub(crate) fn addon_reconciliation_plan_json(args_json: &str) -> Option<String> 
     serde_json::to_string(&json!({"deleteIds":delete_ids,"updates":updates,"creates":creates})).ok()
 }
 
+#[expect(
+    clippy::indexing_slicing,
+    reason = "index is obtained from the current remote vector before replacement"
+)]
 pub(crate) fn library_mutation_plan_json(args_json: &str) -> Option<String> {
     let args = parse(args_json)?;
     let mut remote = args.get("remote")?.as_array()?.clone();

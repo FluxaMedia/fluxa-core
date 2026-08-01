@@ -354,9 +354,10 @@ pub(super) fn dispatch_streams_appended(
         return vec![];
     }
     if let Some(generation) = generation
-        && generation != engine.state.runtime.get(GenerationKey::DetailStreams) {
-            return vec![];
-        }
+        && generation != engine.state.runtime.get(GenerationKey::DetailStreams)
+    {
+        return vec![];
+    }
     let mut merged: Vec<Value> = engine
         .state
         .detail

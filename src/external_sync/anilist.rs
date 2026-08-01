@@ -125,9 +125,10 @@ fn extract_after_marker(text: &str, marker: &str) -> Option<i64> {
         let rest = &text[idx + marker.len()..];
         let digits: String = rest.chars().take_while(|c| c.is_ascii_digit()).collect();
         if !digits.is_empty()
-            && let Ok(id) = digits.parse() {
-                return Some(id);
-            }
+            && let Ok(id) = digits.parse()
+        {
+            return Some(id);
+        }
         search_from = idx + marker.len();
     }
     None
@@ -167,17 +168,28 @@ fn normalize_anime_title(value: &str) -> String {
 fn parse_year_from_text(value: &str) -> Option<i64> {
     let bytes = value.as_bytes();
     for i in 0..bytes.len().saturating_sub(3) {
-        let candidate = &value[i..i + 4];
-        if !candidate.bytes().all(|b| b.is_ascii_digit()) {
+        let Some(candidate) = bytes.get(i..i + 4) else {
+            continue;
+        };
+        if !candidate.iter().all(|byte| byte.is_ascii_digit()) {
             continue;
         }
-        if !(candidate.starts_with("19") || candidate.starts_with("20")) {
+        if !matches!(candidate, [b'1', b'9', ..] | [b'2', b'0', ..]) {
             continue;
         }
-        let before_ok = i == 0 || !bytes[i - 1].is_ascii_alphanumeric();
-        let after_ok = i + 4 == bytes.len() || !bytes[i + 4].is_ascii_alphanumeric();
+        let before_ok = i == 0 || !bytes.get(i - 1).is_some_and(u8::is_ascii_alphanumeric);
+        let after_ok =
+            i + 4 == bytes.len() || !bytes.get(i + 4).is_some_and(u8::is_ascii_alphanumeric);
         if before_ok && after_ok {
-            return candidate.parse().ok();
+            let [first, second, third, fourth] = *candidate else {
+                continue;
+            };
+            return Some(
+                i64::from(first - b'0') * 1000
+                    + i64::from(second - b'0') * 100
+                    + i64::from(third - b'0') * 10
+                    + i64::from(fourth - b'0'),
+            );
         }
     }
     None

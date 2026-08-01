@@ -177,14 +177,15 @@ pub(crate) fn merge_continue_watching_duplicates_json(items_json: &str) -> Optio
 
         if let Some(index) = key_to_index.get(&key).copied() {
             let item_is_trakt = is_trakt_continue_watching_source(&item);
-            let existing_is_trakt = is_trakt_continue_watching_source(&merged[index]);
+            let existing = merged.get(index);
+            let existing_is_trakt = existing.is_some_and(is_trakt_continue_watching_source);
             let should_replace = if item_is_trakt {
                 true
             } else if existing_is_trakt {
                 false
             } else {
-                let existing_watched_at = merged[index]
-                    .get("lastWatchedAt")
+                let existing_watched_at = existing
+                    .and_then(|value| value.get("lastWatchedAt"))
                     .and_then(Value::as_i64)
                     .unwrap_or(0);
                 let item_watched_at = item
@@ -193,8 +194,8 @@ pub(crate) fn merge_continue_watching_duplicates_json(items_json: &str) -> Optio
                     .unwrap_or(0);
                 item_watched_at >= existing_watched_at
             };
-            if should_replace {
-                merged[index] = item;
+            if should_replace && let Some(existing) = merged.get_mut(index) {
+                *existing = item;
             }
         } else {
             key_to_index.insert(key.clone(), merged.len());

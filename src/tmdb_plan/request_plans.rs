@@ -17,38 +17,54 @@ pub(crate) fn tmdb_builtin_meta_request_plan_json(args_json: &str) -> Option<Str
         "contentType": tmdb_type,
         "alreadyResolved": already_resolved,
     });
+    let plan_object = plan.as_object_mut()?;
     if already_resolved {
-        plan["detailsUrl"] = json!(tmdb_api_url(
-            &format!("3/{tmdb_type}/{tmdb_id}"),
-            api_key,
-            language,
-            &[]
-        ));
-        plan["creditsUrl"] = json!(tmdb_api_url(
-            &format!("3/{tmdb_type}/{tmdb_id}/credits"),
-            api_key,
-            language,
-            &[]
-        ));
-        plan["imagesUrl"] = json!(tmdb_api_url(
-            &format!("3/{tmdb_type}/{tmdb_id}/images"),
-            api_key,
-            language,
-            &[("include_image_language", "en,null")]
-        ));
-        plan["externalIdsUrl"] = json!(tmdb_api_url(
-            &format!("3/{tmdb_type}/{tmdb_id}/external_ids"),
-            api_key,
-            language,
-            &[]
-        ));
+        plan_object.insert(
+            "detailsUrl".to_string(),
+            json!(tmdb_api_url(
+                &format!("3/{tmdb_type}/{tmdb_id}"),
+                api_key,
+                language,
+                &[]
+            )),
+        );
+        plan_object.insert(
+            "creditsUrl".to_string(),
+            json!(tmdb_api_url(
+                &format!("3/{tmdb_type}/{tmdb_id}/credits"),
+                api_key,
+                language,
+                &[]
+            )),
+        );
+        plan_object.insert(
+            "imagesUrl".to_string(),
+            json!(tmdb_api_url(
+                &format!("3/{tmdb_type}/{tmdb_id}/images"),
+                api_key,
+                language,
+                &[("include_image_language", "en,null")]
+            )),
+        );
+        plan_object.insert(
+            "externalIdsUrl".to_string(),
+            json!(tmdb_api_url(
+                &format!("3/{tmdb_type}/{tmdb_id}/external_ids"),
+                api_key,
+                language,
+                &[]
+            )),
+        );
     } else if is_imdb_id(&tmdb_id) {
-        plan["findUrl"] = json!(tmdb_api_url(
-            &format!("3/find/{tmdb_id}"),
-            api_key,
-            language,
-            &[("external_source", "imdb_id")]
-        ));
+        plan_object.insert(
+            "findUrl".to_string(),
+            json!(tmdb_api_url(
+                &format!("3/find/{tmdb_id}"),
+                api_key,
+                language,
+                &[("external_source", "imdb_id")]
+            )),
+        );
     } else {
         return None;
     }

@@ -231,9 +231,10 @@ fn select_stream_index_inner(
     if let Some(group) = preferred_binge_group.filter(|value| !value.trim().is_empty())
         && let Some(index) = index_of_first_playable(streams, current_video_id, |stream| {
             stream.binge_group.as_deref() == Some(group)
-        }) {
-            return index as i32;
-        }
+        })
+    {
+        return index as i32;
+    }
 
     match source_selection_mode {
         SourceSelectionMode::Regex => {

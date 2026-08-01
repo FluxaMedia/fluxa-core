@@ -9,35 +9,23 @@ pub(crate) fn detail_series_lookup_id(raw_id: &str) -> String {
         return imdb;
     }
     // Strip trailing season:episode parts (e.g. "kitsu:777:1:2" -> "kitsu:777", "base:1:2" -> "base")
-    let parts: Vec<&str> = trimmed.split(':').collect();
-    if parts.len() >= 3 {
-        let last = parts[parts.len() - 1];
-        let second_last = parts[parts.len() - 2];
-        if last.parse::<i32>().is_ok() && second_last.parse::<i32>().is_ok() {
-            return parts[..parts.len() - 2].join(":");
-        }
+    let mut parts = trimmed.rsplitn(3, ':');
+    if let (Some(last), Some(second_last), Some(base)) = (parts.next(), parts.next(), parts.next())
+        && last.parse::<i32>().is_ok()
+        && second_last.parse::<i32>().is_ok()
+    {
+        return base.to_string();
     }
     trimmed.to_string()
 }
 
 fn extract_imdb_id(raw: &str) -> Option<String> {
-    let mut start = 0;
-    let bytes = raw.as_bytes();
-    while start < bytes.len() {
-        if bytes[start] == b't' && start + 2 < bytes.len() && bytes[start + 1] == b't' {
-            let end = bytes[start..]
-                .iter()
-                .take_while(|&&b| b.is_ascii_digit() || (b == b't' && start == 0))
-                .count();
-            let candidate = &raw[start..start + end];
-            if candidate.starts_with("tt")
-                && candidate[2..].chars().all(|c| c.is_ascii_digit())
-                && candidate.len() > 3
-            {
-                return Some(candidate.to_string());
-            }
+    for (start, _) in raw.match_indices("tt") {
+        let rest = raw.get(start + 2..)?;
+        let digits = rest.bytes().take_while(u8::is_ascii_digit).count();
+        if digits > 1 {
+            return raw.get(start..start + 2 + digits).map(str::to_string);
         }
-        start += 1;
     }
     None
 }

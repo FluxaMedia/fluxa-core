@@ -114,15 +114,16 @@ fn resolve_url(base_url: &str, relative: &str) -> String {
         return relative.to_string();
     }
     if relative.starts_with('/')
-        && let Some(scheme_end) = base_url.find("://") {
-            let remainder = &base_url[scheme_end + 3..];
-            let authority_end = remainder.find('/').unwrap_or(remainder.len());
-            return format!(
-                "{}{}",
-                &base_url[..scheme_end + 3 + authority_end],
-                relative
-            );
-        }
+        && let Some(scheme_end) = base_url.find("://")
+    {
+        let remainder = &base_url[scheme_end + 3..];
+        let authority_end = remainder.find('/').unwrap_or(remainder.len());
+        return format!(
+            "{}{}",
+            &base_url[..scheme_end + 3 + authority_end],
+            relative
+        );
+    }
     let base_directory = base_url
         .rfind('/')
         .map(|position| &base_url[..position + 1])

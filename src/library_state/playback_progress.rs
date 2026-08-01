@@ -12,9 +12,13 @@ fn library_item_from_meta(meta: &Value, state: Value, last_watched: Option<&str>
         "logo": meta.get("logo").cloned().unwrap_or(Value::Null),
         "state": state
     });
-    if let Some(last_watched) = last_watched {
-        item["lastWatched"] = Value::String(last_watched.to_string());
-    }
+    if let Some(last_watched) = last_watched
+        && let Some(fields) = item.as_object_mut() {
+            fields.insert(
+                "lastWatched".to_string(),
+                Value::String(last_watched.to_string()),
+            );
+        }
     item
 }
 

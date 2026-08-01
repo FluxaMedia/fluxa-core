@@ -573,22 +573,23 @@ pub(crate) fn format_episode_line_json(
     let mut episode = last_episode_number;
 
     if (season.is_none() || episode.is_none())
-        && let Some(id) = last_video_id.filter(|id| !id.is_empty()) {
-            let parts: Vec<&str> = id.split(':').collect();
-            if parts.len() >= 3
-                && let (Ok(s), Ok(e)) = (
-                    parts[parts.len() - 2].parse::<i64>(),
-                    parts[parts.len() - 1].parse::<i64>(),
-                )
-                    && s > 0 && e > 0 {
-                        if season.is_none() {
-                            season = Some(s);
-                        }
-                        if episode.is_none() {
-                            episode = Some(e);
-                        }
-                    }
+        && let Some(id) = last_video_id.filter(|id| !id.is_empty())
+    {
+        let mut parts = id.rsplitn(3, ':');
+        if let (Some(episode_part), Some(season_part), Some(_)) =
+            (parts.next(), parts.next(), parts.next())
+            && let (Ok(s), Ok(e)) = (season_part.parse::<i64>(), episode_part.parse::<i64>())
+            && s > 0
+            && e > 0
+        {
+            if season.is_none() {
+                season = Some(s);
+            }
+            if episode.is_none() {
+                episode = Some(e);
+            }
         }
+    }
 
     let code = match (season, episode) {
         (Some(s), Some(e)) => format!("S{s}:E{e}"),

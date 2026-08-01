@@ -248,8 +248,7 @@ pub(crate) fn process_block_group_data(
     let block_payload = &data[block_payload_start..block_data_end];
 
     // Try to extract an RPU from BlockAdditions.
-    let rpu_raw: Option<Vec<u8>> =
-        block_additions.and_then(extract_dv_rpu_from_block_additions);
+    let rpu_raw: Option<Vec<u8>> = block_additions.and_then(extract_dv_rpu_from_block_additions);
 
     // If no RPU or conversion fails, build output without BlockAdditions but
     // with original Block intact.
@@ -324,9 +323,9 @@ fn extract_dv_rpu_from_block_additions(ba: &[u8]) -> Option<Vec<u8>> {
         if id == EBML_BLOCK_MORE
             && let Some(rpu) =
                 extract_rpu_from_block_more(&ba[pos + hlen..pos + hlen + ds as usize])
-            {
-                return Some(rpu);
-            }
+        {
+            return Some(rpu);
+        }
         pos = child_end;
     }
     None
@@ -554,18 +553,19 @@ impl MkvRpuRewriter {
                                 out.extend_from_slice(&header_bytes);
                                 // Decrement cluster_remaining for elements inside a cluster.
                                 if self.in_cluster()
-                                    && let Some(cr) = self.cluster_remaining.as_mut() {
-                                        let full_size = hlen as u64
-                                            + if data_size == EBML_UNKNOWN_SIZE {
-                                                0
-                                            } else {
-                                                data_size
-                                            };
-                                        *cr = cr.saturating_sub(full_size);
-                                        if *cr == 0 {
-                                            self.cluster_remaining = None;
-                                        }
+                                    && let Some(cr) = self.cluster_remaining.as_mut()
+                                {
+                                    let full_size = hlen as u64
+                                        + if data_size == EBML_UNKNOWN_SIZE {
+                                            0
+                                        } else {
+                                            data_size
+                                        };
+                                    *cr = cr.saturating_sub(full_size);
+                                    if *cr == 0 {
+                                        self.cluster_remaining = None;
                                     }
+                                }
                                 if data_size == 0 || data_size == EBML_UNKNOWN_SIZE {
                                     if data_size == EBML_UNKNOWN_SIZE {
                                         self.state = MkvState::Forward {

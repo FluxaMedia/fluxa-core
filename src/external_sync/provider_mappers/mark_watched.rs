@@ -153,9 +153,10 @@ pub(crate) fn simkl_mark_watched_body_json(args_json: &str) -> Option<String> {
             episodes.sort_unstable(); episodes.dedup();
             let episodes = episodes.into_iter().map(|number| {
                 let mut episode = json!({"number": number});
-                if let Some(timestamp) = watched_at.as_ref() {
-                    episode["watched_at"] = Value::String(timestamp.clone());
-                }
+                if let Some(timestamp) = watched_at.as_ref()
+                    && let Some(object) = episode.as_object_mut() {
+                        object.insert("watched_at".to_string(), Value::String(timestamp.clone()));
+                    }
                 episode
             }).collect::<Vec<_>>();
             json!({"number": number, "episodes": episodes})

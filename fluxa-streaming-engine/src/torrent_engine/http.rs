@@ -84,9 +84,10 @@ pub(super) async fn prioritize_stream_file(
             windows.remove(&(torrent_id, previous_file));
         }
         if let Ok(mut sessions) = state.playback_sessions.lock()
-            && let Some(session) = sessions.remove(&(torrent_id, previous_file)) {
-                session.cancel.cancel();
-            }
+            && let Some(session) = sessions.remove(&(torrent_id, previous_file))
+        {
+            session.cancel.cancel();
+        }
     }
     let Some(only_files) = only_files else {
         return;

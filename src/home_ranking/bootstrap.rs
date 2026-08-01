@@ -15,8 +15,10 @@ pub(crate) fn home_hero_plan_json(request_json: &str) -> Option<String> {
         .flatten()
         .map(|category| {
             let mut category = category.clone();
-            if !category.get("items").is_some_and(Value::is_array) {
-                category["items"] = json!([]);
+            if !category.get("items").is_some_and(Value::is_array)
+                && let Some(fields) = category.as_object_mut()
+            {
+                fields.insert("items".to_string(), json!([]));
             }
             category
         })
@@ -93,9 +95,10 @@ pub(crate) fn home_hero_plan_json(request_json: &str) -> Option<String> {
                 .and_then(Value::as_str)
                 .and_then(|id| fetched_trailers.and_then(|values| values.get(id)))
                 .filter(|value| value.as_array().is_some_and(|items| !items.is_empty()))
-            {
-                item["trailers"] = trailers.clone();
-            }
+            && let Some(fields) = item.as_object_mut()
+        {
+            fields.insert("trailers".to_string(), trailers.clone());
+        }
         item
     };
     let billboard = billboard.map(&merge_trailers);
@@ -140,6 +143,10 @@ pub(crate) fn home_hero_plan_json(request_json: &str) -> Option<String> {
     })).ok()
 }
 
+#[expect(
+    dead_code,
+    reason = "kept as a platform-specific FFI planning entry point"
+)]
 pub(crate) fn home_bootstrap_preparation_plan_json(request_json: &str) -> Option<String> {
     let request: Value = serde_json::from_str(request_json).ok()?;
     let profile = request.get("profile").cloned().unwrap_or_else(|| json!({}));
@@ -250,6 +257,10 @@ pub(crate) fn home_bootstrap_preparation_plan_json(request_json: &str) -> Option
     serde_json::to_string(&json!({"addons": addons, "continueWatching": continue_watching, "metadataFeeds": feeds, "visibleFeeds": visible_feeds, "shelves": shelves, "feedConcurrency": 6})).ok()
 }
 
+#[expect(
+    dead_code,
+    reason = "kept as a platform-specific FFI planning entry point"
+)]
 pub(crate) fn home_bootstrap_completion_plan_json(request_json: &str) -> Option<String> {
     let request: Value = serde_json::from_str(request_json).ok()?;
     let preparation = request.get("preparation")?;

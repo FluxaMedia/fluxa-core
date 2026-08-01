@@ -422,6 +422,10 @@ fn parse_dv_profile_text(text: &str) -> Option<DvProfile> {
 }
 
 /// True when `word` appears in `text` surrounded by non-alphanumeric (or absent) bytes.
+#[expect(
+    clippy::indexing_slicing,
+    reason = "ASCII byte checks are guarded by explicit length bounds"
+)]
 fn contains_word(text: &str, word: &str) -> bool {
     let tb = text.as_bytes();
     let wb = word.as_bytes();
@@ -481,6 +485,10 @@ fn is_dolby_vision_stream(stream: &Value, url: &str) -> bool {
     is_standalone_dv_token(&format!("{} {} {} {}", name, desc, filename, url))
 }
 
+#[expect(
+    clippy::indexing_slicing,
+    reason = "ASCII token scan checks every index against the byte length"
+)]
 fn is_standalone_dv_token(text: &str) -> bool {
     let bytes = text.as_bytes();
     let len = bytes.len();
@@ -516,6 +524,10 @@ fn detect_container(url: &str) -> DvContainer {
     }
 }
 
+#[expect(
+    clippy::indexing_slicing,
+    reason = "episode format is length-checked before accessing its fixed fields"
+)]
 pub(crate) fn episode_path_matches_id(path: &str, video_id: &str) -> bool {
     let parts: Vec<&str> = video_id.split(':').collect();
     if parts.len() < 3 {

@@ -111,9 +111,10 @@ pub(crate) fn profile_avatar_pack_catalog_json(request_json: &str) -> Option<Str
             continue;
         }
         if let Some(target) = &repository.path
-            && !path_under_target(directory, target) {
-                continue;
-            }
+            && !path_under_target(directory, target)
+        {
+            continue;
+        }
         let name = if directory.is_empty() {
             repository.name.clone()
         } else {
@@ -329,17 +330,23 @@ fn percent_encode(value: &str) -> String {
         .collect()
 }
 
+#[expect(
+    clippy::indexing_slicing,
+    reason = "loop condition bounds every byte access"
+)]
 fn percent_decode(value: &str) -> String {
     let bytes = value.as_bytes();
     let mut out = Vec::with_capacity(bytes.len());
     let mut i = 0;
     while i < bytes.len() {
-        if bytes[i] == b'%' && i + 3 <= bytes.len()
-            && let Ok(byte) = u8::from_str_radix(&value[i + 1..i + 3], 16) {
-                out.push(byte);
-                i += 3;
-                continue;
-            }
+        if bytes[i] == b'%'
+            && i + 3 <= bytes.len()
+            && let Ok(byte) = u8::from_str_radix(&value[i + 1..i + 3], 16)
+        {
+            out.push(byte);
+            i += 3;
+            continue;
+        }
         out.push(bytes[i]);
         i += 1;
     }

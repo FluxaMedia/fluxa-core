@@ -26,7 +26,13 @@ fn extract_json_string_field(html: &str, key: &str) -> Option<String> {
         .iter()
         .enumerate()
         .find_map(|(index, byte)| {
-            (*byte == b'"' && (index == 0 || rest.as_bytes()[index - 1] != b'\\')).then_some(index)
+            (*byte == b'"'
+                && (index == 0
+                    || rest
+                        .as_bytes()
+                        .get(index - 1)
+                        .is_none_or(|previous| *previous != b'\\')))
+            .then_some(index)
         })?;
     Some(rest[..end].to_string())
 }

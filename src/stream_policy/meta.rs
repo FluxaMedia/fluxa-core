@@ -72,16 +72,22 @@ pub(crate) fn percent_decode_component(value: &str) -> String {
         // Decode the two hex digits as raw bytes rather than slicing `value` —
         // a `%` next to a multi-byte UTF-8 character can put the slice bound
         // mid-character, which panics; byte-at-a-time reads can't.
-        if raw[index] == b'%' && index + 2 < raw.len() {
-            let hi = (raw[index + 1] as char).to_digit(16);
-            let lo = (raw[index + 2] as char).to_digit(16);
+        if raw.get(index) == Some(&b'%') && index + 2 < raw.len() {
+            let hi = raw
+                .get(index + 1)
+                .and_then(|byte| (*byte as char).to_digit(16));
+            let lo = raw
+                .get(index + 2)
+                .and_then(|byte| (*byte as char).to_digit(16));
             if let (Some(hi), Some(lo)) = (hi, lo) {
                 bytes.push((hi * 16 + lo) as u8);
                 index += 3;
                 continue;
             }
         }
-        bytes.push(raw[index]);
+        if let Some(byte) = raw.get(index) {
+            bytes.push(*byte);
+        }
         index += 1;
     }
     String::from_utf8_lossy(&bytes).into_owned()

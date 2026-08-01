@@ -297,11 +297,7 @@ pub(crate) fn import_apply_plan_json(request_json: &str) -> Option<String> {
         .and_then(Value::as_array)
         .map(|arr| arr.iter().filter_map(Value::as_str).collect());
     let dry_run = req.get("dryRun").and_then(Value::as_bool).unwrap_or(false);
-    let wants = |c: &str| {
-        categories
-            .as_ref()
-            .is_none_or(|cats| cats.contains(&c))
-    };
+    let wants = |c: &str| categories.as_ref().is_none_or(|cats| cats.contains(&c));
 
     let local_watchlist = req.get("localWatchlist").cloned().unwrap_or(json!([]));
     let external_watchlist = req.get("externalWatchlist").cloned().unwrap_or(json!([]));

@@ -29,8 +29,9 @@ fn torrent_episode_tokens(title: &str) -> Vec<String> {
     if parts.len() < 3 {
         return Vec::new();
     }
-    let season = parts[parts.len() - 2].parse::<u32>().ok();
-    let episode = parts[parts.len() - 1].parse::<u32>().ok();
+    let mut parts = title.rsplitn(3, ':');
+    let episode = parts.next().and_then(|value| value.parse::<u32>().ok());
+    let season = parts.next().and_then(|value| value.parse::<u32>().ok());
     match (season, episode) {
         (Some(season), Some(episode)) => vec![
             format!("s{season:02}e{episode:02}"),
@@ -66,9 +67,10 @@ pub(crate) fn resolve_torrent_file_index(
             path == preferred
                 || path.ends_with(&format!("/{preferred}"))
                 || path.rsplit('/').next() == Some(preferred.as_str())
-        }) {
-            return (Some(stat.id), Some("filename".to_string()));
-        }
+        })
+    {
+        return (Some(stat.id), Some("filename".to_string()));
+    }
 
     let episode_tokens = torrent_episode_tokens(title);
     if !episode_tokens.is_empty()
@@ -77,9 +79,9 @@ pub(crate) fn resolve_torrent_file_index(
             .filter(|stat| is_likely_video_file(&stat.path))
             .filter(|stat| matches_torrent_episode(&stat.path, &episode_tokens))
             .max_by_key(|stat| stat.length)
-        {
-            return (Some(stat.id), Some("episode".to_string()));
-        }
+    {
+        return (Some(stat.id), Some("episode".to_string()));
+    }
 
     file_stats
         .iter()
@@ -94,26 +96,32 @@ pub(crate) fn resolve_torrent_file_index(
 fn extract_episode_tag(lower_name: &str) -> Option<String> {
     let bytes = lower_name.as_bytes();
     for start in 0..bytes.len() {
-        if bytes[start] != b's' {
+        if bytes.get(start) != Some(&b's') {
             continue;
         }
         let mut i = start + 1;
         let season_start = i;
-        while i < bytes.len() && bytes[i].is_ascii_digit() && i - season_start < 2 {
+        while i < bytes.len()
+            && bytes.get(i).is_some_and(u8::is_ascii_digit)
+            && i - season_start < 2
+        {
             i += 1;
         }
-        if i == season_start || i >= bytes.len() || bytes[i] != b'e' {
+        if i == season_start || bytes.get(i) != Some(&b'e') {
             continue;
         }
         i += 1;
         let episode_start = i;
-        while i < bytes.len() && bytes[i].is_ascii_digit() && i - episode_start < 3 {
+        while i < bytes.len()
+            && bytes.get(i).is_some_and(u8::is_ascii_digit)
+            && i - episode_start < 3
+        {
             i += 1;
         }
         if i == episode_start {
             continue;
         }
-        return Some(lower_name[start..i].to_string());
+        return lower_name.get(start..i).map(str::to_string);
     }
     None
 }

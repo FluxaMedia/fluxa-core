@@ -10,6 +10,10 @@ fn cleaned_url(raw: Option<&str>) -> Option<String> {
 fn github_blob_url_regex() -> &'static regex::Regex {
     static REGEX: OnceLock<regex::Regex> = OnceLock::new();
     REGEX.get_or_init(|| {
+        #[expect(
+            clippy::expect_used,
+            reason = "static literal regex is reviewed at build time"
+        )]
         regex::Regex::new(r"^https://github\.com/([^/]+)/([^/]+)/blob/([^/]+)/(.+)$")
             .expect("valid github blob url regex")
     })
@@ -28,7 +32,10 @@ fn cleaned_artwork_url(raw: Option<&str>) -> Option<String> {
     let normalized = if let Some(caps) = github_blob_url_regex().captures(&with_scheme) {
         format!(
             "https://raw.githubusercontent.com/{}/{}/{}/{}",
-            &caps[1], &caps[2], &caps[3], &caps[4]
+            caps.get(1)?.as_str(),
+            caps.get(2)?.as_str(),
+            caps.get(3)?.as_str(),
+            caps.get(4)?.as_str()
         )
     } else {
         with_scheme

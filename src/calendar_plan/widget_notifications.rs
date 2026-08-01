@@ -124,7 +124,7 @@ pub(crate) fn calendar_notification_content_json(request_json: &str) -> Option<S
     stored_keys.extend(keys_out.iter().cloned());
     let start = stored_keys.len().saturating_sub(request.max_stored_keys);
     serde_json::to_string(
-        &json!({"items": items_out, "keys": keys_out, "storedKeys": &stored_keys[start..]}),
+        &json!({"items": items_out, "keys": keys_out, "storedKeys": stored_keys.get(start..).unwrap_or_default()}),
     )
     .ok()
 }

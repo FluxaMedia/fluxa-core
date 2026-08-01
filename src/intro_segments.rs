@@ -260,9 +260,10 @@ fn collect_segments(data: &Value) -> Vec<Value> {
                 ("preview", "preview"),
             ] {
                 if let Some(child) = obj.get(*key_prefix)
-                    && let Some(seg) = segment_from_object_with_type(child, seg_type) {
-                        result.push(seg);
-                    }
+                    && let Some(seg) = segment_from_object_with_type(child, seg_type)
+                {
+                    result.push(seg);
+                }
                 let start = number_from_keys(
                     obj,
                     &[
@@ -294,9 +295,10 @@ fn collect_segments(data: &Value) -> Vec<Value> {
                 }
             }
             if let Some(seg) = segment_from_object(obj)
-                && !result.iter().any(|r| r == &seg) {
-                    result.push(seg);
-                }
+                && !result.iter().any(|r| r == &seg)
+            {
+                result.push(seg);
+            }
             result
                 .into_iter()
                 .filter(|s| {
@@ -490,13 +492,14 @@ pub(crate) fn parse_anime_skip_results_json(results_json: &str) -> Option<String
     let segments: Vec<Value> = points
         .windows(2)
         .filter_map(|pair| {
-            let (start_ms, raw_type) = pair[0];
-            let (end_ms, _) = pair[1];
+            let [(start_ms, raw_type), (end_ms, _)] = pair else {
+                return None;
+            };
             let seg_type = animeskip_type_to_skip_type(raw_type)?;
             if end_ms <= start_ms {
                 return None;
             }
-            Some(make_segment(seg_type, start_ms, end_ms))
+            Some(make_segment(seg_type, *start_ms, *end_ms))
         })
         .collect();
     serde_json::to_string(&segments).ok()

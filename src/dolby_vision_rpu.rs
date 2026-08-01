@@ -162,9 +162,12 @@ fn hex_decode(value: &str) -> Result<Vec<u8>, String> {
     }
     clean
         .chunks(2)
-        .map(|pair| match (pair[0].to_digit(16), pair[1].to_digit(16)) {
-            (Some(hi), Some(lo)) => Ok((hi * 16 + lo) as u8),
-            _ => Err(format!("invalid hex digit in pair: {}{}", pair[0], pair[1])),
+        .map(|pair| match pair {
+            [first, second] => match (first.to_digit(16), second.to_digit(16)) {
+                (Some(hi), Some(lo)) => Ok((hi * 16 + lo) as u8),
+                _ => Err(format!("invalid hex digit in pair: {first}{second}")),
+            },
+            _ => Err("internal hex pair invariant violated".to_string()),
         })
         .collect()
 }

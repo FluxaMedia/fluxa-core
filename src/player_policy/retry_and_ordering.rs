@@ -84,6 +84,10 @@ struct NextRetrySourceRequest {
     p2p_enabled: bool,
 }
 
+#[expect(
+    clippy::indexing_slicing,
+    reason = "candidate vector is checked non-empty before modulo indexing"
+)]
 pub(crate) fn next_retry_source_plan_json(request_json: &str) -> Option<String> {
     let request: NextRetrySourceRequest = serde_json::from_str(request_json).ok()?;
     if !request.force && !request.auto_retry {

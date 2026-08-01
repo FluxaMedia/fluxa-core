@@ -113,7 +113,9 @@ pub(super) fn end_of_current_week_ms(now_ms: i64) -> i64 {
         .unwrap_or_else(chrono::Local::now);
     let days_until_sunday = (7 - now.weekday().num_days_from_sunday() as i64) % 7;
     let end_date = now.date_naive() + chrono::Duration::days(days_until_sunday);
-    let end = end_date.and_hms_milli_opt(23, 59, 59, 999).unwrap();
+    let Some(end) = end_date.and_hms_milli_opt(23, 59, 59, 999) else {
+        return now_ms;
+    };
     Local
         .from_local_datetime(&end)
         .single()
@@ -122,11 +124,11 @@ pub(super) fn end_of_current_week_ms(now_ms: i64) -> i64 {
 }
 
 pub(super) fn parse_date_ms(raw: &str) -> Option<i64> {
-    chrono::DateTime::parse_from_rfc3339(raw)
-        .map(|d| d.timestamp_millis())
-        .or_else(|_| {
-            chrono::NaiveDate::parse_from_str(raw, "%Y-%m-%d")
-                .map(|d| d.and_hms_opt(0, 0, 0).unwrap().and_utc().timestamp_millis())
-        })
-        .ok()
+    if let Ok(timestamp) = chrono::DateTime::parse_from_rfc3339(raw) {
+        return Some(timestamp.timestamp_millis());
+    }
+    chrono::NaiveDate::parse_from_str(raw, "%Y-%m-%d")
+        .ok()?
+        .and_hms_opt(0, 0, 0)
+        .map(|time| time.and_utc().timestamp_millis())
 }

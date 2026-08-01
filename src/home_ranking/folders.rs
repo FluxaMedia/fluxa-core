@@ -90,9 +90,10 @@ pub(crate) fn merge_folder_sources_json(request_json: &str) -> Option<String> {
     for index in 0..max_len {
         for source in &sources {
             if let Some(item) = source.get(index)
-                && seen.insert(folder_item_key(item)) {
-                    items.push(item.clone());
-                }
+                && seen.insert(folder_item_key(item))
+            {
+                items.push(item.clone());
+            }
         }
     }
     let mut groups: Vec<Value> = Vec::new();
@@ -268,9 +269,9 @@ pub(crate) fn resolve_folder_catalog_sources(
                     .and_then(Value::as_str)
                     .map(str::trim)
                     .filter(|genre| !genre.is_empty() && !genre.eq_ignore_ascii_case("none"))
-                {
-                    entry["genre"] = Value::String(genre.to_string());
-                }
+                    && let Some(fields) = entry.as_object_mut() {
+                        fields.insert("genre".to_string(), Value::String(genre.to_string()));
+                    }
                 resolved.push(entry);
             }
         }
@@ -301,28 +302,30 @@ pub(crate) fn resolve_folder_catalog_sources(
                     .and_then(Value::as_str)
                     .map(str::trim)
                     .filter(|genre| !genre.is_empty() && !genre.eq_ignore_ascii_case("none"))
-                {
-                    entry["genre"] = Value::String(genre.to_string());
-                }
+                    && let Some(fields) = entry.as_object_mut() {
+                        fields.insert("genre".to_string(), Value::String(genre.to_string()));
+                    }
                 resolved.push(entry);
             }
         }
     }
 
     if resolved.is_empty()
-        && let Some(catalog_id) = folder.get("catalogId").and_then(Value::as_str) {
-            let src = json!({ "catalogId": catalog_id, "type": "movie" });
-            if let Some(t_url) = resolve_transport_url_json(&src.to_string(), addons_json)
-                .and_then(|json| serde_json::from_str::<String>(&json).ok())
-            {
-                let mut entry =
-                    json!({ "transportUrl": t_url, "catalogId": catalog_id, "type": "movie" });
-                if let Some(g) = folder.get("genre").and_then(Value::as_str) {
-                    entry["genre"] = Value::String(g.to_string());
+        && let Some(catalog_id) = folder.get("catalogId").and_then(Value::as_str)
+    {
+        let src = json!({ "catalogId": catalog_id, "type": "movie" });
+        if let Some(t_url) = resolve_transport_url_json(&src.to_string(), addons_json)
+            .and_then(|json| serde_json::from_str::<String>(&json).ok())
+        {
+            let mut entry =
+                json!({ "transportUrl": t_url, "catalogId": catalog_id, "type": "movie" });
+            if let Some(g) = folder.get("genre").and_then(Value::as_str)
+                && let Some(fields) = entry.as_object_mut() {
+                    fields.insert("genre".to_string(), Value::String(g.to_string()));
                 }
-                resolved.push(entry);
-            }
+            resolved.push(entry);
         }
+    }
     resolved
 }
 
@@ -340,9 +343,10 @@ fn hidden_folder_category(
         "catalogSources": resolved,
         "canLoadMore": false,
     });
-    if let Some(g) = folder.get("genre").and_then(Value::as_str) {
-        hcat["addonGenre"] = Value::String(g.to_string());
-    }
+    if let Some(g) = folder.get("genre").and_then(Value::as_str)
+        && let Some(fields) = hcat.as_object_mut() {
+            fields.insert("addonGenre".to_string(), Value::String(g.to_string()));
+        }
     hcat
 }
 
@@ -368,14 +372,17 @@ fn folder_tile(folder_id: &str, folder_title: &str, folder: &Map<String, Value>)
             .and_then(Value::as_str)
             .unwrap_or("poster"),
     });
-    if let Some(logo) = folder.get("titleLogoUrl").and_then(Value::as_str) {
-        tile["logo"] = Value::String(logo.to_string());
-    }
-    if let Some(info) = folder.get("catalogTitle").and_then(Value::as_str) {
-        tile["releaseInfo"] = Value::String(info.to_string());
-    }
-    if let Some(gif) = folder.get("focusGifUrl").and_then(Value::as_str) {
-        tile["focusGifUrl"] = Value::String(gif.to_string());
-    }
+    if let Some(logo) = folder.get("titleLogoUrl").and_then(Value::as_str)
+        && let Some(fields) = tile.as_object_mut() {
+            fields.insert("logo".to_string(), Value::String(logo.to_string()));
+        }
+    if let Some(info) = folder.get("catalogTitle").and_then(Value::as_str)
+        && let Some(fields) = tile.as_object_mut() {
+            fields.insert("releaseInfo".to_string(), Value::String(info.to_string()));
+        }
+    if let Some(gif) = folder.get("focusGifUrl").and_then(Value::as_str)
+        && let Some(fields) = tile.as_object_mut() {
+            fields.insert("focusGifUrl".to_string(), Value::String(gif.to_string()));
+        }
     tile
 }

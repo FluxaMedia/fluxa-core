@@ -38,9 +38,10 @@ pub(crate) fn is_local_url(value: &str) -> bool {
     // 172.16.0.0/12 private range
     if let Some(rest) = lower.strip_prefix("172.")
         && let Some(second_octet) = rest.split('.').next().and_then(|s| s.parse::<u8>().ok())
-            && (16..=31).contains(&second_octet) {
-                return true;
-            }
+        && (16..=31).contains(&second_octet)
+    {
+        return true;
+    }
     false
 }
 
