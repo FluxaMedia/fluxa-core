@@ -53,17 +53,38 @@ pub(super) fn largest_file_id(details: &TorrentDetailsResponse) -> Option<usize>
         .map(|(idx, _)| idx)
 }
 
-pub(super) async fn prioritize_stream_file(state: &EngineState, torrent_id: usize, file_id: usize) {
-    // Adds file_id to the torrent's active set rather than replacing it, so
-    // fetching a sibling subtitle file doesn't evict the video file that's
-    // already streaming (which would stall playback).
+pub(super) async fn prioritize_stream_file(
+    state: &EngineState,
+    torrent_id: usize,
+    file_id: usize,
+    role: FileRole,
+) {
+    // Keep one current video file plus active auxiliary files. Moving through
+    // a season pack replaces the old video instead of accumulating episodes;
+    // subtitles remain selectable without evicting that primary video.
     let only_files = state
         .prioritized_files
         .lock()
         .map(|mut files| {
             let entry = files.entry(torrent_id).or_default();
-            let inserted = entry.insert(file_id);
-            if !inserted { None } else { Some(entry.clone()) }
+            match role {
+                FileRole::Video => {
+                    if entry.primary_video == Some(file_id) {
+                        return None;
+                    }
+                    entry.primary_video = Some(file_id);
+                }
+                FileRole::Subtitle | FileRole::Auxiliary => {
+                    if !entry.auxiliary_files.insert(file_id) {
+                        return None;
+                    }
+                }
+            }
+            let mut selected = entry.auxiliary_files.clone();
+            if let Some(primary) = entry.primary_video {
+                selected.insert(primary);
+            }
+            Some(selected)
         })
         .unwrap_or(None);
     let Some(only_files) = only_files else {

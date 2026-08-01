@@ -8,7 +8,7 @@ use librqbit::api::{TorrentDetailsResponse, TorrentIdOrHash};
 use librqbit::dht::PersistentDhtConfig;
 use librqbit::{
     AddTorrent, AddTorrentOptions, Api, PeerConnectionOptions, Session, SessionOptions,
-    TorrentStatsState,
+    SessionPersistenceConfig, TorrentStatsState,
 };
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -16,13 +16,11 @@ use std::collections::{HashMap, HashSet};
 use std::io::SeekFrom;
 use std::net::SocketAddr;
 use std::path::PathBuf;
-use std::pin::Pin;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
-use std::task::{Context, Poll};
 use std::thread;
 use std::time::Duration;
-use tokio::io::{AsyncRead, AsyncReadExt, AsyncSeekExt, ReadBuf};
+use tokio::io::{AsyncReadExt, AsyncSeekExt};
 use tokio::net::TcpListener;
 use tokio::sync::Mutex as AsyncMutex;
 use tokio::sync::oneshot;
@@ -39,6 +37,8 @@ struct TorrRequest {
     // Optional file index to focus on right after add — prevents rqbit
     // from spreading peer slots across every file in the torrent.
     file_id: Option<usize>,
+    #[serde(default)]
+    role: FileRole,
 }
 
 #[derive(Deserialize)]
@@ -54,6 +54,23 @@ struct StreamQuery {
     index: Option<usize>,
     stat: Option<String>,
     access_token: Option<String>,
+    #[serde(default)]
+    role: FileRole,
+}
+
+#[derive(Clone, Copy, Default, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+enum FileRole {
+    #[default]
+    Video,
+    Subtitle,
+    Auxiliary,
+}
+
+#[derive(Default)]
+struct TorrentFileFocus {
+    primary_video: Option<usize>,
+    auxiliary_files: HashSet<usize>,
 }
 
 #[derive(Clone)]
@@ -62,14 +79,11 @@ struct EngineState {
     output_dir: PathBuf,
     preload_size: Arc<Mutex<u64>>,
     known_links: Arc<Mutex<HashMap<String, usize>>>,
-    prioritized_files: Arc<Mutex<HashMap<usize, HashSet<usize>>>>,
-    pending_adds: Arc<Mutex<HashSet<String>>>,
-    stream_progress: Arc<Mutex<HashMap<String, u64>>>,
+    prioritized_files: Arc<Mutex<HashMap<usize, TorrentFileFocus>>>,
+    // A short-lived per-link lock shares an add operation for one magnet while
+    // allowing unrelated metadata lookups to progress independently.
+    in_flight_adds: Arc<AsyncMutex<HashMap<String, Arc<AsyncMutex<()>>>>>,
     access_token: Arc<String>,
-    // Serializes the check-then-add sequence in ensure_torrent so two
-    // near-simultaneous requests for the same new link (e.g. a stat poll
-    // racing the stream GET) can't both call api_add_torrent for it.
-    add_lock: Arc<AsyncMutex<()>>,
 }
 
 struct TorrentServerHandle {
@@ -128,7 +142,7 @@ pub fn start_torrent_server(
     let cache_dir = PathBuf::from(cache_dir);
     std::fs::create_dir_all(&cache_dir).ok()?;
     let dht_config = PersistentDhtConfig {
-        dump_interval: Some(Duration::from_secs(1)),
+        dump_interval: Some(Duration::from_secs(60)),
         config_filename: Some(cache_dir.parent()?.join("torrent-dht.json")),
     };
     let bind_port = preferred_port.clamp(0, u16::MAX as i32) as u16;
@@ -140,8 +154,8 @@ pub fn start_torrent_server(
 
     let thread = thread::spawn(move || {
         let worker_threads = std::thread::available_parallelism()
-            .map(|n| n.get().clamp(4, 8))
-            .unwrap_or(4);
+            .map(|n| n.get().clamp(2, 8))
+            .unwrap_or(2);
         let runtime = match tokio::runtime::Builder::new_multi_thread()
             .enable_all()
             .worker_threads(worker_threads)
@@ -158,6 +172,10 @@ pub fn start_torrent_server(
             let options = SessionOptions {
                 disable_dht_persistence: false,
                 dht_config: Some(thread_dht_config),
+                fastresume: true,
+                persistence: Some(SessionPersistenceConfig::Json {
+                    folder: Some(thread_cache_dir.join("session")),
+                }),
                 defer_writes_up_to: Some(64),
                 listen_port_range: Some(49152..65535),
                 enable_upnp_port_forwarding: true,
@@ -216,10 +234,8 @@ pub fn start_torrent_server(
                 preload_size: Arc::new(Mutex::new(10 * 1024 * 1024)),
                 known_links: Arc::new(Mutex::new(HashMap::new())),
                 prioritized_files: Arc::new(Mutex::new(HashMap::new())),
-                pending_adds: Arc::new(Mutex::new(HashSet::new())),
-                stream_progress: Arc::new(Mutex::new(HashMap::new())),
+                in_flight_adds: Arc::new(AsyncMutex::new(HashMap::new())),
                 access_token: Arc::new(thread_access_token),
-                add_lock: Arc::new(AsyncMutex::new(())),
             };
             tokio::spawn(peer_stats_logger(state.clone()));
             let app = Router::new()
@@ -400,7 +416,7 @@ async fn torrents(
                 Ok((id, details)) => {
                     let focus = request.file_id.or_else(|| largest_file_id(&details));
                     if let Some(file_id) = focus {
-                        prioritize_stream_file(&state, id, file_id).await;
+                        prioritize_stream_file(&state, id, file_id, request.role).await;
                     }
                     status_response(&state, id, Some(details), focus)
                         .await
@@ -418,15 +434,15 @@ async fn torrents(
             {
                 Some(id) => id,
                 None => {
-                    let resolving = request
-                        .link
-                        .as_deref()
-                        .is_some_and(|link| add_is_pending(&state, link));
+                    let resolving = match request.link.as_deref() {
+                        Some(link) => add_is_pending(&state, link).await,
+                        None => false,
+                    };
                     return Json(empty_status_json(resolving)).into_response();
                 }
             };
             if let Some(file_id) = request.file_id {
-                prioritize_stream_file(&state, id, file_id).await;
+                prioritize_stream_file(&state, id, file_id, request.role).await;
             }
             status_response(&state, id, None, request.file_id)
                 .await
@@ -478,7 +494,7 @@ async fn stream_fname(
                 .await
                 .into_response();
         }
-        return Json(empty_status_json(add_is_pending(&state, &query.link))).into_response();
+        return Json(empty_status_json(add_is_pending(&state, &query.link).await)).into_response();
     }
 
     // Stream request: ensure_torrent does its own add+lookup. Calling it
@@ -503,12 +519,11 @@ async fn stream_fname(
     let file_id = query
         .index
         .unwrap_or_else(|| largest_file_id(&details).unwrap_or(0));
-    reset_stream_progress(&state, id, file_id);
     debug_log(format!(
         "[TorrServer] streaming torrent={id} file={file_id} files={}",
         details.files.as_ref().map(|f| f.len()).unwrap_or(0)
     ));
-    prioritize_stream_file(&state, id, file_id).await;
+    prioritize_stream_file(&state, id, file_id, query.role).await;
 
     // Wait for rqbit to leave Initializing state before attempting to stream.
     // api_stream fails immediately with "invalid state: initializing" until this
@@ -558,26 +573,13 @@ async fn stream_fname(
                         "Content-Range",
                         format!("bytes {start}-{end}/{total_len}"),
                     );
-                    let body = Body::from_stream(ReaderStream::with_capacity(
-                        CountingReader::new(
-                            stream.take(length),
-                            state.stream_progress.clone(),
-                            stream_progress_key(id, file_id),
-                        ),
-                        65536,
-                    ));
+                    let body =
+                        Body::from_stream(ReaderStream::with_capacity(stream.take(length), 65536));
                     (status, output_headers, body).into_response()
                 }
                 Ok(None) => {
                     insert_header(&mut output_headers, "Content-Length", total_len.to_string());
-                    let body = Body::from_stream(ReaderStream::with_capacity(
-                        CountingReader::new(
-                            stream,
-                            state.stream_progress.clone(),
-                            stream_progress_key(id, file_id),
-                        ),
-                        65536,
-                    ));
+                    let body = Body::from_stream(ReaderStream::with_capacity(stream, 65536));
                     (status, output_headers, body).into_response()
                 }
                 Err(()) => range_not_satisfiable_response(total_len),
@@ -609,21 +611,24 @@ async fn ensure_torrent(
             .api_torrent_details(TorrentIdOrHash::Id(id))
             .map_err(|error| format!("{error:#}"))?;
         if let Some(file_id) = only_file {
-            prioritize_stream_file(state, id, file_id).await;
+            prioritize_stream_file(state, id, file_id, FileRole::Video).await;
         }
         return Ok((id, details));
     }
 
-    let _pending_guard = PendingAddGuard::new(state, link);
-
-    // Hold the add lock for the rest of this function so a second caller
-    // that loses the race blocks here instead of also calling
-    // api_add_torrent, then re-check known_links in case the first caller
-    // already finished adding it while we were waiting.
+    // Metadata acquisition only serializes per link. Different magnets can
+    // resolve in parallel while a duplicate request joins this operation.
+    let link_lock = {
+        let mut in_flight = state.in_flight_adds.lock().await;
+        in_flight
+            .entry(link.to_string())
+            .or_insert_with(|| Arc::new(AsyncMutex::new(())))
+            .clone()
+    };
     let lock_timeout = metadata_timeout
         .checked_add(Duration::from_secs(5))
         .unwrap_or(metadata_timeout);
-    let _add_guard = match tokio::time::timeout(lock_timeout, state.add_lock.lock()).await {
+    let _add_guard = match tokio::time::timeout(lock_timeout, link_lock.lock()).await {
         Ok(guard) => guard,
         Err(_) => return Err("torrent add already in progress".to_string()),
     };
@@ -633,7 +638,7 @@ async fn ensure_torrent(
             .api_torrent_details(TorrentIdOrHash::Id(id))
             .map_err(|error| format!("{error:#}"))?;
         if let Some(file_id) = only_file {
-            prioritize_stream_file(state, id, file_id).await;
+            prioritize_stream_file(state, id, file_id, FileRole::Video).await;
         }
         return Ok((id, details));
     }
@@ -660,19 +665,27 @@ async fn ensure_torrent(
             .api
             .api_add_torrent(AddTorrent::Url(link.to_string().into()), Some(options)),
     )
-    .await
-    .map_err(|_| {
-        debug_log(format!(
-            "[TorrServer][timing] metadata timed out after {:?} link={}",
-            add_started.elapsed(),
-            &link[..link.len().min(80)]
-        ));
-        "torrent metadata timed out".to_string()
-    })?
-    .map_err(|error| format!("{error:#}"))?;
-    let id = response
-        .id
-        .ok_or_else(|| "torrent metadata is not ready".to_string())?;
+    .await;
+    let response = match response {
+        Ok(Ok(response)) => response,
+        Ok(Err(error)) => {
+            state.in_flight_adds.lock().await.remove(link);
+            return Err(format!("{error:#}"));
+        }
+        Err(_) => {
+            state.in_flight_adds.lock().await.remove(link);
+            debug_log(format!(
+                "[TorrServer][timing] metadata timed out after {:?} link={}",
+                add_started.elapsed(),
+                &link[..link.len().min(80)]
+            ));
+            return Err("torrent metadata timed out".to_string());
+        }
+    };
+    let Some(id) = response.id else {
+        state.in_flight_adds.lock().await.remove(link);
+        return Err("torrent metadata is not ready".to_string());
+    };
     debug_log(format!(
         "[TorrServer][timing] metadata ready in {:?} torrent={id}",
         add_started.elapsed()
@@ -681,29 +694,8 @@ async fn ensure_torrent(
     if let Some(title) = title {
         remember_link(state, title, id);
     }
+    state.in_flight_adds.lock().await.remove(link);
     Ok((id, response.details))
-}
-
-fn stream_progress_key(id: usize, file_id: usize) -> String {
-    format!("{id}:{file_id}")
-}
-
-fn reset_stream_progress(state: &EngineState, id: usize, file_id: usize) {
-    if let Ok(mut map) = state.stream_progress.lock() {
-        map.insert(stream_progress_key(id, file_id), 0);
-    }
-}
-
-fn streamed_size_for(state: &EngineState, id: usize, file_id: Option<usize>) -> u64 {
-    let Some(file_id) = file_id else {
-        return 0;
-    };
-    state
-        .stream_progress
-        .lock()
-        .ok()
-        .and_then(|map| map.get(&stream_progress_key(id, file_id)).copied())
-        .unwrap_or(0)
 }
 
 fn empty_status_json(resolving: bool) -> Value {
@@ -725,86 +717,8 @@ fn empty_status_json(resolving: bool) -> Value {
     })
 }
 
-struct PendingAddGuard {
-    pending: Arc<Mutex<HashSet<String>>>,
-    link: String,
-}
-
-impl PendingAddGuard {
-    fn new(state: &EngineState, link: &str) -> Self {
-        if let Ok(mut pending) = state.pending_adds.lock() {
-            pending.insert(link.to_string());
-        }
-        Self {
-            pending: state.pending_adds.clone(),
-            link: link.to_string(),
-        }
-    }
-}
-
-impl Drop for PendingAddGuard {
-    fn drop(&mut self) {
-        if let Ok(mut pending) = self.pending.lock() {
-            pending.remove(&self.link);
-        }
-    }
-}
-
-fn add_is_pending(state: &EngineState, link: &str) -> bool {
-    state
-        .pending_adds
-        .lock()
-        .map(|pending| pending.contains(link.trim()))
-        .unwrap_or(false)
-}
-
-struct CountingReader<R> {
-    inner: R,
-    progress: Arc<Mutex<HashMap<String, u64>>>,
-    key: String,
-    counted: u64,
-    started: std::time::Instant,
-}
-
-impl<R> CountingReader<R> {
-    fn new(inner: R, progress: Arc<Mutex<HashMap<String, u64>>>, key: String) -> Self {
-        Self {
-            inner,
-            progress,
-            key,
-            counted: 0,
-            started: std::time::Instant::now(),
-        }
-    }
-}
-
-impl<R: AsyncRead + Unpin> AsyncRead for CountingReader<R> {
-    fn poll_read(
-        self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-        buf: &mut ReadBuf<'_>,
-    ) -> Poll<std::io::Result<()>> {
-        let this = self.get_mut();
-        let before = buf.filled().len();
-        let result = Pin::new(&mut this.inner).poll_read(cx, buf);
-        if let Poll::Ready(Ok(())) = &result {
-            let delta = (buf.filled().len() - before) as u64;
-            if delta > 0 {
-                if this.counted == 0 {
-                    debug_log(format!(
-                        "[TorrServer][timing] first byte in {:?} key={}",
-                        this.started.elapsed(),
-                        this.key
-                    ));
-                }
-                this.counted = this.counted.saturating_add(delta);
-                if let Ok(mut map) = this.progress.lock() {
-                    map.insert(this.key.clone(), this.counted);
-                }
-            }
-        }
-        result
-    }
+async fn add_is_pending(state: &EngineState, link: &str) -> bool {
+    state.in_flight_adds.lock().await.contains_key(link.trim())
 }
 
 async fn status_response(
@@ -852,12 +766,19 @@ async fn status_response(
         .map(|live| live.snapshot.peer_stats.seen)
         .unwrap_or(0);
     let preload_size = state.preload_size.lock().map(|value| *value).unwrap_or(0);
-    let loaded_size = stats
-        .as_ref()
-        .map(|stats| stats.progress_bytes.min(preload_size))
+    // This is deliberately file-scoped. Torrent-wide progress and bytes
+    // already delivered to the player say nothing about the selected file.
+    // librqbit's public stats do not expose a per-range piece bitmap yet, so
+    // this remains a conservative file-progress signal, not a claim that the
+    // bytes are contiguous after an arbitrary seek.
+    let loaded_size = focus_file
+        .and_then(|file_id| {
+            stats
+                .as_ref()
+                .and_then(|stats| stats.file_progress.get(file_id).copied())
+        })
         .unwrap_or(0);
-    let streamed_size = streamed_size_for(state, id, focus_file);
-    let progress_loaded_size = loaded_size.max(streamed_size).min(preload_size);
+    let progress_loaded_size = loaded_size.min(preload_size);
     let stat = match stats.as_ref().map(|stats| stats.state) {
         Some(TorrentStatsState::Live)
             if progress_loaded_size >= preload_size && preload_size > 0 =>
@@ -882,7 +803,7 @@ async fn status_response(
         "error": stats.as_ref().and_then(|stats| stats.error.as_deref()),
         "preload": if preload_size == 0 { 0 } else { ((progress_loaded_size as f64 / preload_size as f64) * 100.0).round() as i64 },
         "loaded_size": loaded_size,
-        "streamed_size": streamed_size,
+        "streamed_size": 0,
         "preload_size": preload_size,
         "file_stats": file_stats
     }))

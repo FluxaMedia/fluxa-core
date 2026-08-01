@@ -7,11 +7,12 @@ use crate::local_stream::{start_local_stream_server, stop_local_stream_server};
 use crate::torrent_engine;
 use jni::JNIEnv;
 use jni::objects::{JByteArray, JClass, JString};
-use jni::sys::{jboolean, jbyteArray, jint, jstring};
+use jni::sys::{jboolean, jbyteArray, jint, jlong, jstring};
 use std::ptr;
 
 type JBoolean = jboolean;
 type JInt = jint;
+type JLong = jlong;
 type JObject<'local> = JClass<'local>;
 type JStringReturn = jstring;
 
@@ -123,9 +124,11 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaStreamingNative_
 pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaStreamingNative_stopTorrentServerNative(
     _env: JNIEnv<'_>,
     _class: JObject<'_>,
+    expected_generation: JLong,
 ) -> JBoolean {
     std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        if torrent_engine::stop_torrent_server(None) {
+        let expected_generation = u64::try_from(expected_generation).ok();
+        if torrent_engine::stop_torrent_server(expected_generation) {
             1
         } else {
             0
