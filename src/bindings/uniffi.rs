@@ -1,4 +1,5 @@
 use crate::{app_state, core_contract, headless_engine};
+use serde_json::json;
 #[cfg(feature = "plugin-js-engine")]
 use std::sync::Arc;
 
@@ -17,6 +18,49 @@ pub fn fluxa_core_version() -> String {
 #[uniffi::export]
 pub fn core_invoke(method: String, args_json: String) -> String {
     crate::ffi::core_invoke(&method, &args_json)
+}
+
+/// Structured alternatives to the legacy lifecycle calls below. They preserve
+/// the common `{ ok, value | error }` contract without changing existing FFI
+/// return types used by older Kotlin and Swift clients.
+#[uniffi::export]
+pub fn headless_engine_snapshot_result_json(handle: i64) -> String {
+    crate::ffi::core_invoke("engine.snapshot", &json!({ "handle": handle }).to_string())
+}
+
+#[uniffi::export]
+pub fn headless_engine_dispatch_result_json(handle: i64, action_json: String) -> String {
+    let action = serde_json::from_str::<serde_json::Value>(&action_json)
+        .unwrap_or(serde_json::Value::String(action_json));
+    crate::ffi::core_invoke(
+        "engine.dispatch",
+        &json!({ "handle": handle, "action": action }).to_string(),
+    )
+}
+
+#[uniffi::export]
+pub fn headless_engine_complete_effect_result_json(handle: i64, result_json: String) -> String {
+    let result = serde_json::from_str::<serde_json::Value>(&result_json)
+        .unwrap_or(serde_json::Value::String(result_json));
+    crate::ffi::core_invoke(
+        "engine.completeEffect",
+        &json!({ "handle": handle, "result": result }).to_string(),
+    )
+}
+
+#[uniffi::export]
+pub fn app_core_state_result_json(handle: i64) -> String {
+    crate::ffi::core_invoke("app.state", &json!({ "handle": handle }).to_string())
+}
+
+#[uniffi::export]
+pub fn app_core_dispatch_result_json(handle: i64, action_json: String) -> String {
+    let action = serde_json::from_str::<serde_json::Value>(&action_json)
+        .unwrap_or(serde_json::Value::String(action_json));
+    crate::ffi::core_invoke(
+        "app.dispatch",
+        &json!({ "handle": handle, "action": action }).to_string(),
+    )
 }
 
 #[uniffi::export]
