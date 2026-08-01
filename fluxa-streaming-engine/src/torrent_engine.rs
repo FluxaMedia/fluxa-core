@@ -610,9 +610,6 @@ async fn ensure_torrent(
             .api
             .api_torrent_details(TorrentIdOrHash::Id(id))
             .map_err(|error| format!("{error:#}"))?;
-        if let Some(file_id) = only_file {
-            prioritize_stream_file(state, id, file_id, FileRole::Video).await;
-        }
         return Ok((id, details));
     }
 
@@ -637,9 +634,6 @@ async fn ensure_torrent(
             .api
             .api_torrent_details(TorrentIdOrHash::Id(id))
             .map_err(|error| format!("{error:#}"))?;
-        if let Some(file_id) = only_file {
-            prioritize_stream_file(state, id, file_id, FileRole::Video).await;
-        }
         return Ok((id, details));
     }
 
@@ -814,7 +808,8 @@ mod http;
 use http::*;
 #[cfg(test)]
 mod tests {
-    use super::parse_range;
+    use super::http::update_file_focus;
+    use super::{FileRole, TorrentFileFocus, parse_range};
     use axum::http::HeaderValue;
 
     fn range(value: &str, length: u64) -> Result<Option<(u64, u64)>, ()> {
@@ -853,5 +848,32 @@ mod tests {
     #[test]
     fn no_range_header_means_full_response() {
         assert_eq!(parse_range(None, 1000), Ok(None));
+    }
+
+    #[test]
+    fn subtitle_keeps_current_primary_video_selected() {
+        let mut focus = TorrentFileFocus::default();
+        assert_eq!(
+            update_file_focus(&mut focus, 1, FileRole::Video),
+            Some([1].into_iter().collect())
+        );
+        assert_eq!(
+            update_file_focus(&mut focus, 2, FileRole::Subtitle),
+            Some([1, 2].into_iter().collect())
+        );
+        assert_eq!(focus.primary_video, Some(1));
+    }
+
+    #[test]
+    fn new_video_replaces_old_video_and_clears_old_auxiliaries() {
+        let mut focus = TorrentFileFocus::default();
+        update_file_focus(&mut focus, 1, FileRole::Video);
+        update_file_focus(&mut focus, 2, FileRole::Subtitle);
+        assert_eq!(
+            update_file_focus(&mut focus, 3, FileRole::Video),
+            Some([3].into_iter().collect())
+        );
+        assert_eq!(focus.primary_video, Some(3));
+        assert!(focus.auxiliary_files.is_empty());
     }
 }

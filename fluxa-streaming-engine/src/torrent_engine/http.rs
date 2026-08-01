@@ -65,27 +65,7 @@ pub(super) async fn prioritize_stream_file(
     let only_files = state
         .prioritized_files
         .lock()
-        .map(|mut files| {
-            let entry = files.entry(torrent_id).or_default();
-            match role {
-                FileRole::Video => {
-                    if entry.primary_video == Some(file_id) {
-                        return None;
-                    }
-                    entry.primary_video = Some(file_id);
-                }
-                FileRole::Subtitle | FileRole::Auxiliary => {
-                    if !entry.auxiliary_files.insert(file_id) {
-                        return None;
-                    }
-                }
-            }
-            let mut selected = entry.auxiliary_files.clone();
-            if let Some(primary) = entry.primary_video {
-                selected.insert(primary);
-            }
-            Some(selected)
-        })
+        .map(|mut files| update_file_focus(files.entry(torrent_id).or_default(), file_id, role))
         .unwrap_or(None);
     let Some(only_files) = only_files else {
         return;
@@ -94,6 +74,31 @@ pub(super) async fn prioritize_stream_file(
         .api
         .api_torrent_action_update_only_files(TorrentIdOrHash::Id(torrent_id), &only_files)
         .await;
+}
+
+pub(super) fn update_file_focus(
+    focus: &mut TorrentFileFocus,
+    file_id: usize,
+    role: FileRole,
+) -> Option<HashSet<usize>> {
+    match role {
+        FileRole::Video if focus.primary_video == Some(file_id) => return None,
+        FileRole::Video => {
+            // A new episode starts a new playback focus. Its prior subtitles
+            // must not keep consuming piece-picker attention.
+            focus.primary_video = Some(file_id);
+            focus.auxiliary_files.clear();
+        }
+        FileRole::Subtitle | FileRole::Auxiliary if !focus.auxiliary_files.insert(file_id) => {
+            return None;
+        }
+        FileRole::Subtitle | FileRole::Auxiliary => {}
+    }
+    let mut selected = focus.auxiliary_files.clone();
+    if let Some(primary) = focus.primary_video {
+        selected.insert(primary);
+    }
+    Some(selected)
 }
 
 pub(super) fn lookup_known_link(state: &EngineState, link: Option<&str>) -> Option<usize> {
