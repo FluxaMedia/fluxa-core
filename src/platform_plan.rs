@@ -143,6 +143,32 @@ mod tests {
     }
 
     #[test]
+    fn resource_fetch_plan_skips_the_tmdb_builtin_pseudo_addon() {
+        let request = json!({
+            "kind": "metaDetail",
+            "contentType": "series",
+            "id": "tt1",
+            "addons": [{
+                "transportUrl": "tmdb://builtin",
+                "name": "TMDB",
+                "manifest": {
+                    "resources": ["meta"],
+                    "types": ["series"],
+                },
+            }],
+        });
+        let plan = resource_fetch_plan_json(&request.to_string())
+            .and_then(|json| serde_json::from_str::<Value>(&json).ok())
+            .expect("plan");
+        let requests = plan["requests"].as_array().unwrap();
+
+        assert!(
+            requests.is_empty(),
+            "the builtin TMDB pseudo-addon must never become a generic HTTP request"
+        );
+    }
+
+    #[test]
     fn resource_fetch_plan_search_only_targets_catalogs_supporting_search() {
         let request = json!({
             "kind": "search",

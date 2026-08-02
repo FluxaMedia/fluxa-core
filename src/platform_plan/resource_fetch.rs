@@ -287,8 +287,17 @@ fn extra_json(request: &ResourceFetchPlanRequest) -> Option<String> {
     }
     (!extra.is_empty()).then(|| Value::Object(extra).to_string())
 }
+// The TMDB builtin pseudo-addon uses this sentinel transportUrl so the JS side
+// can recognize it, but it has no real HTTP resource server behind it — the
+// host resolves it via a dedicated builtin request path instead. Addons with
+// this transportUrl must never be turned into a generic per-addon HTTP
+// request here, or the sentinel gets naively joined into a bogus URL.
+const BUILTIN_TMDB_TRANSPORT_URL: &str = "tmdb://builtin";
 fn addon_transport_url(addon: &Value) -> Option<&str> {
-    addon.get("transportUrl").and_then(Value::as_str)
+    addon
+        .get("transportUrl")
+        .and_then(Value::as_str)
+        .filter(|url| *url != BUILTIN_TMDB_TRANSPORT_URL)
 }
 fn addon_manifest(addon: &Value) -> Value {
     addon
