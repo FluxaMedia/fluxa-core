@@ -6,6 +6,7 @@ mod addon_support_routes;
 mod anime_nuvio_routes;
 mod calendar_routes;
 mod content_identity_routes;
+mod content_warning_routes;
 mod core_addon_store_routes;
 mod engine_routes;
 mod external_sync_routes;
@@ -28,6 +29,7 @@ use addon_support_routes::{route_addon_uptime, route_trailer_subtitles};
 use anime_nuvio_routes::{route_anime_detection, route_nuvio_sync};
 use calendar_routes::route_calendar;
 use content_identity_routes::route_content_identity;
+use content_warning_routes::route_content_warnings;
 use core_addon_store_routes::{route_addon_store, route_core_contract, route_profile_avatar_pack};
 use engine_routes::route_engine_lifecycle;
 use external_sync_routes::{
@@ -55,7 +57,7 @@ use watchlist_offline_routes::{route_offline, route_watchlist};
 use crate::dolby_vision_rpu;
 use crate::{
     addon_protocol, addon_resource, addon_store, addon_uptime, anime_detection, app_state,
-    calendar_plan, content_identity, core_contract, data_policy, desktop_playback, discovery_plan,
+    calendar_plan, content_identity, content_warnings, core_contract, data_policy, desktop_playback, discovery_plan,
     external_sync, headless_adapter_plan, headless_engine, home_ranking, integration_settings,
     intro_segments, library_state, mdblist_plan, nuvio_sync, offline_download, platform_plan,
     player_flow, player_policy, player_scrobble, plugins, profile_avatar_pack, profile_contract,
@@ -134,6 +136,7 @@ const ROUTERS: &[fn(&str, &str) -> Outcome] = &[
     route_watchlist,
     route_offline,
     route_content_identity,
+    route_content_warnings,
     route_calendar,
     route_external_sync_trakt,
     route_external_sync_simkl,

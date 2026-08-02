@@ -39,6 +39,8 @@ mod cast_protocol;
 mod constants;
 mod content_identity;
 #[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
+mod content_warnings;
+#[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
 pub mod core_api;
 #[cfg(not(any(feature = "full-api", not(feature = "streaming-shared"))))]
 mod core_api;
