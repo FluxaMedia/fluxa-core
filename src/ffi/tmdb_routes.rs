@@ -102,6 +102,13 @@ pub(super) fn route_tmdb(method: &str, args_json: &str) -> Outcome {
                 field_str(&args, "language")?,
             ))
         }
+        "tmdbPickLogo" => {
+            let args = object(args_json)?;
+            opt_json(tmdb_plan::tmdb_pick_logo_json(
+                field_str(&args, "imagesJson")?,
+                field_str(&args, "language")?,
+            ))
+        }
         "tmdbEpisodesToVideos" => {
             let args = object(args_json)?;
             opt_json(tmdb_plan::tmdb_episodes_to_videos_json(

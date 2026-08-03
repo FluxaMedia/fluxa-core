@@ -123,6 +123,11 @@ fn pick_logo(images: &Value, language: &str) -> Option<String> {
         .or_else(|| logos.first())?;
     tmdb_image_url(chosen.get("file_path").and_then(Value::as_str), "w500")
 }
+pub(crate) fn tmdb_pick_logo_json(images_json: &str, language: &str) -> Option<String> {
+    let images: Value = serde_json::from_str(images_json).ok()?;
+    let logo = pick_logo(&images, language);
+    serde_json::to_string(&json!({ "logo": logo })).ok()
+}
 pub(crate) fn tmdb_full_meta_to_meta_json(
     details_json: &str,
     credits_json: &str,

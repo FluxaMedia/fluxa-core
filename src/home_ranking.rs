@@ -203,4 +203,73 @@ mod tests {
         assert_eq!(resolved.len(), 1);
         assert_eq!(resolved[0]["catalogId"], "top");
     }
+
+    #[test]
+    fn hero_plan_requests_logo_for_tmdb_catalog_item_missing_one() {
+        let plan: Value = serde_json::from_str(&home_hero_plan_json(
+            &json!({
+                "categories": [{
+                    "type": "movie",
+                    "items": [{
+                        "id": "tmdb:1",
+                        "type": "movie",
+                        "background": "https://image.example/bg.jpg",
+                    }],
+                }],
+                "prefs": { "tmdbApiKey": "KEY" },
+            })
+            .to_string(),
+        )
+        .unwrap())
+        .unwrap();
+
+        assert_eq!(plan["logoTargets"][0]["id"], "tmdb:1");
+        assert_eq!(plan["billboard"]["logo"], Value::Null);
+    }
+
+    #[test]
+    fn hero_plan_merges_fetched_logo_and_skips_target_once_resolved() {
+        let plan: Value = serde_json::from_str(&home_hero_plan_json(
+            &json!({
+                "categories": [{
+                    "type": "movie",
+                    "items": [{
+                        "id": "tmdb:1",
+                        "type": "movie",
+                        "background": "https://image.example/bg.jpg",
+                    }],
+                }],
+                "prefs": { "tmdbApiKey": "KEY" },
+                "fetchedLogos": { "tmdb:1": "https://image.example/logo.png" },
+            })
+            .to_string(),
+        )
+        .unwrap())
+        .unwrap();
+
+        assert_eq!(plan["billboard"]["logo"], "https://image.example/logo.png");
+        assert_eq!(plan["logoTargets"].as_array().unwrap().len(), 0);
+    }
+
+    #[test]
+    fn hero_plan_skips_logo_targets_without_tmdb_api_key() {
+        let plan: Value = serde_json::from_str(&home_hero_plan_json(
+            &json!({
+                "categories": [{
+                    "type": "movie",
+                    "items": [{
+                        "id": "tt1",
+                        "type": "movie",
+                        "background": "https://image.example/bg.jpg",
+                    }],
+                }],
+                "prefs": {},
+            })
+            .to_string(),
+        )
+        .unwrap())
+        .unwrap();
+
+        assert_eq!(plan["logoTargets"].as_array().unwrap().len(), 0);
+    }
 }

@@ -101,8 +101,31 @@ pub(crate) fn home_hero_plan_json(request_json: &str) -> Option<String> {
         }
         item
     };
-    let billboard = billboard.map(&merge_trailers);
-    slides = slides.into_iter().map(&merge_trailers).collect();
+    let fetched_logos = request.get("fetchedLogos").and_then(Value::as_object);
+    let has_logo = |item: &Value| {
+        item.get("logo")
+            .and_then(Value::as_str)
+            .is_some_and(|value| !value.is_empty())
+    };
+    let merge_logos = |mut item: Value| {
+        if !has_logo(&item)
+            && let Some(logo) = item
+                .get("id")
+                .and_then(Value::as_str)
+                .and_then(|id| fetched_logos.and_then(|values| values.get(id)))
+                .filter(|value| value.as_str().is_some_and(|s| !s.is_empty()))
+            && let Some(fields) = item.as_object_mut()
+        {
+            fields.insert("logo".to_string(), logo.clone());
+        }
+        item
+    };
+    let billboard = billboard.map(&merge_trailers).map(&merge_logos);
+    slides = slides
+        .into_iter()
+        .map(&merge_trailers)
+        .map(&merge_logos)
+        .collect();
     let autoplay = prefs
         .get("homeHeroAutoplayTrailer")
         .and_then(Value::as_bool)
@@ -137,8 +160,34 @@ pub(crate) fn home_hero_plan_json(request_json: &str) -> Option<String> {
         })
         .cloned()
         .collect::<Vec<_>>();
+    let logo_fetch_enabled = prefs
+        .get("tmdbApiKey")
+        .and_then(Value::as_str)
+        .is_some_and(|value| !value.trim().is_empty());
+    let fetched_logo_ids = request
+        .get("fetchedLogoIds")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .collect::<HashSet<_>>();
+    let mut logo_target_seen = HashSet::new();
+    let logo_targets = billboard
+        .iter()
+        .chain(slides.iter())
+        .filter(|item| {
+            let id = item.get("id").and_then(Value::as_str).unwrap_or("");
+            logo_fetch_enabled
+                && !id.is_empty()
+                && !has_logo(item)
+                && !fetched_logo_ids.contains(id)
+                && logo_target_seen.insert(id)
+        })
+        .cloned()
+        .collect::<Vec<_>>();
     serde_json::to_string(&json!({
-        "categories": categories, "contentCategories": content_categories, "billboard": billboard, "slides": slides, "trailerTargets": trailer_targets,
+        "categories": categories, "contentCategories": content_categories, "billboard": billboard, "slides": slides,
+        "trailerTargets": trailer_targets, "logoTargets": logo_targets,
         "showHero": safe.get("showHeroSection").and_then(Value::as_bool).unwrap_or(true), "autoplayTrailer": autoplay
     })).ok()
 }
