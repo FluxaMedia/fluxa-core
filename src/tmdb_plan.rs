@@ -253,7 +253,7 @@ mod tests {
         let images = json!({}).to_string();
         let external_ids = json!({}).to_string();
         let extras = json!({"watchProviders": {"results": {
-            "US": {"link": "https://tmdb.org/x", "flatrate": [{"provider_name": "Netflix"}]},
+            "US": {"link": "https://tmdb.org/x", "flatrate": [{"provider_name": "Netflix", "logo_path": "/nf.jpg"}]},
         }}})
         .to_string();
         let result: Value = serde_json::from_str(
@@ -262,7 +262,8 @@ mod tests {
         )
         .unwrap();
         assert_eq!(result["watchProviders"]["region"], "US");
-        assert_eq!(result["watchProviders"]["flatrate"][0], "Netflix");
+        assert_eq!(result["watchProviders"]["flatrate"][0]["name"], "Netflix");
+        assert_eq!(result["watchProviders"]["flatrate"][0]["logo"], "https://image.tmdb.org/t/p/w92/nf.jpg");
     }
 
     #[test]

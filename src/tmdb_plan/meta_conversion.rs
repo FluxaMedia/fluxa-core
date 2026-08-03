@@ -365,13 +365,19 @@ pub(crate) fn tmdb_full_meta_to_meta_json(
             .get(region.as_str())
             .map(|v| (region.as_str(), v))
             .or_else(|| results.get("US").map(|v| ("US", v)))?;
-        let names = |key: &str| -> Vec<String> {
+        let providers = |key: &str| -> Vec<Value> {
             regional
                 .get(key)
                 .and_then(Value::as_array)
                 .map(|arr| {
                     arr.iter()
-                        .filter_map(|p| p.get("provider_name").and_then(Value::as_str).map(str::to_string))
+                        .filter_map(|p| {
+                            let name = p.get("provider_name").and_then(Value::as_str)?;
+                            Some(json!({
+                                "name": name,
+                                "logo": tmdb_image_url(p.get("logo_path").and_then(Value::as_str), "w92"),
+                            }))
+                        })
                         .collect()
                 })
                 .unwrap_or_default()
@@ -379,9 +385,9 @@ pub(crate) fn tmdb_full_meta_to_meta_json(
         Some(json!({
             "region": used_region,
             "link": regional.get("link").and_then(Value::as_str),
-            "flatrate": names("flatrate"),
-            "rent": names("rent"),
-            "buy": names("buy"),
+            "flatrate": providers("flatrate"),
+            "rent": providers("rent"),
+            "buy": providers("buy"),
         }))
     });
 
