@@ -369,6 +369,7 @@ pub(super) fn route_external_sync_anilist(method: &str, args_json: &str) -> Outc
                 .ok_or_else(|| fail(ErrorKind::InvalidArgs, "incoming must be an array"))?;
             Ok(external_sync::merge_library_items_by_id(local, incoming))
         }
+        "anilistGraphqlQueries" => Ok(Value::String(external_sync::anilist_graphql_queries_json())),
         "anilistSaveMediaListEntryVariables" => {
             let args = object(args_json)?;
             let progress = args.get("progress").and_then(Value::as_i64);

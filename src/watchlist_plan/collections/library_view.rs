@@ -12,6 +12,7 @@ pub(crate) fn library_view_plan_json(args_json: &str) -> Option<String> {
     };
     let watchlist = list("watchlist");
     let watching = list("watching");
+    let favorites = list("favorites");
     let mut completed = list("completed");
     let mut dropped = list("dropped");
     completed.sort_by(|a, b| status_changed_at(b).cmp(status_changed_at(a)));
@@ -70,6 +71,7 @@ pub(crate) fn library_view_plan_json(args_json: &str) -> Option<String> {
         "airing" => airing.clone(),
         "rated" => rated.clone(),
         "history" => history.clone(),
+        "favorites" => favorites.clone(),
         _ => Vec::new(),
     };
     let tab_items = items.clone();

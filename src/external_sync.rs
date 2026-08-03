@@ -46,7 +46,7 @@ pub(crate) use provider_mappers::{
 mod anilist;
 
 pub(crate) use anilist::{
-    anilist_entries_to_sync, anilist_media_list_status,
+    anilist_entries_to_sync, anilist_graphql_queries_json, anilist_media_list_status,
     anilist_save_media_list_entry_variables_json, anilist_search_best_match_json,
     extract_anilist_id_from_links, merge_library_items_by_id,
 };

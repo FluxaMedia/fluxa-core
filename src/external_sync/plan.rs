@@ -254,6 +254,7 @@ pub(crate) fn external_provider_action_plan_json(args_json: &str) -> Option<Stri
             Some(json!({"stremio": stremio && valid, "nuvio": nuvio && valid, "progressEntry": valid.then(|| progress_to_nuvio(progress))}).to_string())
         }
         "status" => Some(json!({"anilist": anilist}).to_string()),
+        "favorite" => Some(json!({"trakt": trakt}).to_string()),
         "dropProgress" => {
             let reason = args
                 .pointer("/item/reason")

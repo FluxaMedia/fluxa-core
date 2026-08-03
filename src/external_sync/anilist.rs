@@ -102,6 +102,33 @@ pub(crate) fn anilist_media_id_from_content_id(content_id: &str) -> Option<i64> 
     content_id.strip_prefix("anilist:")?.parse::<i64>().ok()
 }
 
+const SAVE_MEDIA_LIST_ENTRY_MUTATION: &str = r#"
+    mutation ($mediaId: Int, $status: MediaListStatus, $progress: Int) {
+        SaveMediaListEntry(mediaId: $mediaId, status: $status, progress: $progress) { id }
+    }
+"#;
+
+const MEDIA_LIST_ENTRY_LOOKUP_QUERY: &str = r#"
+    query ($mediaId: Int) {
+        Media(id: $mediaId) { mediaListEntry { id } }
+    }
+"#;
+
+const DELETE_MEDIA_LIST_ENTRY_MUTATION: &str = r#"
+    mutation ($id: Int) {
+        DeleteMediaListEntry(id: $id) { deleted }
+    }
+"#;
+
+pub(crate) fn anilist_graphql_queries_json() -> String {
+    json!({
+        "saveMediaListEntry": SAVE_MEDIA_LIST_ENTRY_MUTATION,
+        "mediaListEntryLookup": MEDIA_LIST_ENTRY_LOOKUP_QUERY,
+        "deleteMediaListEntry": DELETE_MEDIA_LIST_ENTRY_MUTATION,
+    })
+    .to_string()
+}
+
 pub(crate) fn anilist_save_media_list_entry_variables_json(
     content_id: &str,
     status: &str,
