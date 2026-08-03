@@ -173,7 +173,7 @@ fn completing_an_effect_does_not_redeliver_already_delivered_siblings() {
             &json!({
                 "effectId": requested["effects"][0]["id"].as_str().unwrap(),
                 "status": "ok",
-                "value": { "id": "tt1", "name": "Movie" }
+                "value": { "meta": { "id": "tt1", "name": "Movie" } }
             })
             .to_string(),
         )

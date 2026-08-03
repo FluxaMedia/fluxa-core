@@ -469,8 +469,14 @@ pub(super) fn complete(
             if generation == engine.state.runtime.get(GenerationKey::Detail) {
                 engine.state.detail.is_loading = false;
                 if result.status.is_ok() {
-                    engine.state.detail.trailers = normalize_meta_trailers(&result.value);
-                    engine.state.detail.meta = result.value.clone();
+                    let meta = result.value.get("meta").cloned().unwrap_or(Value::Null);
+                    engine.state.detail.trailers = normalize_meta_trailers(&meta);
+                    engine.state.detail.mdblist_ratings = result
+                        .value
+                        .get("mdblistRatings")
+                        .cloned()
+                        .unwrap_or(Value::Null);
+                    engine.state.detail.meta = meta;
                     engine.state.detail.error = Value::Null;
                 } else {
                     engine.state.detail.error = normalize_error(result.error.clone());
@@ -544,11 +550,6 @@ pub(super) fn complete(
                     engine.state.detail.omdb_ratings = result
                         .value
                         .get("omdbRatings")
-                        .cloned()
-                        .unwrap_or(Value::Null);
-                    engine.state.detail.mdblist_ratings = result
-                        .value
-                        .get("mdblistRatings")
                         .cloned()
                         .unwrap_or(Value::Null);
                     engine.state.detail.fanart_artwork = result

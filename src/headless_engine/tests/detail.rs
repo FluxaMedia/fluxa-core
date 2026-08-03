@@ -24,7 +24,7 @@ fn detail_load_emits_platform_effects_and_completion_updates_state() {
             &json!({
                 "effectId": effect_id,
                 "status": "ok",
-                "value": { "id": "tt1", "name": "Movie" }
+                "value": { "meta": { "id": "tt1", "name": "Movie" } }
             })
             .to_string(),
         )
@@ -63,9 +63,11 @@ fn concurrent_local_state_request_does_not_drop_meta_detail_completion() {
                 "effectId": effect_id,
                 "status": "ok",
                 "value": {
-                    "id": "tt1",
-                    "name": "Rick and Morty",
-                    "videos": [{"id": "tt1:1:1", "season": 1, "episode": 1}]
+                    "meta": {
+                        "id": "tt1",
+                        "name": "Rick and Morty",
+                        "videos": [{"id": "tt1:1:1", "season": 1, "episode": 1}]
+                    }
                 }
             })
             .to_string(),
@@ -107,12 +109,14 @@ fn detail_meta_trailers_are_normalized_in_core_before_tmdb_fallback() {
                     "effectId": effect_id,
                     "status": "ok",
                     "value": {
-                        "id": "tt1",
-                        "name": "Movie",
-                        "trailers": [
-                            { "source": "abc123", "type": "Trailer" },
-                            { "title": "Featurette", "url": "https://video.example/f.mp4", "type": "Clip" }
-                        ]
+                        "meta": {
+                            "id": "tt1",
+                            "name": "Movie",
+                            "trailers": [
+                                { "source": "abc123", "type": "Trailer" },
+                                { "title": "Featurette", "url": "https://video.example/f.mp4", "type": "Clip" }
+                            ]
+                        }
                     }
                 })
                 .to_string(),
@@ -152,18 +156,20 @@ fn detail_meta_link_trailers_become_direct_playback_sources() {
                 "effectId": effect_id,
                 "status": "ok",
                 "value": {
-                    "id": "tt0944947",
-                    "name": "Game of Thrones",
-                    "links": [
-                        {
-                            "trailers": "https://video.fandango.com/trailer.mp4",
-                            "provider": "Rotten Tomatoes 1080p"
-                        },
-                        {
-                            "trailers": "https://imdb-video.media-imdb.com/trailer.m3u8",
-                            "provider": "IMDb SD"
-                        }
-                    ]
+                    "meta": {
+                        "id": "tt0944947",
+                        "name": "Game of Thrones",
+                        "links": [
+                            {
+                                "trailers": "https://video.fandango.com/trailer.mp4",
+                                "provider": "Rotten Tomatoes 1080p"
+                            },
+                            {
+                                "trailers": "https://imdb-video.media-imdb.com/trailer.m3u8",
+                                "provider": "IMDb SD"
+                            }
+                        ]
+                    }
                 }
             })
             .to_string(),
@@ -289,7 +295,7 @@ fn stale_detail_effect_completion_does_not_override_newer_state() {
             &json!({
                 "effectId": stale_effect_id,
                 "status": "ok",
-                "value": { "id": "tt1", "name": "Old" }
+                "value": { "meta": { "id": "tt1", "name": "Old" } }
             })
             .to_string(),
         )
