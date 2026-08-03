@@ -1,4 +1,4 @@
-use super::helpers::{tmdb_image_url, tmdb_language};
+use super::helpers::{tmdb_image_url, tmdb_language, tmdb_region_from_language};
 use serde_json::{Value, json};
 
 pub(crate) fn tmdb_meta_to_meta_json(
@@ -128,11 +128,26 @@ pub(crate) fn tmdb_pick_logo_json(images_json: &str, language: &str) -> Option<S
     let logo = pick_logo(&images, language);
     serde_json::to_string(&json!({ "logo": logo })).ok()
 }
+fn pick_image(images: &Value, key: &str, language: &str, size: &str) -> Option<String> {
+    let variants = images.get(key).and_then(Value::as_array)?;
+    let lang = tmdb_language(language);
+    let lang_prefix = lang.split('-').next().unwrap_or("en");
+    let pick = |want: Option<&str>| {
+        variants
+            .iter()
+            .find(|v| v.get("iso_639_1").and_then(Value::as_str) == want)
+    };
+    let chosen = pick(Some(lang_prefix))
+        .or_else(|| pick(None))
+        .or_else(|| variants.first())?;
+    tmdb_image_url(chosen.get("file_path").and_then(Value::as_str), size)
+}
 pub(crate) fn tmdb_full_meta_to_meta_json(
     details_json: &str,
     credits_json: &str,
     images_json: &str,
     external_ids_json: &str,
+    extras_json: &str,
     requested_type: &str,
     language: &str,
 ) -> Option<String> {
@@ -140,6 +155,7 @@ pub(crate) fn tmdb_full_meta_to_meta_json(
     let credits: Value = serde_json::from_str(credits_json).unwrap_or_else(|_| json!({}));
     let images: Value = serde_json::from_str(images_json).unwrap_or_else(|_| json!({}));
     let external_ids: Value = serde_json::from_str(external_ids_json).unwrap_or_else(|_| json!({}));
+    let extras: Value = serde_json::from_str(extras_json).unwrap_or_else(|_| json!({}));
 
     let tmdb_id = details.get("id").and_then(Value::as_i64)?;
     let has_tv = details.get("first_air_date").is_some() || details.get("name").is_some();
@@ -191,11 +207,14 @@ pub(crate) fn tmdb_full_meta_to_meta_json(
         })
         .unwrap_or_default();
 
-    let poster = tmdb_image_url(details.get("poster_path").and_then(Value::as_str), "w500");
-    let background = tmdb_image_url(
-        details.get("backdrop_path").and_then(Value::as_str),
-        "original",
-    );
+    let poster = pick_image(&images, "posters", language, "w500")
+        .or_else(|| tmdb_image_url(details.get("poster_path").and_then(Value::as_str), "w500"));
+    let background = pick_image(&images, "backdrops", language, "original").or_else(|| {
+        tmdb_image_url(
+            details.get("backdrop_path").and_then(Value::as_str),
+            "original",
+        )
+    });
     let logo = pick_logo(&images, language);
     let network = details
         .get("networks")
@@ -238,15 +257,155 @@ pub(crate) fn tmdb_full_meta_to_meta_json(
         })
         .unwrap_or_default();
 
+    let tagline = details
+        .get("tagline")
+        .and_then(Value::as_str)
+        .filter(|s| !s.is_empty());
+    let status = details.get("status").and_then(Value::as_str);
+    let collection = details.get("belongs_to_collection").and_then(|c| {
+        let name = c.get("name").and_then(Value::as_str)?;
+        Some(json!({
+            "name": name,
+            "poster": tmdb_image_url(c.get("poster_path").and_then(Value::as_str), "w500"),
+            "background": tmdb_image_url(c.get("backdrop_path").and_then(Value::as_str), "original"),
+        }))
+    });
+    let original_language = details.get("original_language").and_then(Value::as_str);
+    let production_countries: Vec<String> = details
+        .get("production_countries")
+        .and_then(Value::as_array)
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|c| c.get("name").and_then(Value::as_str).map(str::to_string))
+                .collect()
+        })
+        .unwrap_or_default();
+    let created_by: Vec<String> = details
+        .get("created_by")
+        .and_then(Value::as_array)
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|c| c.get("name").and_then(Value::as_str).map(str::to_string))
+                .collect()
+        })
+        .unwrap_or_default();
+    let episode_to_air = |key: &str| {
+        details.get(key).and_then(|ep| {
+            let season = ep.get("season_number").and_then(Value::as_i64)?;
+            let episode = ep.get("episode_number").and_then(Value::as_i64)?;
+            Some(json!({
+                "season": season,
+                "episode": episode,
+                "airDate": ep.get("air_date").and_then(Value::as_str),
+                "name": ep.get("name").and_then(Value::as_str),
+            }))
+        })
+    };
+    let next_episode_to_air = episode_to_air("next_episode_to_air");
+    let last_episode_to_air = episode_to_air("last_episode_to_air");
+
+    let region = tmdb_region_from_language(language);
+
+    let keywords: Vec<String> = extras
+        .get("keywords")
+        .and_then(|k| {
+            k.get(if content_type == "movie" { "keywords" } else { "results" })
+                .and_then(Value::as_array)
+        })
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|k| k.get("name").and_then(Value::as_str).map(str::to_string))
+                .collect()
+        })
+        .unwrap_or_default();
+
+    let alternative_titles: Vec<String> = extras
+        .get("alternativeTitles")
+        .and_then(|t| {
+            t.get(if content_type == "movie" { "titles" } else { "results" })
+                .and_then(Value::as_array)
+        })
+        .map(|arr| {
+            let mut titles: Vec<String> = arr
+                .iter()
+                .filter_map(|t| t.get("title").and_then(Value::as_str).map(str::to_string))
+                .collect();
+            titles.dedup();
+            titles.truncate(10);
+            titles
+        })
+        .unwrap_or_default();
+
+    let certification = extras.get("contentRatings").and_then(|r| {
+        if content_type == "movie" {
+            r.get("results")
+                .and_then(Value::as_array)?
+                .iter()
+                .find(|entry| entry.get("iso_3166_1").and_then(Value::as_str) == Some(region.as_str()))
+                .and_then(|entry| entry.get("release_dates").and_then(Value::as_array))
+                .and_then(|dates| {
+                    dates
+                        .iter()
+                        .filter_map(|d| d.get("certification").and_then(Value::as_str))
+                        .find(|c| !c.is_empty())
+                })
+        } else {
+            r.get("results")
+                .and_then(Value::as_array)?
+                .iter()
+                .find(|entry| entry.get("iso_3166_1").and_then(Value::as_str) == Some(region.as_str()))
+                .and_then(|entry| entry.get("rating").and_then(Value::as_str))
+                .filter(|c| !c.is_empty())
+        }
+    });
+
+    let watch_providers = extras.get("watchProviders").and_then(|w| {
+        let results = w.get("results")?;
+        let (used_region, regional) = results
+            .get(region.as_str())
+            .map(|v| (region.as_str(), v))
+            .or_else(|| results.get("US").map(|v| ("US", v)))?;
+        let names = |key: &str| -> Vec<String> {
+            regional
+                .get(key)
+                .and_then(Value::as_array)
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|p| p.get("provider_name").and_then(Value::as_str).map(str::to_string))
+                        .collect()
+                })
+                .unwrap_or_default()
+        };
+        Some(json!({
+            "region": used_region,
+            "link": regional.get("link").and_then(Value::as_str),
+            "flatrate": names("flatrate"),
+            "rent": names("rent"),
+            "buy": names("buy"),
+        }))
+    });
+
     serde_json::to_string(&json!({
         "id": id,
         "type": content_type,
         "name": name,
         "description": description,
+        "tagline": tagline,
+        "status": status,
         "poster": poster,
         "background": background,
         "logo": logo,
         "network": network,
+        "collection": collection,
+        "originalLanguage": original_language,
+        "productionCountries": production_countries,
+        "createdBy": created_by,
+        "nextEpisodeToAir": next_episode_to_air,
+        "lastEpisodeToAir": last_episode_to_air,
+        "keywords": keywords,
+        "alternativeTitles": alternative_titles,
+        "certification": certification,
+        "watchProviders": watch_providers,
         "releaseInfo": released.map(|r| r.get(..4).unwrap_or(r)),
         "runtime": runtime_minutes.map(|m| format!("{m} min")),
         "genres": genres,
@@ -278,15 +437,17 @@ pub(crate) fn tmdb_episodes_to_videos_json(season_json: &str, series_id: &str) -
     serde_json::to_string(&videos).ok()
 }
 
-const ENRICHMENT_FIELD_MAP: &[(&str, &str)] = &[
-    ("logo", "logo"),
-    ("background", "background"),
-    ("poster", "poster"),
-    ("synopsis", "description"),
-    ("genres", "genres"),
-    ("cast", "cast"),
-    ("network", "network"),
-    ("ratings", "imdbRating"),
+const ENRICHMENT_FIELD_GROUPS: &[(&str, &[&str])] = &[
+    ("artwork", &["logo", "poster", "background"]),
+    ("description", &["description", "tagline"]),
+    ("genresKeywords", &["genres", "keywords"]),
+    ("castCrew", &["cast", "director", "createdBy"]),
+    ("network", &["network"]),
+    ("ratings", &["imdbRating", "certification"]),
+    ("collection", &["collection"]),
+    ("statusSchedule", &["status", "nextEpisodeToAir", "lastEpisodeToAir"]),
+    ("originTitles", &["originalLanguage", "productionCountries", "alternativeTitles"]),
+    ("watchProviders", &["watchProviders"]),
 ];
 
 pub(crate) fn merge_tmdb_enrichment_json(
@@ -298,12 +459,14 @@ pub(crate) fn merge_tmdb_enrichment_json(
     let tmdb: Value = serde_json::from_str(tmdb_json).ok()?;
     let flags: Value = serde_json::from_str(flags_json).ok()?;
 
-    for (flag, field) in ENRICHMENT_FIELD_MAP {
+    for (flag, fields) in ENRICHMENT_FIELD_GROUPS {
         if flags.get(flag).and_then(Value::as_bool) != Some(true) {
             continue;
         }
-        if let Some(value) = tmdb.get(*field).filter(|v| !v.is_null()) {
-            base[*field] = value.clone();
+        for field in *fields {
+            if let Some(value) = tmdb.get(*field).filter(|v| !v.is_null()) {
+                base[*field] = value.clone();
+            }
         }
     }
 

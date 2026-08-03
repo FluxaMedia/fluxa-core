@@ -44,7 +44,7 @@ mod tests {
         let images = json!({"logos": []}).to_string();
         let external_ids = json!({"imdb_id": "tt0137523"}).to_string();
         let result: Value = serde_json::from_str(
-            &tmdb_full_meta_to_meta_json(&details, &credits, &images, &external_ids, "movie", "en")
+            &tmdb_full_meta_to_meta_json(&details, &credits, &images, &external_ids, "{}", "movie", "en")
                 .unwrap(),
         )
         .unwrap();
@@ -64,6 +64,7 @@ mod tests {
                 &credits,
                 &images,
                 &external_ids,
+                "{}",
                 "series",
                 "en",
             )
@@ -85,11 +86,43 @@ mod tests {
         .to_string();
         let external_ids = json!({}).to_string();
         let result: Value = serde_json::from_str(
-            &tmdb_full_meta_to_meta_json(&details, &credits, &images, &external_ids, "movie", "tr")
+            &tmdb_full_meta_to_meta_json(&details, &credits, &images, &external_ids, "{}", "movie", "tr")
                 .unwrap(),
         )
         .unwrap();
         assert_eq!(result["logo"], "https://image.tmdb.org/t/p/w500/tr.png");
+    }
+
+    #[test]
+    fn full_meta_reads_character_from_aggregate_credits_roles() {
+        let details = json!({"id": 95479, "name": "Jujutsu Kaisen", "first_air_date": "2020-10-03"}).to_string();
+        let credits = json!({"cast": [
+            {"name": "Yuichi Nakamura", "roles": [{"character": "Satoru Gojo"}]},
+        ]})
+        .to_string();
+        let images = json!({}).to_string();
+        let external_ids = json!({}).to_string();
+        let result: Value = serde_json::from_str(
+            &tmdb_full_meta_to_meta_json(&details, &credits, &images, &external_ids, "{}", "series", "en")
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(result["cast"][0]["name"], "Yuichi Nakamura");
+        assert_eq!(result["cast"][0]["character"], "Satoru Gojo");
+    }
+
+    #[test]
+    fn builtin_meta_request_plan_uses_aggregate_credits_for_series() {
+        let request = json!({
+            "contentType": "series",
+            "contentId": "tmdb:95479",
+            "apiKey": "KEY",
+            "language": "en",
+        });
+        let plan: Value =
+            serde_json::from_str(&tmdb_builtin_meta_request_plan_json(&request.to_string()).unwrap())
+                .unwrap();
+        assert!(plan["creditsUrl"].as_str().unwrap().contains("/tv/95479/aggregate_credits"));
     }
 
     #[test]
@@ -126,14 +159,26 @@ mod tests {
     }
 
     #[test]
-    fn enrichment_skips_fields_whose_flag_is_off() {
-        let base = json!({"logo": "addon-logo", "poster": "addon-poster"}).to_string();
-        let tmdb = json!({"logo": "tmdb-logo", "poster": "tmdb-poster"}).to_string();
-        let flags = json!({"logo": true, "poster": false}).to_string();
+    fn enrichment_skips_fields_whose_group_flag_is_off() {
+        let base = json!({"logo": "addon-logo", "description": "addon-desc"}).to_string();
+        let tmdb = json!({"logo": "tmdb-logo", "description": "tmdb-desc"}).to_string();
+        let flags = json!({"artwork": true, "description": false}).to_string();
         let result: Value =
             serde_json::from_str(&merge_tmdb_enrichment_json(&base, &tmdb, &flags).unwrap()).unwrap();
         assert_eq!(result["logo"], "tmdb-logo");
-        assert_eq!(result["poster"], "addon-poster");
+        assert_eq!(result["description"], "addon-desc");
+    }
+
+    #[test]
+    fn enrichment_group_flag_overrides_all_its_fields_at_once() {
+        let base = json!({"logo": "addon-logo", "poster": "addon-poster", "background": "addon-bg"}).to_string();
+        let tmdb = json!({"logo": "tmdb-logo", "poster": "tmdb-poster", "background": "tmdb-bg"}).to_string();
+        let flags = json!({"artwork": true}).to_string();
+        let result: Value =
+            serde_json::from_str(&merge_tmdb_enrichment_json(&base, &tmdb, &flags).unwrap()).unwrap();
+        assert_eq!(result["logo"], "tmdb-logo");
+        assert_eq!(result["poster"], "tmdb-poster");
+        assert_eq!(result["background"], "tmdb-bg");
     }
 
     #[test]
@@ -144,6 +189,80 @@ mod tests {
         let result: Value =
             serde_json::from_str(&merge_tmdb_enrichment_json(&base, &tmdb, &flags).unwrap()).unwrap();
         assert_eq!(result["network"], "Addon Network");
+    }
+
+    #[test]
+    fn keywords_use_movie_key_for_movies_and_results_key_for_series() {
+        let details = json!({"id": 1, "title": "X"}).to_string();
+        let credits = json!({}).to_string();
+        let images = json!({}).to_string();
+        let external_ids = json!({}).to_string();
+        let extras = json!({"keywords": {"keywords": [{"name": "heist"}]}}).to_string();
+        let result: Value = serde_json::from_str(
+            &tmdb_full_meta_to_meta_json(&details, &credits, &images, &external_ids, &extras, "movie", "en")
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(result["keywords"][0], "heist");
+
+        let details = json!({"id": 2, "name": "Y", "first_air_date": "2020-01-01"}).to_string();
+        let extras = json!({"keywords": {"results": [{"name": "anime"}]}}).to_string();
+        let result: Value = serde_json::from_str(
+            &tmdb_full_meta_to_meta_json(&details, &credits, &images, &external_ids, &extras, "series", "en")
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(result["keywords"][0], "anime");
+    }
+
+    #[test]
+    fn certification_reads_release_dates_for_movies_and_ratings_field_for_series() {
+        let credits = json!({}).to_string();
+        let images = json!({}).to_string();
+        let external_ids = json!({}).to_string();
+
+        let details = json!({"id": 1, "title": "X"}).to_string();
+        let extras = json!({"contentRatings": {"results": [
+            {"iso_3166_1": "US", "release_dates": [{"certification": ""}, {"certification": "R"}]},
+        ]}})
+        .to_string();
+        let result: Value = serde_json::from_str(
+            &tmdb_full_meta_to_meta_json(&details, &credits, &images, &external_ids, &extras, "movie", "en")
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(result["certification"], "R");
+
+        let details = json!({"id": 2, "name": "Y", "first_air_date": "2020-01-01"}).to_string();
+        let extras = json!({"contentRatings": {"results": [
+            {"iso_3166_1": "US", "rating": "TV-MA"},
+        ]}})
+        .to_string();
+        let result: Value = serde_json::from_str(
+            &tmdb_full_meta_to_meta_json(&details, &credits, &images, &external_ids, &extras, "series", "en")
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(result["certification"], "TV-MA");
+    }
+
+    #[test]
+    fn watch_providers_falls_back_to_us_when_region_has_no_data() {
+        let details = json!({"id": 1, "title": "X"}).to_string();
+        let credits = json!({}).to_string();
+        let images = json!({}).to_string();
+        let external_ids = json!({}).to_string();
+        let extras = json!({"watchProviders": {"results": {
+            "US": {"link": "https://tmdb.org/x", "flatrate": [{"provider_name": "Netflix"}]},
+        }}})
+        .to_string();
+        let result: Value = serde_json::from_str(
+            &tmdb_full_meta_to_meta_json(&details, &credits, &images, &external_ids, &extras, "movie", "tr")
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(result["watchProviders"]["region"], "US");
+        assert_eq!(result["watchProviders"]["flatrate"][0], "Netflix");
     }
 
     #[test]

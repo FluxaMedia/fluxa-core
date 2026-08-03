@@ -98,6 +98,7 @@ pub(super) fn route_tmdb(method: &str, args_json: &str) -> Outcome {
                 field_str(&args, "creditsJson")?,
                 field_str(&args, "imagesJson")?,
                 field_str(&args, "externalIdsJson")?,
+                field_str(&args, "extrasJson")?,
                 field_str(&args, "requestedType")?,
                 field_str(&args, "language")?,
             ))

@@ -4,6 +4,13 @@ use super::helpers::{
 };
 use serde_json::{Value, json};
 
+fn tmdb_content_ratings_path(tmdb_type: &str, tmdb_id: &str) -> String {
+    if tmdb_type == "tv" {
+        format!("3/tv/{tmdb_id}/content_ratings")
+    } else {
+        format!("3/movie/{tmdb_id}/release_dates")
+    }
+}
 pub(crate) fn tmdb_builtin_meta_request_plan_json(args_json: &str) -> Option<String> {
     let args: Value = serde_json::from_str(args_json).ok()?;
     let content_type = args.get("contentType")?.as_str()?;
@@ -55,6 +62,42 @@ pub(crate) fn tmdb_builtin_meta_request_plan_json(args_json: &str) -> Option<Str
                 &[]
             )),
         );
+        plan_object.insert(
+            "keywordsUrl".to_string(),
+            json!(tmdb_api_url(
+                &format!("3/{tmdb_type}/{tmdb_id}/keywords"),
+                api_key,
+                language,
+                &[]
+            )),
+        );
+        plan_object.insert(
+            "alternativeTitlesUrl".to_string(),
+            json!(tmdb_api_url(
+                &format!("3/{tmdb_type}/{tmdb_id}/alternative_titles"),
+                api_key,
+                language,
+                &[]
+            )),
+        );
+        plan_object.insert(
+            "contentRatingsUrl".to_string(),
+            json!(tmdb_api_url(
+                &tmdb_content_ratings_path(tmdb_type, &tmdb_id),
+                api_key,
+                language,
+                &[]
+            )),
+        );
+        plan_object.insert(
+            "watchProvidersUrl".to_string(),
+            json!(tmdb_api_url(
+                &format!("3/{tmdb_type}/{tmdb_id}/watch/providers"),
+                api_key,
+                language,
+                &[]
+            )),
+        );
     } else if is_imdb_id(&tmdb_id) {
         plan_object.insert(
             "findUrl".to_string(),
@@ -83,6 +126,10 @@ pub(crate) fn tmdb_builtin_meta_urls_json(args_json: &str) -> Option<String> {
         "creditsUrl": tmdb_api_url(&format!("3/{tmdb_type}/{tmdb_id}/credits"), api_key, language, &[]),
         "imagesUrl": tmdb_api_url(&format!("3/{tmdb_type}/{tmdb_id}/images"), api_key, language, &[("include_image_language", "en,null")]),
         "externalIdsUrl": tmdb_api_url(&format!("3/{tmdb_type}/{tmdb_id}/external_ids"), api_key, language, &[]),
+        "keywordsUrl": tmdb_api_url(&format!("3/{tmdb_type}/{tmdb_id}/keywords"), api_key, language, &[]),
+        "alternativeTitlesUrl": tmdb_api_url(&format!("3/{tmdb_type}/{tmdb_id}/alternative_titles"), api_key, language, &[]),
+        "contentRatingsUrl": tmdb_api_url(&tmdb_content_ratings_path(tmdb_type, tmdb_id), api_key, language, &[]),
+        "watchProvidersUrl": tmdb_api_url(&format!("3/{tmdb_type}/{tmdb_id}/watch/providers"), api_key, language, &[]),
     })).ok()
 }
 pub(crate) fn tmdb_builtin_meta_urls_from_find_json(args_json: &str) -> Option<String> {

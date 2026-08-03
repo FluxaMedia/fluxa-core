@@ -15,6 +15,13 @@ pub(crate) fn tmdb_language(language: &str) -> String {
         lang => format!("{}-{}", lang, lang.to_uppercase()),
     }
 }
+pub(crate) fn tmdb_region_from_language(language: &str) -> String {
+    tmdb_language(language)
+        .split('-')
+        .nth(1)
+        .unwrap_or("US")
+        .to_string()
+}
 pub(crate) fn tmdb_image_url(path: Option<&str>, size: &str) -> Option<String> {
     let path = path?.trim();
     if path.is_empty() {
