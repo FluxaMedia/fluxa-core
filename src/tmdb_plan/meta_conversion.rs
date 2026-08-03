@@ -197,6 +197,18 @@ pub(crate) fn tmdb_full_meta_to_meta_json(
         "original",
     );
     let logo = pick_logo(&images, language);
+    let network = details
+        .get("networks")
+        .and_then(Value::as_array)
+        .and_then(|a| a.first())
+        .or_else(|| {
+            details
+                .get("production_companies")
+                .and_then(Value::as_array)
+                .and_then(|a| a.first())
+        })
+        .and_then(|c| c.get("name"))
+        .and_then(Value::as_str);
 
     let cast: Vec<Value> = credits
         .get("cast")
@@ -234,6 +246,7 @@ pub(crate) fn tmdb_full_meta_to_meta_json(
         "poster": poster,
         "background": background,
         "logo": logo,
+        "network": network,
         "releaseInfo": released.map(|r| r.get(..4).unwrap_or(r)),
         "runtime": runtime_minutes.map(|m| format!("{m} min")),
         "genres": genres,
@@ -263,4 +276,56 @@ pub(crate) fn tmdb_episodes_to_videos_json(season_json: &str, series_id: &str) -
         })
         .collect();
     serde_json::to_string(&videos).ok()
+}
+
+const ENRICHMENT_FIELD_MAP: &[(&str, &str)] = &[
+    ("logo", "logo"),
+    ("background", "background"),
+    ("poster", "poster"),
+    ("synopsis", "description"),
+    ("genres", "genres"),
+    ("cast", "cast"),
+    ("network", "network"),
+    ("ratings", "imdbRating"),
+];
+
+pub(crate) fn merge_tmdb_enrichment_json(
+    base_json: &str,
+    tmdb_json: &str,
+    flags_json: &str,
+) -> Option<String> {
+    let mut base: Value = serde_json::from_str(base_json).ok()?;
+    let tmdb: Value = serde_json::from_str(tmdb_json).ok()?;
+    let flags: Value = serde_json::from_str(flags_json).ok()?;
+
+    for (flag, field) in ENRICHMENT_FIELD_MAP {
+        if flags.get(flag).and_then(Value::as_bool) != Some(true) {
+            continue;
+        }
+        if let Some(value) = tmdb.get(*field).filter(|v| !v.is_null()) {
+            base[*field] = value.clone();
+        }
+    }
+
+    if flags.get("episodeStills").and_then(Value::as_bool) == Some(true) {
+        if let Some(tmdb_videos) = tmdb.get("videos").and_then(Value::as_array) {
+            if let Some(base_videos) = base.get_mut("videos").and_then(Value::as_array_mut) {
+                for video in base_videos.iter_mut() {
+                    let season = video.get("season").and_then(Value::as_i64);
+                    let episode = video.get("episode").and_then(Value::as_i64);
+                    let Some(matched) = tmdb_videos.iter().find(|v| {
+                        v.get("season").and_then(Value::as_i64) == season
+                            && v.get("episode").and_then(Value::as_i64) == episode
+                    }) else {
+                        continue;
+                    };
+                    if let Some(thumbnail) = matched.get("thumbnail").filter(|v| !v.is_null()) {
+                        video["thumbnail"] = thumbnail.clone();
+                    }
+                }
+            }
+        }
+    }
+
+    serde_json::to_string(&base).ok()
 }

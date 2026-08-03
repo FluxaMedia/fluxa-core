@@ -116,6 +116,14 @@ pub(super) fn route_tmdb(method: &str, args_json: &str) -> Outcome {
                 field_str(&args, "seriesId")?,
             ))
         }
+        "tmdbMergeEnrichment" => {
+            let args = object(args_json)?;
+            opt_json(tmdb_plan::merge_tmdb_enrichment_json(
+                field_str(&args, "baseJson")?,
+                field_str(&args, "tmdbJson")?,
+                field_str(&args, "flagsJson")?,
+            ))
+        }
         "tmdbPeopleImagesFromCredits" => {
             let args = object(args_json)?;
             let empty: Vec<Value> = Vec::new();

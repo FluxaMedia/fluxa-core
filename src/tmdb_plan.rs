@@ -6,9 +6,9 @@ mod request_plans;
 pub(crate) use genres_catalog::{tmdb_builtin_catalog_url, tmdb_builtin_manifest_json};
 pub(crate) use helpers::{tmdb_content_type, tmdb_image_url, tmdb_language, tmdb_resolve_id_hint};
 pub(crate) use meta_conversion::{
-    tmdb_bulk_metas_to_metas_json, tmdb_bulk_videos_to_trailers_json, tmdb_episodes_to_videos_json,
-    tmdb_full_meta_to_meta_json, tmdb_meta_to_meta_json, tmdb_pick_logo_json,
-    tmdb_video_to_trailer_json,
+    merge_tmdb_enrichment_json, tmdb_bulk_metas_to_metas_json, tmdb_bulk_videos_to_trailers_json,
+    tmdb_episodes_to_videos_json, tmdb_full_meta_to_meta_json, tmdb_meta_to_meta_json,
+    tmdb_pick_logo_json, tmdb_video_to_trailer_json,
 };
 pub(crate) use request_plans::{
     tmdb_builtin_meta_request_plan_json, tmdb_builtin_meta_urls_from_find_json,
@@ -123,5 +123,45 @@ mod tests {
         assert_eq!(tmdb_language(""), "en-US");
         assert_eq!(tmdb_language("english_us"), "en-US");
         assert_eq!(tmdb_language("tr_tr"), "tr-TR");
+    }
+
+    #[test]
+    fn enrichment_skips_fields_whose_flag_is_off() {
+        let base = json!({"logo": "addon-logo", "poster": "addon-poster"}).to_string();
+        let tmdb = json!({"logo": "tmdb-logo", "poster": "tmdb-poster"}).to_string();
+        let flags = json!({"logo": true, "poster": false}).to_string();
+        let result: Value =
+            serde_json::from_str(&merge_tmdb_enrichment_json(&base, &tmdb, &flags).unwrap()).unwrap();
+        assert_eq!(result["logo"], "tmdb-logo");
+        assert_eq!(result["poster"], "addon-poster");
+    }
+
+    #[test]
+    fn enrichment_leaves_field_untouched_when_tmdb_value_is_null() {
+        let base = json!({"network": "Addon Network"}).to_string();
+        let tmdb = json!({"network": null}).to_string();
+        let flags = json!({"network": true}).to_string();
+        let result: Value =
+            serde_json::from_str(&merge_tmdb_enrichment_json(&base, &tmdb, &flags).unwrap()).unwrap();
+        assert_eq!(result["network"], "Addon Network");
+    }
+
+    #[test]
+    fn enrichment_overrides_episode_thumbnail_by_season_and_episode_only() {
+        let base = json!({"videos": [
+            {"id": "addon:1:1", "season": 1, "episode": 1, "title": "Ep 1", "thumbnail": "addon-thumb"},
+            {"id": "addon:1:2", "season": 1, "episode": 2, "title": "Ep 2", "thumbnail": null},
+        ]})
+        .to_string();
+        let tmdb = json!({"videos": [
+            {"season": 1, "episode": 1, "thumbnail": "tmdb-thumb-1"},
+        ]})
+        .to_string();
+        let flags = json!({"episodeStills": true}).to_string();
+        let result: Value =
+            serde_json::from_str(&merge_tmdb_enrichment_json(&base, &tmdb, &flags).unwrap()).unwrap();
+        assert_eq!(result["videos"][0]["thumbnail"], "tmdb-thumb-1");
+        assert_eq!(result["videos"][0]["title"], "Ep 1");
+        assert_eq!(result["videos"][1]["thumbnail"], Value::Null);
     }
 }
