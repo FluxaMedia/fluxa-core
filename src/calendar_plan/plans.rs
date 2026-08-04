@@ -213,24 +213,45 @@ pub(crate) fn desktop_calendar_read_plan_json(request_json: &str) -> Option<Stri
     serde_json::to_string(&json!({"items": request.get("plannedItems").and_then(Value::as_array).cloned().unwrap_or_default(), "localItems": local_items, "externalItems": external_items})).ok()
 }
 
+fn meta_artwork_score(item: &Value) -> usize {
+    ["continueWatchingPoster", "continueWatchingBackground", "poster", "background"]
+        .iter()
+        .filter(|key| {
+            item.get(**key)
+                .and_then(Value::as_str)
+                .and_then(|value| usable_artwork(Some(value)))
+                .is_some()
+        })
+        .count()
+}
+
 pub(crate) fn calendar_candidate_plan_json(request_json: &str) -> Option<String> {
     let request = serde_json::from_str::<CandidatePlanRequest>(request_json).ok()?;
-    let mut seen = std::collections::HashSet::new();
-    let candidates: Vec<Value> = request
-        .groups
-        .into_iter()
-        .flatten()
-        .filter(|item| {
-            let id = item.get("id").and_then(Value::as_str).unwrap_or("").trim();
-            let content_type = item
-                .get("type")
-                .and_then(Value::as_str)
-                .unwrap_or("")
-                .trim();
-            !id.is_empty()
-                && content_type != "catalog_folder"
-                && seen.insert(format!("{}:{}", content_type.to_ascii_lowercase(), id))
-        })
-        .collect();
+    let mut seen: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    let mut candidates: Vec<Value> = Vec::new();
+    for item in request.groups.into_iter().flatten() {
+        let id = item.get("id").and_then(Value::as_str).unwrap_or("").trim().to_string();
+        let content_type = item
+            .get("type")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .trim()
+            .to_ascii_lowercase();
+        if id.is_empty() || content_type == "catalog_folder" {
+            continue;
+        }
+        let key = format!("{content_type}:{id}");
+        match seen.get(&key) {
+            Some(&index) => {
+                if meta_artwork_score(&item) > meta_artwork_score(&candidates[index]) {
+                    candidates[index] = item;
+                }
+            }
+            None => {
+                seen.insert(key, candidates.len());
+                candidates.push(item);
+            }
+        }
+    }
     serde_json::to_string(&candidates).ok()
 }
