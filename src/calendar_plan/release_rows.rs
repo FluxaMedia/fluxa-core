@@ -90,13 +90,18 @@ pub(crate) fn calendar_release_rows_json(request_json: &str) -> Option<String> {
                 .flatten()
                 .collect::<Vec<_>>()
                 .join(" ");
+            let episode_thumbnail = video
+                .get("thumbnail")
+                .and_then(Value::as_str)
+                .and_then(|url| usable_artwork(Some(url)));
+            let episode_poster = episode_thumbnail.clone().or_else(|| fallback_artwork.clone());
             Some(json!({
                 "dateIso": date_iso,
                 "meta": meta,
                 "title": title,
                 "subtitle": subtitle,
                 "poster": fallback_artwork,
-                "episodePoster": fallback_artwork,
+                "episodePoster": episode_poster,
                 "seasonNumber": season,
                 "episodeNumber": episode,
                 "episodeTitle": episode_title
