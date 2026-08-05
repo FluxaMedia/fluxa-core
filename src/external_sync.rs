@@ -16,7 +16,8 @@ pub(crate) use plan::{
     provider_pagination_plan_json, push_plan_json,
 };
 pub(crate) use simkl::{
-    simkl_history_request_json, simkl_playback_delete_ids_json, simkl_watchlist_request_json,
+    simkl_history_request_json, simkl_playback_delete_ids_json,
+    simkl_playback_item_to_continue_meta_json, simkl_watchlist_request_json,
 };
 pub(crate) use stremio::{
     stremio_library_mutation_plan_json, stremio_watched_to_ids_json,

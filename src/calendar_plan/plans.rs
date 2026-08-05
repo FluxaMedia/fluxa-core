@@ -84,6 +84,8 @@ struct ContentPlanRequest {
     #[serde(default)]
     items: Vec<CalendarItemInput>,
     month_prefix: String,
+    #[serde(default)]
+    watched_video_ids: std::collections::HashSet<String>,
 }
 
 pub(crate) fn calendar_content_plan_json(request_json: &str) -> Option<String> {
@@ -102,6 +104,14 @@ pub(crate) fn calendar_content_plan_json(request_json: &str) -> Option<String> {
             } else {
                 &item.meta_id
             };
+            if !request.watched_video_ids.is_empty()
+                && let (Some(season), Some(episode)) = (item.season_number, item.episode_number)
+                && request
+                    .watched_video_ids
+                    .contains(&format!("{meta_id}:{season}:{episode}"))
+            {
+                return false;
+            }
             item.date_iso.starts_with(prefix)
                 && !meta_id.trim().is_empty()
                 && seen.insert(format!(

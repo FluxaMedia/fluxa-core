@@ -69,3 +69,41 @@ pub(crate) fn simkl_playback_delete_ids_json(args_json: &str) -> Option<String> 
         .collect::<Vec<_>>();
     serde_json::to_string(&ids).ok()
 }
+
+pub(crate) fn simkl_playback_item_to_continue_meta_json(args_json: &str) -> Option<String> {
+    let args: Value = serde_json::from_str(args_json).ok()?;
+    let item = args.get("item")?;
+    serde_json::to_string(&simkl_playback_item_to_continue_meta(item)?).ok()
+}
+
+fn simkl_playback_item_to_continue_meta(item: &Value) -> Option<Value> {
+    let movie = item.get("movie");
+    let show = item.get("show").or_else(|| item.get("anime"));
+    let episode = item.get("episode");
+    let source = movie.or(show)?;
+    let id = trakt_id_from_source(source)?;
+    let progress_percent = item
+        .get("progress")
+        .and_then(Value::as_f64)
+        .unwrap_or(0.0)
+        .clamp(0.0, 100.0);
+    let title = source.get("title").and_then(Value::as_str).unwrap_or("Untitled");
+    let episode_title = episode.and_then(|e| e.get("title")).and_then(Value::as_str);
+    let content_type = if movie.is_some() { "movie" } else { "series" };
+    let last_video_id = episode.map(|e| {
+        let season = e.get("season").and_then(Value::as_i64).unwrap_or(1);
+        let number = e.get("number").and_then(Value::as_i64).unwrap_or(1);
+        format!("{id}:{season}:{number}")
+    });
+    let saved_at = item.get("paused_at").and_then(Value::as_str).unwrap_or("");
+    Some(json!({
+        "id": id,
+        "name": title,
+        "type": content_type,
+        "resumeProgressPercent": progress_percent,
+        "lastVideoId": last_video_id,
+        "lastEpisodeName": episode_title,
+        "savedAt": saved_at,
+        "reason": "Simkl"
+    }))
+}
