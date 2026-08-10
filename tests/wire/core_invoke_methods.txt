@@ -81,6 +81,7 @@ shouldAttemptAnimeTracking
 extractAnilistIdFromLinks
 directPlaybackPlan
 directPlaybackPolicy
+deviceResourceBudget
 discoverCatalogCacheKey
 discoverCatalogOptions
 discoverContentTypes
@@ -102,6 +103,7 @@ extractAddonManifestUrl
 filterDiscoverResults
 filterEnabledAddons
 filterHomeContinueWatching
+continueWatchingSourcePlan
 findPreferredSubtitleIndex
 formatEpisodeLine
 homeOverlapRatio

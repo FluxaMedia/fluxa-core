@@ -52,6 +52,8 @@ mod data_policy;
 #[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
 mod desktop_playback;
 #[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
+mod device_resource;
+#[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
 mod discovery_plan;
 #[cfg(feature = "native")]
 mod dolby_vision_rpu;

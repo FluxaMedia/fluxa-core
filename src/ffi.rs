@@ -41,7 +41,8 @@ use mdblist_routes::route_mdblist;
 #[cfg(feature = "native")]
 use plan_misc_routes::route_dolby_vision_rpu;
 use plan_misc_routes::{
-    route_data_policy, route_discovery_plan, route_headless_adapter_plan, route_player_flow,
+    route_data_policy, route_device_resource, route_discovery_plan, route_headless_adapter_plan,
+    route_player_flow,
 };
 use player_policy_routes::route_player_policy;
 use player_scrobble_routes::route_player_scrobble;
@@ -57,7 +58,8 @@ use watchlist_offline_routes::{route_offline, route_watchlist};
 use crate::dolby_vision_rpu;
 use crate::{
     addon_protocol, addon_resource, addon_store, addon_uptime, anime_detection, app_state,
-    calendar_plan, content_identity, content_warnings, core_contract, data_policy, desktop_playback, discovery_plan,
+    calendar_plan, content_identity, content_warnings, core_contract, data_policy,
+    desktop_playback, device_resource, discovery_plan,
     external_sync, headless_adapter_plan, headless_engine, home_ranking, integration_settings,
     intro_segments, library_state, mdblist_plan, nuvio_sync, offline_download, platform_plan,
     player_flow, player_policy, player_scrobble, plugins, profile_avatar_pack, profile_contract,
@@ -157,6 +159,7 @@ const ROUTERS: &[fn(&str, &str) -> Outcome] = &[
     route_headless_adapter_plan,
     route_discovery_plan,
     route_data_policy,
+    route_device_resource,
     #[cfg(feature = "native")]
     route_dolby_vision_rpu,
     route_player_flow,

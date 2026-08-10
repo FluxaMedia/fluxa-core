@@ -76,6 +76,20 @@ pub(super) fn route_dolby_vision_rpu(method: &str, args_json: &str) -> Outcome {
     }
 }
 
+pub(super) fn route_device_resource(method: &str, args_json: &str) -> Outcome {
+    match method {
+        // args_json IS the request object
+        "deviceResourceBudget" => {
+            opt_json(device_resource::device_resource_budget_json(args_json))
+        }
+
+        _ => Err(fail(
+            ErrorKind::UnknownMethod,
+            format!("no such method `{method}`"),
+        )),
+    }
+}
+
 pub(super) fn route_player_flow(method: &str, args_json: &str) -> Outcome {
     match method {
         "playerFlowDispatch" => {
