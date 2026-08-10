@@ -45,7 +45,13 @@ pub(crate) fn playback_prepare_plan_json(request_json: &str) -> Option<String> {
         .and_then(Value::as_str)
         .filter(|value| !value.is_empty())
         .map(str::to_string);
-    let mode = if playable_url.is_empty() && external_url.is_some() {
+    let wants_external = request
+        .preferred_player
+        .as_deref()
+        .is_some_and(|player| player.eq_ignore_ascii_case("external"));
+    let mode = if wants_external && (!playable_url.is_empty() || external_url.is_some()) {
+        "external"
+    } else if playable_url.is_empty() && external_url.is_some() {
         "external"
     } else if playable_url.is_empty() || !compatible {
         "reject"
@@ -56,7 +62,7 @@ pub(crate) fn playback_prepare_plan_json(request_json: &str) -> Option<String> {
     };
     serde_json::to_string(&json!({
         "mode": mode,
-        "url": if mode == "external" { external_url.clone().unwrap_or_default() } else { playable_url.clone() },
+        "url": if mode == "external" { external_url.clone().unwrap_or(playable_url.clone()) } else { playable_url.clone() },
         "isTorrent": is_torrent,
         "rejectReason": if playable_url.is_empty() && external_url.is_none() { "missing_playable_url" } else if !compatible { "incompatible_stream" } else { "" },
         "subtitleExtraArgs": info.get("subtitleExtraArgs").cloned().unwrap_or(Value::Null),
@@ -125,4 +131,17 @@ fn first_text<'a>(value: &'a Value, keys: &[&str]) -> Option<&'a str> {
             .and_then(Value::as_str)
             .filter(|text| !text.trim().is_empty())
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn external_preference_sends_a_playable_stream_to_the_platform_launcher() {
+        let result = playback_prepare_plan_json(r#"{"stream":{"url":"https://example.com/video.mp4"},"preferredPlayer":"external"}"#).unwrap();
+        let result: Value = serde_json::from_str(&result).unwrap();
+        assert_eq!(result["mode"], "external");
+        assert_eq!(result["url"], "https://example.com/video.mp4");
+    }
 }

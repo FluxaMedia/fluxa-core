@@ -69,6 +69,7 @@ pub(crate) fn preferences_schema_json() -> String {
             "language",
             "startPage",
             "preferredPlayer",
+            "externalPlayerTarget",
             "streamSourceSelectionMode",
             "streamSourceRegexPattern",
             "preferredAudioLanguage",
@@ -97,6 +98,7 @@ pub(crate) fn apply_preference_update_json(request_json: &str) -> Option<String>
 fn normalize_preference_value(key: &str, value: Value) -> Value {
     match key {
         "preferredPlayer" => enum_string(value, &["mpv", "exoplayer", "external"], "mpv"),
+        "externalPlayerTarget" => Value::String(value.as_str().unwrap_or("mpv").trim().to_string()),
         "streamSourceSelectionMode" | "downloadSourceSelectionMode" => {
             enum_string(value, &["manual", "first", "best", "regex"], "manual")
         }
