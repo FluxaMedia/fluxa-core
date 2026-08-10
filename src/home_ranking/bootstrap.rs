@@ -160,10 +160,6 @@ pub(crate) fn home_hero_plan_json(request_json: &str) -> Option<String> {
         })
         .cloned()
         .collect::<Vec<_>>();
-    let logo_fetch_enabled = prefs
-        .get("tmdbApiKey")
-        .and_then(Value::as_str)
-        .is_some_and(|value| !value.trim().is_empty());
     let fetched_logo_ids = request
         .get("fetchedLogoIds")
         .and_then(Value::as_array)
@@ -177,8 +173,7 @@ pub(crate) fn home_hero_plan_json(request_json: &str) -> Option<String> {
         .chain(slides.iter())
         .filter(|item| {
             let id = item.get("id").and_then(Value::as_str).unwrap_or("");
-            logo_fetch_enabled
-                && !id.is_empty()
+            !id.is_empty()
                 && !has_logo(item)
                 && !fetched_logo_ids.contains(id)
                 && logo_target_seen.insert(id)

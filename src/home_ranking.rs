@@ -205,7 +205,7 @@ mod tests {
     }
 
     #[test]
-    fn hero_plan_requests_logo_for_tmdb_catalog_item_missing_one() {
+    fn hero_plan_requests_logo_for_catalog_item_missing_one() {
         let plan: Value = serde_json::from_str(&home_hero_plan_json(
             &json!({
                 "categories": [{
@@ -216,7 +216,7 @@ mod tests {
                         "background": "https://image.example/bg.jpg",
                     }],
                 }],
-                "prefs": { "tmdbApiKey": "KEY" },
+                "prefs": {},
             })
             .to_string(),
         )
@@ -252,7 +252,7 @@ mod tests {
     }
 
     #[test]
-    fn hero_plan_skips_logo_targets_without_tmdb_api_key() {
+    fn hero_plan_requests_logo_for_addon_item_without_tmdb_api_key() {
         let plan: Value = serde_json::from_str(&home_hero_plan_json(
             &json!({
                 "categories": [{
@@ -270,6 +270,6 @@ mod tests {
         .unwrap())
         .unwrap();
 
-        assert_eq!(plan["logoTargets"].as_array().unwrap().len(), 0);
+        assert_eq!(plan["logoTargets"][0]["id"], "tt1");
     }
 }
