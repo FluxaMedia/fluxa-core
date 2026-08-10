@@ -75,6 +75,29 @@ mod tests {
     }
 
     #[test]
+    fn continue_watching_does_not_merge_same_titled_shows_lacking_release_year() {
+        let items = json!([
+            {
+                "id": "tt6741278",
+                "type": "series",
+                "name": "INVINCIBLE",
+                "lastWatchedAt": 20
+            },
+            {
+                "id": "tt1264469",
+                "type": "series",
+                "name": "Invincible",
+                "lastWatchedAt": 10
+            }
+        ]);
+        let merged: Vec<Value> = serde_json::from_str(
+            &merge_continue_watching_duplicates_json(&items.to_string()).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(merged.len(), 2);
+    }
+
+    #[test]
     fn playback_intro_lookup_prefers_imdb_then_base_tmdb_number() {
         assert_eq!(playback_intro_lookup_content_id("tmdb:42:1:2"), "42");
         assert_eq!(

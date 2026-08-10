@@ -101,6 +101,9 @@ pub(crate) fn title_year_key(meta: &Value) -> Option<String> {
         .find(meta_text(meta, "releaseInfo"))
         .map(|matched| matched.as_str())
         .unwrap_or("");
+    if year.is_empty() {
+        return None;
+    }
     Some(format!("{}:{title}:{year}", meta_text(meta, "type")))
 }
 
