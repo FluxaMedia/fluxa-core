@@ -103,19 +103,48 @@ pub(crate) fn progress_meta_needs_json(args_json: &str) -> Option<String> {
     Some(Value::Array(needs).to_string())
 }
 
+fn is_resolved_up_next(position: f64, duration: f64) -> bool {
+    if duration <= 0.0 {
+        position <= RESOLVED_MAX_POSITION_MS
+    } else {
+        let ratio = position / duration;
+        !(RESOLVED_LOW_RATIO..RESOLVED_HIGH_RATIO).contains(&ratio)
+    }
+}
+
+fn video_episode_number(video: &Value) -> Option<i64> {
+    video
+        .get("episode")
+        .or_else(|| video.get("number"))
+        .and_then(Value::as_i64)
+}
+
+/// Finds the next released episode after `(current_season, current_episode)` in
+/// an addon's episode list, matching Nuvio's own client-side Up Next resolution.
+fn find_next_episode<'a>(
+    current_season: i64,
+    current_episode: i64,
+    videos: &'a [Value],
+) -> Option<&'a Value> {
+    videos
+        .iter()
+        .filter(|video| {
+            let season = video.get("season").and_then(Value::as_i64).unwrap_or(0);
+            let episode = video_episode_number(video).unwrap_or(0);
+            season > current_season || (season == current_season && episode > current_episode)
+        })
+        .min_by_key(|video| {
+            (
+                video.get("season").and_then(Value::as_i64).unwrap_or(0),
+                video_episode_number(video).unwrap_or(0),
+            )
+        })
+}
+
 fn progress_entry(entry: &Value, lib_item: Option<&Value>, addon_meta: Option<&Value>) -> Value {
     let position = entry.get("position").and_then(Value::as_f64).unwrap_or(0.0);
     let duration = entry.get("duration").and_then(Value::as_f64).unwrap_or(0.0);
-    let ratio = if duration > 0.0 {
-        position / duration
-    } else {
-        0.0
-    };
-    let is_resolved_up_next = if duration <= 0.0 {
-        position <= RESOLVED_MAX_POSITION_MS
-    } else {
-        !(RESOLVED_LOW_RATIO..RESOLVED_HIGH_RATIO).contains(&ratio)
-    };
+    let is_resolved_up_next = is_resolved_up_next(position, duration);
 
     let season = entry.get("season").filter(|v| !v.is_null());
     let episode = entry.get("episode").filter(|v| !v.is_null());
@@ -126,48 +155,20 @@ fn progress_entry(entry: &Value, lib_item: Option<&Value>, addon_meta: Option<&V
         (Some(a), Some(b)) => a == b,
         _ => false,
     };
-    let ep_meta = match (
-        season,
-        episode,
-        addon_meta
-            .and_then(|m| m.get("videos"))
-            .and_then(Value::as_array),
-    ) {
+    let videos = addon_meta
+        .and_then(|m| m.get("videos"))
+        .and_then(Value::as_array);
+    let ep_meta = match (season, episode, videos) {
         (Some(s), Some(e), Some(videos)) => videos
             .iter()
             .find(|v| num_eq(v.get("season"), Some(s)) && num_eq(v.get("episode"), Some(e))),
         _ => None,
     };
     let next_ep_meta = if is_resolved_up_next {
-        match (
-            season.and_then(Value::as_i64),
-            episode.and_then(Value::as_i64),
-            addon_meta
-                .and_then(|m| m.get("videos"))
-                .and_then(Value::as_array),
-        ) {
-            (Some(current_season), Some(current_episode), Some(videos)) => videos
-                .iter()
-                .filter(|video| {
-                    let season = video.get("season").and_then(Value::as_i64).unwrap_or(0);
-                    let episode = video
-                        .get("episode")
-                        .or_else(|| video.get("number"))
-                        .and_then(Value::as_i64)
-                        .unwrap_or(0);
-                    season > current_season
-                        || (season == current_season && episode > current_episode)
-                })
-                .min_by_key(|video| {
-                    (
-                        video.get("season").and_then(Value::as_i64).unwrap_or(0),
-                        video
-                            .get("episode")
-                            .or_else(|| video.get("number"))
-                            .and_then(Value::as_i64)
-                            .unwrap_or(0),
-                    )
-                }),
+        match (season.and_then(Value::as_i64), episode.and_then(Value::as_i64), videos) {
+            (Some(current_season), Some(current_episode), Some(videos)) => {
+                find_next_episode(current_season, current_episode, videos)
+            }
             _ => None,
         }
     } else {
@@ -256,6 +257,64 @@ fn progress_entry(entry: &Value, lib_item: Option<&Value>, addon_meta: Option<&V
     out.insert("savedAt".into(), Value::String(iso_from_ms(last_watched)));
     out.insert("source".into(), Value::String("nuvio".into()));
     Value::Object(out)
+}
+
+/// Resolves the live Continue Watching sync feed the same way `progress_entry`
+/// resolves the one-time account import: an episode at/above the completion
+/// ratio is rolled forward to the next released episode (Nuvio's own client
+/// does this before ever surfacing a row, so a finished S1E2 never shows up as
+/// an "almost done" resume card, it becomes a progress-less S1E3 Up Next row).
+/// Entries still genuinely in progress pass through unchanged; a resolved
+/// entry with no next episode in the addon's video list is dropped.
+pub(crate) fn resolve_continue_watching_json(args_json: &str) -> Option<String> {
+    let args = parse(args_json)?;
+    let progress = args.get("progress")?.as_array()?.clone();
+    let addon_metas = args
+        .get("addonMetas")
+        .and_then(Value::as_object)
+        .cloned()
+        .unwrap_or_default();
+
+    let resolved: Vec<Value> = progress
+        .into_iter()
+        .filter_map(|entry| {
+            let content_id = str_field(&entry, "content_id")?.to_string();
+            let position = entry.get("position").and_then(Value::as_f64).unwrap_or(0.0);
+            let duration = entry.get("duration").and_then(Value::as_f64).unwrap_or(0.0);
+            if !is_resolved_up_next(position, duration) {
+                return Some(entry);
+            }
+
+            let season = entry.get("season").and_then(Value::as_i64)?;
+            let episode = entry.get("episode").and_then(Value::as_i64)?;
+            let videos = addon_metas
+                .get(&content_id)
+                .and_then(|m| m.get("videos"))
+                .and_then(Value::as_array)?;
+            let next = find_next_episode(season, episode, videos)?;
+            let next_season = next.get("season").and_then(Value::as_i64).unwrap_or(season);
+            let next_episode = video_episode_number(next).unwrap_or(episode + 1);
+            let next_video_id = str_field(next, "id")
+                .map(str::to_string)
+                .unwrap_or_else(|| format!("{content_id}:{next_season}:{next_episode}"));
+
+            let mut out = entry.clone();
+            if let Value::Object(map) = &mut out {
+                map.insert("video_id".into(), Value::String(next_video_id));
+                map.insert("season".into(), json!(next_season));
+                map.insert("episode".into(), json!(next_episode));
+                map.insert("position".into(), json!(0));
+                map.insert("duration".into(), json!(0));
+                map.insert(
+                    "progress_key".into(),
+                    Value::String(format!("{content_id}_s{next_season}e{next_episode}")),
+                );
+            }
+            Some(out)
+        })
+        .collect();
+
+    serde_json::to_string(&Value::Array(resolved)).ok()
 }
 
 pub(crate) fn import_merge_plan_json(args_json: &str) -> Option<String> {

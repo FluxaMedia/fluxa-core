@@ -17,6 +17,7 @@ pub(crate) use export_push::{
 pub(crate) use profiles::build_local_profiles_json;
 pub(crate) use progress_sync::{
     import_merge_plan_json, library_to_watchlist_json, progress_meta_needs_json,
+    resolve_continue_watching_json,
 };
 pub(crate) use reconciliation::{addon_reconciliation_plan_json, library_mutation_plan_json};
 #[cfg(test)]
@@ -123,6 +124,82 @@ mod tests {
         assert_eq!(entry["lastEpisodeNumber"], json!(3));
         assert_eq!(entry["lastEpisodeName"], json!("The Krakken"));
         assert_eq!(entry["continueWatchingBadge"], json!("upNext"));
+    }
+
+    #[test]
+    fn live_continue_watching_sync_rolls_a_finished_episode_to_the_next_one() {
+        let resolved: Value = serde_json::from_str(
+            &resolve_continue_watching_json(
+                &json!({
+                    "progress": [{
+                        "content_id": "tt0760437", "content_type": "series", "video_id": "tt0760437:1:2",
+                        "position": 1_000, "duration": 1_000,
+                        "season": 1, "episode": 2, "last_watched": 1_700_000_000_000i64
+                    }],
+                    "addonMetas": {
+                        "tt0760437": {
+                            "videos": [
+                                { "id": "tt0760437:1:2", "season": 1, "episode": 2, "title": "Washington B.C." },
+                                { "id": "tt0760437:1:3", "season": 1, "episode": 3, "title": "The Krakken" }
+                            ]
+                        }
+                    }
+                })
+                .to_string(),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        let entry = &resolved[0];
+        assert_eq!(entry["video_id"], json!("tt0760437:1:3"));
+        assert_eq!(entry["season"], json!(1));
+        assert_eq!(entry["episode"], json!(3));
+        assert_eq!(entry["position"], json!(0));
+        assert_eq!(entry["duration"], json!(0));
+    }
+
+    #[test]
+    fn live_continue_watching_sync_leaves_genuine_in_progress_rows_untouched() {
+        let resolved: Value = serde_json::from_str(
+            &resolve_continue_watching_json(
+                &json!({
+                    "progress": [{
+                        "content_id": "tt6741278", "content_type": "series", "video_id": "tt6741278:1:2",
+                        "position": 2_188_000, "duration": 2_667_000,
+                        "season": 1, "episode": 2, "last_watched": 1_786_309_465_762i64
+                    }],
+                    "addonMetas": {}
+                })
+                .to_string(),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        let entry = &resolved[0];
+        assert_eq!(entry["video_id"], json!("tt6741278:1:2"));
+        assert_eq!(entry["position"], json!(2_188_000));
+    }
+
+    #[test]
+    fn live_continue_watching_sync_drops_a_finished_series_finale_with_no_next_episode() {
+        let resolved: Value = serde_json::from_str(
+            &resolve_continue_watching_json(
+                &json!({
+                    "progress": [{
+                        "content_id": "tt9", "content_type": "series", "video_id": "tt9:1:1",
+                        "position": 1_000, "duration": 1_000,
+                        "season": 1, "episode": 1, "last_watched": 1
+                    }],
+                    "addonMetas": {
+                        "tt9": { "videos": [{ "id": "tt9:1:1", "season": 1, "episode": 1 }] }
+                    }
+                })
+                .to_string(),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        assert!(resolved.as_array().unwrap().is_empty());
     }
 
     #[test]

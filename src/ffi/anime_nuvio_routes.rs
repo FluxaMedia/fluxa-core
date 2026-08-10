@@ -36,6 +36,9 @@ pub(super) fn route_nuvio_sync(method: &str, args_json: &str) -> Outcome {
         "nuvioProgressMetaNeeds" => opt_json(nuvio_sync::progress_meta_needs_json(args_json)),
         "nuvioProgressSyncRequestPlan" => opt_json(nuvio_sync::progress_sync_request_plan_json(args_json)),
         "nuvioApplyProgressSync" => opt_json(nuvio_sync::apply_progress_sync_json(args_json)),
+        "nuvioResolveContinueWatching" => {
+            opt_json(nuvio_sync::resolve_continue_watching_json(args_json))
+        }
         "nuvioDeltaSyncRequestPlan" => opt_json(nuvio_sync::delta_sync_request_plan_json(args_json)),
         "nuvioApplyDeltaSync" => opt_json(nuvio_sync::apply_delta_sync_json(args_json)),
         "nuvioImportMergePlan" => opt_json(nuvio_sync::import_merge_plan_json(args_json)),
