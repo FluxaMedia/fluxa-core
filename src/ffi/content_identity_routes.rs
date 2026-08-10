@@ -151,11 +151,6 @@ pub(super) fn route_content_identity(method: &str, args_json: &str) -> Outcome {
                 region,
             ))
         }
-        "mergeContinueWatchingDuplicates" => {
-            opt_json(content_identity::merge_continue_watching_duplicates_json(
-                &arg_str(args_json, "itemsJson")?,
-            ))
-        }
         "directPlaybackPlan" => {
             let args = object(args_json)?;
             let detail_json = args.get("detailJson").and_then(Value::as_str);

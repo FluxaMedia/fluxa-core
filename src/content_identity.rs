@@ -31,8 +31,7 @@ pub(crate) use id::{
 };
 pub(crate) use merge_keys::{
     content_keys_json, content_trakt_keys_batch, content_watched_keys_batch,
-    content_watched_keys_value, merge_continue_watching_duplicates_json,
-    normalized_billboard_title,
+    content_watched_keys_value, normalized_billboard_title,
 };
 pub(crate) use playback_plan::{
     direct_playback_plan_json, playback_intro_lookup_content_id, playback_stream_request_ids_json,
@@ -47,55 +46,6 @@ pub(crate) use text::{normalize_content_type, provider_search_terms, stable_feed
 mod tests {
     use super::*;
     use serde_json::{Value, json};
-
-    #[test]
-    fn continue_watching_duplicates_use_content_identity_not_provider_ids() {
-        let items = json!([
-            {
-                "id": "simkl:100",
-                "type": "series",
-                "name": "Invincible",
-                "releaseInfo": "2021",
-                "lastWatchedAt": 10
-            },
-            {
-                "id": "tt6741278",
-                "type": "series",
-                "name": "Invincible",
-                "releaseInfo": "2021",
-                "lastWatchedAt": 20
-            }
-        ]);
-        let merged: Vec<Value> = serde_json::from_str(
-            &merge_continue_watching_duplicates_json(&items.to_string()).unwrap(),
-        )
-        .unwrap();
-        assert_eq!(merged.len(), 1);
-        assert_eq!(merged[0]["id"], "tt6741278");
-    }
-
-    #[test]
-    fn continue_watching_does_not_merge_same_titled_shows_lacking_release_year() {
-        let items = json!([
-            {
-                "id": "tt6741278",
-                "type": "series",
-                "name": "INVINCIBLE",
-                "lastWatchedAt": 20
-            },
-            {
-                "id": "tt1264469",
-                "type": "series",
-                "name": "Invincible",
-                "lastWatchedAt": 10
-            }
-        ]);
-        let merged: Vec<Value> = serde_json::from_str(
-            &merge_continue_watching_duplicates_json(&items.to_string()).unwrap(),
-        )
-        .unwrap();
-        assert_eq!(merged.len(), 2);
-    }
 
     #[test]
     fn playback_intro_lookup_prefers_imdb_then_base_tmdb_number() {

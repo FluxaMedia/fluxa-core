@@ -133,7 +133,6 @@ libraryWatchlistItems
 manifestCandidates
 manifestFetchDecision
 manifestFetchPlan
-mergeContinueWatchingDuplicates
 mergeContinueWatchingLists
 mergeExternalWatched
 mergeFolderSources

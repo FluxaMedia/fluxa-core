@@ -1,8 +1,7 @@
 use super::helpers::{TMDB_ID_PREFIX, imdb_regex, meta_text, push_unique, year_regex};
-use super::id::{base_content_id, imdb_id, parse_episode_locator};
+use super::id::{base_content_id, imdb_id};
 use super::text::collapse_whitespace;
 use serde_json::Value;
-use std::collections::HashMap;
 
 pub(crate) fn normalized_billboard_title(value: &str) -> String {
     collapse_whitespace(
@@ -128,86 +127,3 @@ pub(crate) fn trakt_identity_key(meta: &Value) -> String {
     )
 }
 
-pub(crate) fn continue_watching_merge_keys(meta: &Value) -> Vec<String> {
-    let mut keys = Vec::new();
-    push_unique(&mut keys, trakt_identity_key(meta));
-    let id = meta_text(meta, "id");
-    let base_id = if parse_episode_locator(id).is_some() {
-        parse_episode_locator(id)
-            .map(|(base_id, _, _)| {
-                if base_id.is_empty() {
-                    id.to_string()
-                } else {
-                    base_id
-                }
-            })
-            .unwrap_or_else(|| id.to_string())
-    } else {
-        id.to_string()
-    };
-    push_unique(&mut keys, id.to_string());
-    push_unique(&mut keys, base_id);
-    if let Some(value) = imdb_regex().find(id).map(|matched| matched.as_str()) {
-        push_unique(&mut keys, value.to_string());
-    }
-    if let Some(value) = title_year_key(meta) {
-        push_unique(&mut keys, value);
-    }
-    keys
-}
-
-pub(crate) fn is_trakt_continue_watching_source(meta: &Value) -> bool {
-    meta_text(meta, "reason").eq_ignore_ascii_case("Trakt.tv")
-}
-
-pub(crate) fn merge_continue_watching_duplicates_json(items_json: &str) -> Option<String> {
-    let items = serde_json::from_str::<Vec<Value>>(items_json).ok()?;
-    let mut merged: Vec<Value> = Vec::new();
-    let mut key_to_index: HashMap<String, usize> = HashMap::new();
-    let mut aliases: HashMap<String, String> = HashMap::new();
-
-    for item in items {
-        let item_keys = continue_watching_merge_keys(&item);
-        let key = item_keys
-            .iter()
-            .find_map(|item_key| aliases.get(item_key).cloned())
-            .or_else(|| item_keys.first().cloned())
-            .unwrap_or_default();
-        if key.is_empty() {
-            merged.push(item);
-            continue;
-        }
-
-        if let Some(index) = key_to_index.get(&key).copied() {
-            let item_is_trakt = is_trakt_continue_watching_source(&item);
-            let existing = merged.get(index);
-            let existing_is_trakt = existing.is_some_and(is_trakt_continue_watching_source);
-            let should_replace = if item_is_trakt {
-                true
-            } else if existing_is_trakt {
-                false
-            } else {
-                let existing_watched_at = existing
-                    .and_then(|value| value.get("lastWatchedAt"))
-                    .and_then(Value::as_i64)
-                    .unwrap_or(0);
-                let item_watched_at = item
-                    .get("lastWatchedAt")
-                    .and_then(Value::as_i64)
-                    .unwrap_or(0);
-                item_watched_at >= existing_watched_at
-            };
-            if should_replace && let Some(existing) = merged.get_mut(index) {
-                *existing = item;
-            }
-        } else {
-            key_to_index.insert(key.clone(), merged.len());
-            merged.push(item);
-        }
-        for item_key in item_keys {
-            aliases.insert(item_key, key.clone());
-        }
-    }
-
-    serde_json::to_string(&merged).ok()
-}
