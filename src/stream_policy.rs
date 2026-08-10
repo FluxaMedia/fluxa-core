@@ -129,19 +129,6 @@ mod tests {
     }
 
     #[test]
-    fn subtitle_language_dedup_keeps_two_per_language_and_preserves_order() {
-        let languages = vec![
-            Some("eng".to_string()),
-            Some("eng".to_string()),
-            Some("eng".to_string()),
-            Some("tur".to_string()),
-            None,
-        ];
-        let kept = subtitle_language_dedup_keep_indices(&languages, 2);
-        assert_eq!(kept, vec![0, 1, 3, 4]);
-    }
-
-    #[test]
     fn stream_magnet_link_none_for_direct_http_stream() {
         let stream = json!({ "url": "https://cdn.example/video.mkv" });
         assert!(stream_magnet_link(&stream).is_none());

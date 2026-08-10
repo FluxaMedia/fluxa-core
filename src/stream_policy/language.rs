@@ -1,5 +1,3 @@
-use serde_json::Value;
-use std::collections::HashMap;
 use std::sync::Mutex;
 
 pub(crate) fn normalize_language(value: &str) -> String {
@@ -169,46 +167,6 @@ pub(crate) fn find_preferred_subtitle_index_in_tracks(
         }
     }
     -1
-}
-// OpenSubtitles-style addons can return dozens of duplicates per language.
-// Keeps at most `max_per_language` subtitles per language, in original
-// order, matching the player UX without hammering the download host.
-pub(crate) fn subtitle_language_dedup_keep_indices(
-    languages: &[Option<String>],
-    max_per_language: usize,
-) -> Vec<usize> {
-    let mut counts: HashMap<String, usize> = HashMap::new();
-    let mut kept = Vec::new();
-    for (index, language) in languages.iter().enumerate() {
-        let key = language
-            .as_deref()
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .map(str::to_ascii_lowercase)
-            .unwrap_or_else(|| "unknown".to_string());
-        let count = counts.entry(key).or_insert(0);
-        if *count >= max_per_language {
-            continue;
-        }
-        *count += 1;
-        kept.push(index);
-    }
-    kept
-}
-pub(crate) fn subtitle_language_dedup_keep_indices_json(request_json: &str) -> Option<String> {
-    let request: Value = serde_json::from_str(request_json).ok()?;
-    let languages: Vec<Option<String>> = request
-        .get("languages")?
-        .as_array()?
-        .iter()
-        .map(|value| value.as_str().map(str::to_string))
-        .collect();
-    let max_per_language = request
-        .get("maxPerLanguage")
-        .and_then(Value::as_u64)
-        .unwrap_or(2) as usize;
-    let kept = subtitle_language_dedup_keep_indices(&languages, max_per_language);
-    serde_json::to_string(&kept).ok()
 }
 pub(crate) fn find_preferred_subtitle_index(
     tracks_json: &str,
