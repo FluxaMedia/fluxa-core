@@ -3,6 +3,7 @@ mod dom_bridge;
 mod host_functions;
 mod scraper_exec;
 mod settings_layout;
+mod web_compat;
 
 use scraper_exec::run;
 use serde::{Deserialize, Serialize};
@@ -42,13 +43,24 @@ pub fn plugin_http_request_error(request: &PluginHttpRequest) -> Option<&'static
     {
         return Some("plugin request body exceeds limit");
     }
+    // Nuvio-compatible scrapers commonly need Cookie, Authorization and X-* headers.
+    // Keep SSRF protection at the URL/DNS layer and only reject transport headers
+    // that plugins must not be allowed to forge.
     if request.headers.keys().any(|key| {
-        !matches!(
-            key.to_ascii_lowercase().as_str(),
-            "accept" | "accept-language" | "content-type" | "origin" | "referer" | "user-agent"
+        matches!(
+            key.trim().to_ascii_lowercase().as_str(),
+            "host"
+                | "content-length"
+                | "connection"
+                | "transfer-encoding"
+                | "upgrade"
+                | "proxy-authorization"
+                | "proxy-authenticate"
+                | "te"
+                | "trailer"
         )
     }) {
-        return Some("plugin request contains a disallowed header");
+        return Some("plugin request contains a protected transport header");
     }
     None
 }

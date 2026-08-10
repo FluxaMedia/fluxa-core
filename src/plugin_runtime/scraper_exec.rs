@@ -2,6 +2,7 @@ use super::host_functions::{
     BASE64_POLYFILL, CHEERIO_POLYFILL, CRYPTO_POLYFILL, TEXT_ENCODER_POLYFILL,
     register_host_functions,
 };
+use super::web_compat::WEB_COMPAT_POLYFILL;
 use super::{PLUGIN_MEMORY_LIMIT, PLUGIN_TIMEOUT_SECS, PluginHttpClient};
 use crate::plugin_runtime::dom_bridge::DomBridge;
 use rquickjs::{AsyncContext, AsyncRuntime, CatchResultExt, Function};
@@ -57,26 +58,39 @@ pub(super) async fn run(
                 r#"
                 globalThis.global = globalThis;
                 globalThis.window = globalThis;
+                globalThis.self = globalThis;
                 globalThis.SCRAPER_ID = {scraper_id_arg};
                 globalThis.SCRAPER_SETTINGS = {scraper_settings_arg};
 
+                {web_compat_polyfill}
+
                 function fetch(url, options) {{
                     options = options || {{}};
-                    var method = options.method || 'GET';
-                    var headersJson = JSON.stringify(options.headers || {{}});
+                    var requestUrl = url && url.href ? String(url.href) : String(url);
+                    var method = String(options.method || 'GET').toUpperCase();
+                    var headersJson = JSON.stringify(__normalize_fetch_headers(options.headers));
                     var body = options.body === undefined || options.body === null ? null : String(options.body);
                     var followRedirects = options.redirect !== 'manual';
-                    var raw = __native_fetch(url, method, headersJson, body, followRedirects);
+                    if (options.signal && options.signal.aborted) return Promise.reject(new Error('AbortError'));
+                    var raw = __native_fetch(requestUrl, method, headersJson, body, followRedirects);
                     var parsed = JSON.parse(raw);
-                    return Promise.resolve({{
+                    var response = {{
                         ok: parsed.ok,
                         status: parsed.status,
+                        statusText: parsed.statusText || '',
+                        url: parsed.url || requestUrl,
+                        headers: new Headers(parsed.headers || {{}}),
                         text: function() {{ return Promise.resolve(parsed.body); }},
                         json: function() {{
-                            try {{ return Promise.resolve(JSON.parse(parsed.body)); }}
+                            try {{
+                                if (parsed.body === null || parsed.body === undefined || parsed.body === '') return Promise.resolve(null);
+                                return Promise.resolve(JSON.parse(parsed.body));
+                            }}
                             catch (e) {{ return Promise.resolve(null); }}
-                        }}
-                    }});
+                        }},
+                        clone: function() {{ return response; }}
+                    }};
+                    return Promise.resolve(response);
                 }}
 
                 {base64_polyfill}
@@ -100,16 +114,19 @@ pub(super) async fn run(
                     try {{
                         var getStreams = module.exports.getStreams || globalThis.getStreams;
                         if (!getStreams) {{
+                            console.error('getStreams function not found');
                             __capture_result(JSON.stringify([]));
                             return;
                         }}
                         var streams = await getStreams({tmdb_id_arg}, {media_type_arg}, {season_arg}, {episode_arg});
                         __capture_result(JSON.stringify(streams || []));
                     }} catch (e) {{
+                        console.error('getStreams error: ' + (e && e.message ? e.message : String(e)));
                         __capture_result(JSON.stringify([]));
                     }}
                 }})();
                 "#,
+                web_compat_polyfill = WEB_COMPAT_POLYFILL,
                 base64_polyfill = BASE64_POLYFILL,
                 text_encoder_polyfill = TEXT_ENCODER_POLYFILL,
                 crypto_polyfill = CRYPTO_POLYFILL,

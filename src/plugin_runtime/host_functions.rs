@@ -42,10 +42,11 @@ fn native_fetch(
         response.error = Some("plugin response body exceeds limit".to_string());
     }
     format!(
-        "{{\"ok\":{},\"status\":{},\"body\":{},\"error\":{}}}",
+        "{{\"ok\":{},\"status\":{},\"body\":{},\"headers\":{},\"error\":{}}}",
         response.ok,
         response.status,
         serde_json::to_string(&response.body).unwrap_or_else(|_| "\"\"".into()),
+        serde_json::to_string(&response.headers).unwrap_or_else(|_| "{}".into()),
         serde_json::to_string(&response.error).unwrap_or_else(|_| "null".into())
     )
 }
