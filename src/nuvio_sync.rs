@@ -159,6 +159,36 @@ mod tests {
     }
 
     #[test]
+    fn live_continue_watching_sync_rolls_a_finished_season_finale_into_the_next_season() {
+        let resolved: Value = serde_json::from_str(
+            &resolve_continue_watching_json(
+                &json!({
+                    "progress": [{
+                        "content_id": "tt1", "content_type": "series", "video_id": "tt1:1:10",
+                        "position": 1_500_000, "duration": 1_500_000,
+                        "season": 1, "episode": 10, "last_watched": 1_700_000_000_000i64
+                    }],
+                    "addonMetas": {
+                        "tt1": {
+                            "videos": [
+                                { "id": "tt1:1:10", "season": 1, "episode": 10, "title": "Season 1 Finale" },
+                                { "id": "tt1:2:1", "season": 2, "episode": 1, "title": "Season 2 Premiere" }
+                            ]
+                        }
+                    }
+                })
+                .to_string(),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        let entry = &resolved[0];
+        assert_eq!(entry["video_id"], json!("tt1:2:1"));
+        assert_eq!(entry["season"], json!(2));
+        assert_eq!(entry["episode"], json!(1));
+    }
+
+    #[test]
     fn live_continue_watching_sync_leaves_genuine_in_progress_rows_untouched() {
         let resolved: Value = serde_json::from_str(
             &resolve_continue_watching_json(
