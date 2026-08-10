@@ -3,6 +3,32 @@ use serde_json::{Map, Value, json};
 
 const TRAKT_API_BASE_URL: &str = "https://api.trakt.tv";
 
+pub(crate) fn trakt_image_url(images: &Value, kind: &str) -> Option<String> {
+    images
+        .get(kind)?
+        .as_array()?
+        .first()?
+        .as_str()
+        .map(|path| format!("https://{path}"))
+}
+
+pub(crate) struct TraktArtwork {
+    pub(crate) poster: Option<String>,
+    pub(crate) background: Option<String>,
+    pub(crate) logo: Option<String>,
+}
+
+pub(crate) fn trakt_artwork(source: &Value) -> TraktArtwork {
+    match source.get("images") {
+        Some(images) => TraktArtwork {
+            poster: trakt_image_url(images, "poster"),
+            background: trakt_image_url(images, "fanart"),
+            logo: trakt_image_url(images, "logo"),
+        },
+        None => TraktArtwork { poster: None, background: None, logo: None },
+    }
+}
+
 pub(crate) fn trakt_sync_item_to_meta_json(args_json: &str) -> Option<String> {
     let args: Value = serde_json::from_str(args_json).ok()?;
     let item = args.get("item")?;
@@ -334,14 +360,6 @@ pub(crate) fn trakt_playback_item_to_library(item: &Value) -> Option<Value> {
         .and_then(|e| e.get("title"))
         .and_then(Value::as_str)
         .unwrap_or("");
-    let ep_runtime = episode
-        .and_then(|e| e.get("runtime"))
-        .and_then(Value::as_f64);
-    let runtime_min = ep_runtime
-        .or_else(|| source.get("runtime").and_then(Value::as_f64))
-        .unwrap_or(if movie.is_some() { 100.0 } else { 45.0 });
-    let duration_sec = (runtime_min * 60.0) as i64;
-    let time_offset_sec = ((progress / 100.0) * duration_sec as f64).round() as i64;
     let content_type = if movie.is_some() { "movie" } else { "series" };
     let last_video_id = if let Some(ep) = episode {
         let season = ep.get("season").and_then(Value::as_i64).unwrap_or(0);
@@ -357,18 +375,25 @@ pub(crate) fn trakt_playback_item_to_library(item: &Value) -> Option<Value> {
         .and_then(|e| e.get("number"))
         .and_then(Value::as_i64);
     let saved_at = item.get("paused_at").and_then(Value::as_str).unwrap_or("");
+    let artwork = trakt_artwork(source);
+    let episode_thumbnail = episode
+        .and_then(|e| e.get("images"))
+        .and_then(|images| trakt_image_url(images, "screenshot"));
     Some(json!({
         "id": id,
         "name": title,
         "type": content_type,
-        "timeOffset": time_offset_sec,
-        "duration": duration_sec,
+        "resumeProgressPercent": progress,
         "lastVideoId": last_video_id,
         "lastEpisodeName": if episode_title.is_empty() { Value::Null } else { Value::String(episode_title.to_string()) },
         "lastEpisodeSeason": episode_season,
         "lastEpisodeNumber": episode_number,
+        "lastEpisodeThumbnail": episode_thumbnail,
         "savedAt": saved_at,
-        "reason": "trakt"
+        "reason": "trakt",
+        "poster": artwork.poster,
+        "background": artwork.background,
+        "logo": artwork.logo
     }))
 }
 
@@ -384,7 +409,11 @@ pub(crate) fn trakt_watchlist_to_items_json(movies_json: &str, shows_json: &str)
             continue;
         };
         let name = movie.get("title").and_then(Value::as_str).unwrap_or("");
-        items.push(json!({ "id": id, "name": name, "type": "movie", "source": "trakt" }));
+        let artwork = trakt_artwork(movie);
+        items.push(json!({
+            "id": id, "name": name, "type": "movie", "source": "trakt",
+            "poster": artwork.poster, "background": artwork.background, "logo": artwork.logo
+        }));
     }
     for entry in &shows {
         let Some(show) = entry.get("show") else {
@@ -394,7 +423,11 @@ pub(crate) fn trakt_watchlist_to_items_json(movies_json: &str, shows_json: &str)
             continue;
         };
         let name = show.get("title").and_then(Value::as_str).unwrap_or("");
-        items.push(json!({ "id": id, "name": name, "type": "series", "source": "trakt" }));
+        let artwork = trakt_artwork(show);
+        items.push(json!({
+            "id": id, "name": name, "type": "series", "source": "trakt",
+            "poster": artwork.poster, "background": artwork.background, "logo": artwork.logo
+        }));
     }
     serde_json::to_string(&items).ok()
 }

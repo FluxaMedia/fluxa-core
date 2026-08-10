@@ -20,6 +20,7 @@ pub(crate) struct SavePlaybackProgressAction {
     pub(crate) last_audio_language: Option<String>,
     pub(crate) last_subtitle_language: Option<String>,
     pub(crate) scrobble_trakt_pause: Option<bool>,
+    pub(crate) refresh_external_continue_watching: Option<bool>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -77,6 +78,7 @@ mod tests {
             last_audio_language: None,
             last_subtitle_language: None,
             scrobble_trakt_pause: Some(true),
+            refresh_external_continue_watching: Some(true),
         });
         assert_eq!(progress["type"], "savePlaybackProgressRequested");
         assert_eq!(progress["timeOffset"], 10);

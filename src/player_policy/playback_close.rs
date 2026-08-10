@@ -80,6 +80,7 @@ pub(crate) fn playback_close_plan_json(input: &str) -> Option<String> {
             last_audio_language: None,
             last_subtitle_language: None,
             scrobble_trakt_pause: Some(scrobble),
+            refresh_external_continue_watching: Some(scrobble && meaningful),
         })
     };
     let progress_action = progress(

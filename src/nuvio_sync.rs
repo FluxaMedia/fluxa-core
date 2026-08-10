@@ -1,5 +1,6 @@
 mod addon_priority;
 mod collections;
+mod delta_state;
 mod export_push;
 mod helpers;
 mod profiles;
@@ -8,6 +9,7 @@ mod reconciliation;
 
 pub(crate) use addon_priority::{addon_state_json, sort_addons_by_priority_json};
 pub(crate) use collections::map_collections_json;
+pub(crate) use delta_state::{apply_delta_sync_json, apply_progress_sync_json, delta_sync_request_plan_json, progress_sync_request_plan_json};
 pub(crate) use export_push::{
     collection_request_json, export_push_plan_json, library_item_request_json,
     playback_progress_request_json, watched_items_request_json,
@@ -93,6 +95,80 @@ mod tests {
         let entry = &result["progress"]["tt1"];
         assert_eq!(entry["continueWatchingBadge"], json!("upNext"));
         assert_eq!(entry["savedAt"], json!(iso_from_ms(1_700_000_000_000)));
+    }
+
+    #[test]
+    fn resolved_nuvio_progress_targets_the_following_episode() {
+        let result = merge(json!({
+            "progress": {},
+            "watched": {},
+            "library": [],
+            "addonMetas": {
+                "tt0760437": {
+                    "videos": [
+                        { "id": "tt0760437:1:2", "season": 1, "episode": 2, "title": "Washington B.C." },
+                        { "id": "tt0760437:1:3", "season": 1, "episode": 3, "title": "The Krakken" }
+                    ]
+                }
+            },
+            "watchProgress": [{
+                "content_id": "tt0760437", "content_type": "series", "video_id": "tt0760437:1:2",
+                "position": 1_000, "duration": 1_000,
+                "season": 1, "episode": 2, "last_watched": 1_700_000_000_000i64
+            }],
+            "watchHistory": []
+        }));
+        let entry = &result["progress"]["tt0760437"];
+        assert_eq!(entry["lastVideoId"], json!("tt0760437:1:3"));
+        assert_eq!(entry["lastEpisodeNumber"], json!(3));
+        assert_eq!(entry["lastEpisodeName"], json!("The Krakken"));
+        assert_eq!(entry["continueWatchingBadge"], json!("upNext"));
+    }
+
+    #[test]
+    fn progress_metadata_needs_are_unique_per_content() {
+        let needs: Value = serde_json::from_str(
+            &progress_meta_needs_json(
+                &json!({
+                    "watchProgress": [
+                        { "content_id": "tt0760437", "content_type": "series" },
+                        { "content_id": "tt0760437", "content_type": "series" },
+                        { "content_id": "tt12343534", "content_type": "series" }
+                    ],
+                    "library": []
+                })
+                .to_string(),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(needs.as_array().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn progress_metadata_plan_keeps_series_episode_metadata_but_skips_complete_movie_cards() {
+        let needs: Value = serde_json::from_str(
+            &progress_meta_needs_json(
+                &json!({
+                    "watchProgress": [
+                        { "content_id": "show", "content_type": "series", "progress_key": "show_s1e2", "season": 1, "episode": 2 },
+                        { "content_id": "movie", "content_type": "movie", "progress_key": "movie", "position": 20, "duration": 100 }
+                    ],
+                    "library": [
+                        { "content_id": "show", "content_type": "series", "name": "Show", "poster": "poster" },
+                        { "content_id": "movie", "content_type": "movie", "name": "Feature Film", "poster": "poster" }
+                    ]
+                })
+                .to_string(),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(needs, json!([{
+            "contentId": "show",
+            "contentType": "series",
+            "progressKey": "show_s1e2"
+        }]));
     }
 
     #[test]

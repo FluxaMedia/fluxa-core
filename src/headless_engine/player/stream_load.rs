@@ -147,6 +147,7 @@ pub(in crate::headless_engine) fn dispatch_load_streams(
             progress.last_audio_language,
             progress.last_subtitle_language,
             progress.scrobble_trakt_pause,
+            None,
         ));
     }
 

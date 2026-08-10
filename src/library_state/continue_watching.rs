@@ -5,6 +5,34 @@ pub(crate) const UP_NEXT_DURATION_SECONDS: i64 = 0;
 
 const UNSTARTED_PLACEHOLDER_DURATION_SECONDS: f64 = 86_400.0;
 
+pub(crate) fn normalized_continue_watching_source(value: Option<&str>) -> &'static str {
+    match value.map(str::trim).map(str::to_ascii_lowercase).as_deref() {
+        Some("stremio") => "stremio",
+        Some("nuvio") => "nuvio",
+        Some("trakt") => "trakt",
+        Some("simkl") => "simkl",
+        Some("anilist") => "anilist",
+        _ => "local",
+    }
+}
+
+pub(crate) fn continue_watching_source_plan_json(args_json: &str) -> Option<String> {
+    let args: Value = serde_json::from_str(args_json).ok()?;
+    let source = normalized_continue_watching_source(args.get("source").and_then(Value::as_str));
+    let provider = match source {
+        "local" => None,
+        provider => Some(provider),
+    };
+    let uses_local = provider.is_none();
+    serde_json::to_string(&json!({
+        "source": source,
+        "provider": provider,
+        "usesLocal": uses_local,
+        "requiresMetadataEnrichment": uses_local,
+    }))
+    .ok()
+}
+
 pub(crate) fn is_up_next_item(item: &Value) -> bool {
     let offset = item
         .get("timeOffset")
@@ -28,8 +56,12 @@ pub(crate) fn build_continue_watching_from_progress_json(progress_json: &str) ->
             let duration = entry.get("duration").and_then(Value::as_f64).unwrap_or(0.0);
             let has_video_id = entry.get("lastVideoId").and_then(Value::as_str).filter(|s| !s.is_empty()).is_some();
             // Include: items with real progress OR up-next entries (offset=0 but has lastVideoId)
+            let is_resolved_up_next = entry
+                .get("continueWatchingBadge")
+                .and_then(Value::as_str)
+                == Some("upNext");
             let include = (offset > 0.0 && duration > 0.0 && offset / duration < 0.95)
-                || (offset == 0.0 && has_video_id);
+                || (has_video_id && (offset == 0.0 || is_resolved_up_next));
             if !include { return None; }
             let meta = entry.get("meta")?;
             let id = meta.get("id").and_then(Value::as_str).unwrap_or("");

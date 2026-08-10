@@ -157,6 +157,7 @@ pub(super) enum AppAction {
     RefreshContinueWatchingRequested {
         profile: Option<Value>,
         language: Option<String>,
+        source: Option<String>,
     },
     #[serde(rename = "libraryHydrateRequested")]
     LibraryHydrateRequested { profile_id: Option<String> },

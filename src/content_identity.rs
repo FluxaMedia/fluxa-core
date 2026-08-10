@@ -46,7 +46,33 @@ pub(crate) use text::{normalize_content_type, provider_search_terms, stable_feed
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::Value;
+    use serde_json::{Value, json};
+
+    #[test]
+    fn continue_watching_duplicates_use_content_identity_not_provider_ids() {
+        let items = json!([
+            {
+                "id": "simkl:100",
+                "type": "series",
+                "name": "Invincible",
+                "releaseInfo": "2021",
+                "lastWatchedAt": 10
+            },
+            {
+                "id": "tt6741278",
+                "type": "series",
+                "name": "Invincible",
+                "releaseInfo": "2021",
+                "lastWatchedAt": 20
+            }
+        ]);
+        let merged: Vec<Value> = serde_json::from_str(
+            &merge_continue_watching_duplicates_json(&items.to_string()).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(merged.len(), 1);
+        assert_eq!(merged[0]["id"], "tt6741278");
+    }
 
     #[test]
     fn playback_intro_lookup_prefers_imdb_then_base_tmdb_number() {

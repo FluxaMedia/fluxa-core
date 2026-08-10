@@ -72,10 +72,6 @@ pub(crate) fn integration_settings_plan_json(args_json: &str) -> Option<String> 
     .ok()
 }
 
-pub(crate) fn accepts_progress_source(settings: &IntegrationSettings, provider: &str) -> bool {
-    settings.watch_progress_source == "all" || settings.watch_progress_source == provider
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

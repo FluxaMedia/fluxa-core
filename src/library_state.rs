@@ -10,8 +10,9 @@ pub(crate) use artwork_diff::{
 };
 pub(crate) use continue_watching::{
     UP_NEXT_DURATION_SECONDS, UP_NEXT_POSITION_SECONDS, build_continue_watching_from_progress_json,
-    compute_continue_watching_badges_json, format_episode_line_json, is_episode_released,
-    next_progress_info_plan_json, remember_last_watched_episodes_json,
+    compute_continue_watching_badges_json, continue_watching_source_plan_json,
+    format_episode_line_json, is_episode_released, next_progress_info_plan_json,
+    normalized_continue_watching_source, remember_last_watched_episodes_json,
     resolve_next_after_watched_json, resolve_next_episode_json,
 };
 pub(crate) use library_lists::{
@@ -27,6 +28,49 @@ pub(crate) use playback_progress::{
 mod tests {
     use super::*;
     use serde_json::{Value, json};
+
+    #[test]
+    fn continue_watching_source_plan_selects_exactly_one_source() {
+        let local: Value = serde_json::from_str(
+            &continue_watching_source_plan_json(r#"{"source":"Fluxa"}"#).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(local["source"], "local");
+        assert_eq!(local["provider"], Value::Null);
+        assert_eq!(local["usesLocal"], true);
+
+        let remote: Value = serde_json::from_str(
+            &continue_watching_source_plan_json(r#"{"source":" SiMkL "}"#).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(remote["source"], "simkl");
+        assert_eq!(remote["provider"], "simkl");
+        assert_eq!(remote["usesLocal"], false);
+    }
+
+    #[test]
+    fn continue_watching_keeps_resolved_up_next_placeholders() {
+        let progress = json!({
+            "tt0760437": {
+                "meta": { "id": "tt0760437", "name": "Ben 10", "type": "series" },
+                "timeOffset": 1,
+                "duration": 1,
+                "lastVideoId": "tt0760437:1:3",
+                "lastEpisodeSeason": 1,
+                "lastEpisodeNumber": 3,
+                "continueWatchingBadge": "upNext",
+                "continueWatchingEpisodeResolved": true,
+                "savedAt": "2026-08-09T00:00:00Z"
+            }
+        });
+        let result: Value = serde_json::from_str(
+            &build_continue_watching_from_progress_json(&progress.to_string()).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(result.as_array().unwrap().len(), 1);
+        assert_eq!(result[0]["id"], "tt0760437");
+        assert_eq!(result[0]["continueWatchingBadge"], "upNext");
+    }
 
     #[test]
     fn library_watchlist_items_excludes_removed_and_undated_entries() {

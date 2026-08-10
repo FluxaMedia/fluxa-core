@@ -94,6 +94,8 @@ struct RefreshContinueWatchingPayload {
     profile_id: String,
     profile: Value,
     language: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    source: Option<String>,
 }
 
 fn normalize_categories_trailers(mut categories: Value) -> Value {
@@ -113,10 +115,11 @@ pub(super) fn dispatch_refresh_continue_watching(
     engine: &mut HeadlessEngine,
     profile: Option<Value>,
     language: Option<String>,
+    source: Option<String>,
 ) -> Vec<EffectEnvelope> {
     let profile_value = profile.unwrap_or_else(|| engine.state.profile.active.clone());
     let profile_id = active_profile_id(&engine.state, &profile_value);
-    let generation = engine.state.runtime.get(GenerationKey::Home);
+    let generation = engine.bump_generation(GenerationKey::Home);
     vec![engine.effect(
         EffectKind::RefreshContinueWatching,
         generation,
@@ -124,6 +127,7 @@ pub(super) fn dispatch_refresh_continue_watching(
             profile_id,
             profile: profile_value,
             language: language.unwrap_or_else(|| "en".to_string()),
+            source,
         },
     )]
 }
@@ -248,8 +252,7 @@ pub(super) fn complete(
 ) -> Vec<EffectEnvelope> {
     match effect_type {
         "refreshContinueWatching" => {
-            if generation == engine.state.runtime.get(GenerationKey::Home)
-                && result.status.is_ok()
+            if result.status.is_ok()
                 && let Some(cw) = result.value.get("continueWatching")
             {
                 engine.state.home.continue_watching = cw.clone();

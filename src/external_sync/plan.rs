@@ -1,5 +1,4 @@
 use super::{merge_external_watched_json, merge_external_watchlist_json};
-use crate::integration_settings::{accepts_progress_source, integration_settings_from_value};
 use serde_json::{Map, Value, json};
 
 pub(crate) fn external_sync_response_action(_provider: &str, status_code: i64) -> &'static str {
@@ -185,7 +184,6 @@ pub(crate) fn external_provider_action_plan_json(args_json: &str) -> Option<Stri
     let anilist = has("anilistAccessToken");
     let stremio = has("stremioAuthKey");
     let nuvio = has("nuvioAccessToken");
-    let integration_settings = integration_settings_from_value(args.get("integrationSettings"));
     match kind {
         "markWatched" => {
             let watched = args.get("watched").and_then(Value::as_bool).unwrap_or(true);
@@ -235,7 +233,7 @@ pub(crate) fn external_provider_action_plan_json(args_json: &str) -> Option<Stri
                 .map(progress_to_nuvio);
             let anime_episode = episode_infos.last().cloned().unwrap_or(Value::Null);
             Some(json!({
-                "trakt": trakt && accepts_progress_source(&integration_settings, "trakt"), "simkl": simkl && accepts_progress_source(&integration_settings, "simkl"), "anilist": anilist && watched, "stremio": stremio && accepts_progress_source(&integration_settings, "stremio"), "nuvio": nuvio && accepts_progress_source(&integration_settings, "nuvio"),
+                "trakt": trakt, "simkl": simkl, "anilist": anilist && watched, "stremio": stremio, "nuvio": nuvio,
                 "animeEpisode": anime_episode, "animeProgressEpisode": args.pointer("/progressInfo/episode").cloned().or_else(|| anime_episode.get("episode").cloned()),
                 "episodes": episode_infos, "watchedKeys": watched_keys, "historyItems": history_items, "progressEntry": progress_entry,
             }).to_string())
@@ -251,7 +249,7 @@ pub(crate) fn external_provider_action_plan_json(args_json: &str) -> Option<Stri
                 .and_then(Value::as_f64)
                 .unwrap_or(0.0)
                 > 0.0;
-            Some(json!({"stremio": stremio && valid, "nuvio": nuvio && valid, "progressEntry": valid.then(|| progress_to_nuvio(progress))}).to_string())
+            Some(json!({"trakt": trakt && valid, "simkl": simkl && valid, "stremio": stremio && valid, "nuvio": nuvio && valid, "progressEntry": valid.then(|| progress_to_nuvio(progress))}).to_string())
         }
         "status" => Some(json!({"anilist": anilist}).to_string()),
         "favorite" => Some(json!({"trakt": trakt}).to_string()),

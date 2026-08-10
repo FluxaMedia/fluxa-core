@@ -47,6 +47,9 @@ pub(super) fn route_library_state(method: &str, args_json: &str) -> Outcome {
                 trakt_watched_json,
             ))
         }
+        "continueWatchingSourcePlan" => {
+            opt_json(library_state::continue_watching_source_plan_json(args_json))
+        }
         "watchedVideoIds" => {
             let args = object(args_json)?;
             opt_json(library_state::watched_video_ids_json(

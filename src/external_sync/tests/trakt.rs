@@ -71,6 +71,24 @@ fn trakt_watched_shows_create_continue_watching_items() {
 }
 
 #[test]
+fn trakt_up_next_items_use_the_source_next_episode() {
+    let response = json!([{
+        "show": {"title": "Example", "ids": {"imdb": "tt42"}},
+        "progress": {
+            "last_watched_at": "2026-07-21T00:00:00.000Z",
+            "next_episode": {"season": 1, "number": 3, "title": "Episode Three"}
+        }
+    }]);
+    let items: Value = serde_json::from_str(
+        &trakt_up_next_to_items_json(&response.to_string()).expect("items"),
+    )
+    .unwrap();
+    assert_eq!(items[0]["lastVideoId"], "tt42:1:3");
+    assert_eq!(items[0]["lastEpisodeName"], "Episode Three");
+    assert_eq!(items[0]["continueWatchingBadge"], "upNext");
+}
+
+#[test]
 fn trakt_watched_shows_without_episode_timestamps_use_latest_episode() {
     let watched = json!([{
         "last_watched_at": "2026-07-21T00:00:00.000Z",

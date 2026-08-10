@@ -1,5 +1,6 @@
 use super::helpers::{iso_from_ms, parse, str_field};
 use serde_json::{Map, Value, json};
+use std::collections::HashSet;
 
 const RESOLVED_LOW_RATIO: f64 = 0.005;
 const RESOLVED_HIGH_RATIO: f64 = 0.995;
@@ -54,23 +55,49 @@ pub(crate) fn progress_meta_needs_json(args_json: &str) -> Option<String> {
         .and_then(Value::as_array)
         .cloned()
         .unwrap_or_default();
-    let library_ids: Vec<&Value> = library.iter().filter_map(|i| i.get("content_id")).collect();
+    let library_by_identity: std::collections::HashMap<String, &Value> = library
+        .iter()
+        .filter_map(|item| {
+            let id = item.get("content_id")?.as_str()?.trim();
+            let content_type = item.get("content_type")?.as_str()?.trim();
+            (!id.is_empty() && !content_type.is_empty())
+                .then(|| (format!("{}:{id}", content_type.to_ascii_lowercase()), item))
+        })
+        .collect();
 
+    let mut seen = HashSet::new();
     let needs: Vec<Value> = watch_progress
         .iter()
-        .filter(|e| {
-            let is_series = str_field(e, "content_type") == Some("series");
-            let in_library = e
-                .get("content_id")
-                .map(|id| library_ids.contains(&id))
-                .unwrap_or(false);
-            is_series || !in_library
-        })
-        .map(|e| {
-            json!({
-                "contentId": e.get("content_id").cloned().unwrap_or(Value::Null),
-                "contentType": e.get("content_type").cloned().unwrap_or(Value::Null),
-            })
+        .filter_map(|e| {
+            let content_id = e.get("content_id")?.as_str()?.trim();
+            let content_type = e.get("content_type")?.as_str()?.trim();
+            if content_id.is_empty() || content_type.is_empty() || !seen.insert((content_id, content_type)) {
+                return None;
+            }
+            let library_item = library_by_identity.get(&format!("{}:{content_id}", content_type.to_ascii_lowercase()));
+            let useful_name = library_item
+                .and_then(|item| item.get("name"))
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .is_some_and(|name| !name.is_empty() && !name.eq_ignore_ascii_case(content_id));
+            let has_artwork = library_item.is_some_and(|item| {
+                ["poster", "background"].into_iter().any(|field| {
+                    item.get(field).and_then(Value::as_str).is_some_and(|value| !value.trim().is_empty())
+                })
+            });
+            let is_series = matches!(content_type.to_ascii_lowercase().as_str(), "series" | "show" | "tv" | "anime");
+            let has_episode = e.get("video_id").and_then(Value::as_str).is_some_and(|value| !value.trim().is_empty())
+                || (e.get("season").and_then(Value::as_i64).is_some() && e.get("episode").and_then(Value::as_i64).is_some());
+            if useful_name && has_artwork && !(is_series && has_episode) {
+                return None;
+            }
+            let progress_key = e.get("progress_key").and_then(Value::as_str).map(str::trim).filter(|value| !value.is_empty())
+                .map(str::to_string)
+                .unwrap_or_else(|| match (e.get("season").and_then(Value::as_i64), e.get("episode").and_then(Value::as_i64)) {
+                    (Some(season), Some(episode)) => format!("{content_id}_s{season}e{episode}"),
+                    _ => content_id.to_string(),
+                });
+            Some(json!({ "contentId": content_id, "contentType": content_type, "progressKey": progress_key }))
         })
         .collect();
     Some(Value::Array(needs).to_string())
@@ -111,6 +138,42 @@ fn progress_entry(entry: &Value, lib_item: Option<&Value>, addon_meta: Option<&V
             .find(|v| num_eq(v.get("season"), Some(s)) && num_eq(v.get("episode"), Some(e))),
         _ => None,
     };
+    let next_ep_meta = if is_resolved_up_next {
+        match (
+            season.and_then(Value::as_i64),
+            episode.and_then(Value::as_i64),
+            addon_meta
+                .and_then(|m| m.get("videos"))
+                .and_then(Value::as_array),
+        ) {
+            (Some(current_season), Some(current_episode), Some(videos)) => videos
+                .iter()
+                .filter(|video| {
+                    let season = video.get("season").and_then(Value::as_i64).unwrap_or(0);
+                    let episode = video
+                        .get("episode")
+                        .or_else(|| video.get("number"))
+                        .and_then(Value::as_i64)
+                        .unwrap_or(0);
+                    season > current_season
+                        || (season == current_season && episode > current_episode)
+                })
+                .min_by_key(|video| {
+                    (
+                        video.get("season").and_then(Value::as_i64).unwrap_or(0),
+                        video
+                            .get("episode")
+                            .or_else(|| video.get("number"))
+                            .and_then(Value::as_i64)
+                            .unwrap_or(0),
+                    )
+                }),
+            _ => None,
+        }
+    } else {
+        None
+    };
+    let target_ep_meta = next_ep_meta.or(ep_meta);
 
     let pick = |field: &str| -> Value {
         lib_item
@@ -150,15 +213,25 @@ fn progress_entry(entry: &Value, lib_item: Option<&Value>, addon_meta: Option<&V
     out.insert("duration".into(), json!((duration / 1000.0).round() as i64));
     out.insert(
         "lastVideoId".into(),
-        entry.get("video_id").cloned().unwrap_or(Value::Null),
+        next_ep_meta
+            .and_then(|video| video.get("id").or_else(|| video.get("_id")))
+            .cloned()
+            .or_else(|| entry.get("video_id").cloned())
+            .unwrap_or(Value::Null),
     );
-    if let Some(s) = season {
+    if let Some(s) = target_ep_meta
+        .and_then(|video| video.get("season"))
+        .or(season)
+    {
         out.insert("lastEpisodeSeason".into(), s.clone());
     }
-    if let Some(e) = episode {
+    if let Some(e) = target_ep_meta
+        .and_then(|video| video.get("episode").or_else(|| video.get("number")))
+        .or(episode)
+    {
         out.insert("lastEpisodeNumber".into(), e.clone());
     }
-    if let Some(ep) = ep_meta {
+    if let Some(ep) = target_ep_meta {
         if let Some(title) = str_field(ep, "title").or_else(|| str_field(ep, "name")) {
             out.insert("lastEpisodeName".into(), Value::String(title.to_string()));
         }

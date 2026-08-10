@@ -292,14 +292,7 @@ fn safe_preferred_player(value: Option<&str>) -> &'static str {
 }
 
 pub(crate) fn safe_continue_watching_source(value: Option<&str>) -> &'static str {
-    match value {
-        Some("stremio") => "stremio",
-        Some("nuvio") => "nuvio",
-        Some("trakt") => "trakt",
-        Some("simkl") => "simkl",
-        Some("anilist") => "anilist",
-        _ => "fluxa",
-    }
+    crate::library_state::normalized_continue_watching_source(value)
 }
 
 fn safe_card_layout(value: Option<&str>) -> String {

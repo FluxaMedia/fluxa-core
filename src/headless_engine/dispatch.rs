@@ -215,8 +215,12 @@ impl HeadlessEngine {
                 language,
                 force,
             } => home::dispatch_load(self, profile, language, force),
-            AppAction::RefreshContinueWatchingRequested { profile, language } => {
-                home::dispatch_refresh_continue_watching(self, profile, language)
+            AppAction::RefreshContinueWatchingRequested {
+                profile,
+                language,
+                source,
+            } => {
+                home::dispatch_refresh_continue_watching(self, profile, language, source)
             }
             AppAction::LibraryHydrateRequested { profile_id } => {
                 library::dispatch_hydrate(self, profile_id)
@@ -250,6 +254,7 @@ impl HeadlessEngine {
                 action.last_audio_language,
                 action.last_subtitle_language,
                 action.scrobble_trakt_pause,
+                action.refresh_external_continue_watching,
             ),
             AppAction::MarkWatchedRequested { action } => library::dispatch_mark_watched(
                 self,

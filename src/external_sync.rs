@@ -24,9 +24,9 @@ pub(crate) use stremio::{
     stremio_watchlist_to_items_json,
 };
 pub(crate) use trakt::{
-    trakt_bearer, trakt_comments_request_json, trakt_content_id_from_ids_json,
+    trakt_artwork, trakt_bearer, trakt_comments_request_json, trakt_content_id_from_ids_json,
     trakt_episode_locator_json, trakt_has_client, trakt_history_request_json, trakt_id_from_source,
-    trakt_ids_from_content_id_json, trakt_oauth_error_code, trakt_playback_delete_ids_json,
+    trakt_ids_from_content_id_json, trakt_image_url, trakt_oauth_error_code, trakt_playback_delete_ids_json,
     trakt_playback_items_to_library_json, trakt_playback_url, trakt_scrobble_media_id,
     trakt_scrobble_url, trakt_show_id_from_episode_id, trakt_sync_item_to_meta_json,
     trakt_token_expires_at, trakt_watched_to_ids_json, trakt_watchlist_to_items_json,
@@ -37,12 +37,12 @@ mod provider_mappers;
 pub(crate) use provider_mappers::{
     replace_external_continue_watching_json, simkl_lookup_id_for_type,
     simkl_mark_watched_body_json, simkl_match_episode_json, simkl_merge_delta_json,
-    simkl_recommendation_candidates_json, simkl_recommendation_to_meta_json,
-    simkl_resource_sync_plan_json, simkl_watched_to_ids_json, simkl_watching_to_items_json,
-    simkl_watchlist_body_json, simkl_watchlist_to_items_json, trakt_activity_diff_json,
-    trakt_mark_watched_body_json, trakt_playback_items_dedup_json,
+    simkl_merge_playback_progress_json, simkl_recommendation_candidates_json,
+    simkl_recommendation_to_meta_json, simkl_resource_sync_plan_json, simkl_watched_to_ids_json,
+    simkl_watching_to_items_json, simkl_watchlist_body_json, simkl_watchlist_to_items_json,
+    trakt_activity_diff_json, trakt_mark_watched_body_json, trakt_playback_items_dedup_json,
     trakt_related_items_to_metas_json, trakt_related_lookup_slug,
-    trakt_watched_shows_to_items_json,
+    trakt_up_next_to_items_json, trakt_watched_shows_to_items_json,
 };
 mod anilist;
 

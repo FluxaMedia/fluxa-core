@@ -4,7 +4,7 @@ use serde_json::{Value, json};
 #[test]
 fn simkl_watching_items_are_kept_for_continue_watching() {
     let items = simkl_watching_to_items_json(
-            r#"{"shows":[{"show":{"title":"Example","ids":{"imdb":"tt42"}},"last_watched":"S01E02","last_watched_at":"2026-07-21T00:00:00.000Z","seasons":[{"number":1,"episodes":[{"number":2}]}]}]}"#,
+            r#"{"shows":[{"show":{"title":"Example","ids":{"imdb":"tt42"}},"last_watched":"S01E02","next_to_watch":"S01E03","last_watched_at":"2026-07-21T00:00:00.000Z","seasons":[{"number":1,"episodes":[{"number":2}]}]}]}"#,
             "[]",
         )
         .expect("items");
@@ -18,9 +18,12 @@ fn simkl_watching_items_are_kept_for_continue_watching() {
     ))
     .unwrap();
     assert_eq!(replaced[0]["id"], "tt42");
-    assert_eq!(replaced[0]["lastVideoId"], "tt42:1:2");
+    assert_eq!(replaced[0]["lastVideoId"], "tt42:1:3");
     assert_eq!(replaced[0]["lastEpisodeSeason"], 1);
-    assert_eq!(replaced[0]["lastEpisodeNumber"], 2);
+    assert_eq!(replaced[0]["lastEpisodeNumber"], 3);
+    assert_eq!(replaced[0]["continueWatchingBadge"], "upNext");
+    assert!(replaced[0].get("timeOffset").is_none());
+    assert!(replaced[0].get("duration").is_none());
 }
 
 #[test]

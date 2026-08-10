@@ -93,6 +93,7 @@ struct PlaybackProgress {
     last_audio_language: Option<String>,
     last_subtitle_language: Option<String>,
     source: &'static str,
+    refresh_external_continue_watching: bool,
 }
 
 #[derive(Serialize)]
@@ -250,6 +251,7 @@ pub(super) fn dispatch_save_progress(
     last_audio_language: Option<String>,
     last_subtitle_language: Option<String>,
     scrobble_trakt_pause: Option<bool>,
+    refresh_external_continue_watching: Option<bool>,
 ) -> Vec<EffectEnvelope> {
     let generation = engine.bump_generation(GenerationKey::Library);
     let profile_id = active_profile_id(&engine.state, &Value::Null);
@@ -268,6 +270,7 @@ pub(super) fn dispatch_save_progress(
         last_audio_language,
         last_subtitle_language,
         source: "local",
+        refresh_external_continue_watching: refresh_external_continue_watching.unwrap_or(false),
     };
     engine.state.library.pending_playback_progress =
         serde_json::to_value(&progress).unwrap_or(Value::Null);

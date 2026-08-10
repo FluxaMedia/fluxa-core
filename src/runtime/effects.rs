@@ -335,6 +335,7 @@ fn effect_schedule(kind: EffectKind) -> (Option<String>, u8, Option<String>, Opt
             Some("default".to_string()),
             Some(15_000),
         ),
+        EffectKind::ReadHomeBootstrap => (None, 100, None, Some(20_000)),
         EffectKind::ExecutePlugin => (
             Some("plugin".to_string()),
             60,

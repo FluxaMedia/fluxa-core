@@ -203,6 +203,7 @@ pub(super) fn route_external_sync_trakt(method: &str, args_json: &str) -> Outcom
         "traktPlaybackItemsDedup" => {
             opt_json(external_sync::trakt_playback_items_dedup_json(args_json))
         }
+        "traktUpNextToItems" => opt_json(external_sync::trakt_up_next_to_items_json(args_json)),
         "traktMarkWatchedBody" => opt_json(external_sync::trakt_mark_watched_body_json(args_json)),
         "traktRelatedLookupSlug" => {
             let args = object(args_json)?;
@@ -257,6 +258,13 @@ pub(super) fn route_external_sync_simkl(method: &str, args_json: &str) -> Outcom
             opt_json(external_sync::simkl_watchlist_to_items_json(
                 field_str(&args, "showsJson")?,
                 field_str(&args, "moviesJson")?,
+            ))
+        }
+        "simklMergePlaybackProgress" => {
+            let args = object(args_json)?;
+            opt_json(external_sync::simkl_merge_playback_progress_json(
+                field_str(&args, "itemsJson")?,
+                field_str(&args, "playbackJson")?,
             ))
         }
         "simklWatchedToIds" => {
