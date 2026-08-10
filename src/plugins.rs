@@ -110,6 +110,7 @@ struct RawPluginStreamResult {
     info_hash: Option<String>,
     headers: Option<HashMap<String, String>>,
     subtitles: Option<Vec<RawPluginSubtitleResult>>,
+    unavailable_reason: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -198,8 +199,32 @@ pub(crate) fn plugin_stream_results_to_streams_json(raw_json: &str) -> String {
         Err(_) => return "[]".to_string(),
     };
 
-    let streams: Vec<Stream> = results.into_iter().map(plugin_result_to_stream).collect();
+    let streams: Vec<Stream> = if results.is_empty() {
+        vec![plugin_unavailable_stream(plugin_unavailable_reason(raw_json))]
+    } else {
+        results.into_iter().map(plugin_result_to_stream).collect()
+    };
     serde_json::to_string(&streams).unwrap_or_else(|_| "[]".to_string())
+}
+
+fn plugin_unavailable_reason(raw_json: &str) -> Option<String> {
+    serde_json::from_str::<Vec<RawPluginStreamResult>>(raw_json)
+        .ok()?
+        .into_iter()
+        .find_map(|result| non_blank(result.unavailable_reason))
+}
+
+fn plugin_unavailable_stream(reason: Option<String>) -> Stream {
+    let mut extra = serde_json::Map::new();
+    extra.insert("pluginUnavailable".to_string(), Value::Bool(true));
+    extra.insert(
+        "pluginUnavailableReason".to_string(),
+        Value::String(reason.unwrap_or_else(|| "no_playable_stream".to_string())),
+    );
+    Stream {
+        extra,
+        ..Default::default()
+    }
 }
 
 fn plugin_result_to_stream(result: PluginStreamResult) -> Stream {
@@ -309,6 +334,28 @@ mod tests {
     fn stream_results_drop_entries_without_a_usable_url() {
         let raw = r#"[{"title":"no url"},{"title":"blank","url":""}]"#;
         assert_eq!(parse_plugin_stream_results_json(raw), "[]");
+    }
+
+    #[test]
+    fn empty_stream_results_produce_an_unavailable_stream_marker() {
+        let parsed = plugin_stream_results_to_streams_json("[]");
+        let streams: Vec<Stream> = serde_json::from_str(&parsed).unwrap();
+        assert_eq!(streams.len(), 1);
+        assert!(streams[0].url.is_none());
+        assert_eq!(streams[0].extra["pluginUnavailable"], true);
+        assert_eq!(
+            streams[0].extra["pluginUnavailableReason"],
+            "no_playable_stream"
+        );
+    }
+
+    #[test]
+    fn unavailable_reason_is_preserved_on_the_stream_marker() {
+        let parsed = plugin_stream_results_to_streams_json(
+            r#"[{"unavailableReason":"Content was removed."}]"#,
+        );
+        let streams: Vec<Stream> = serde_json::from_str(&parsed).unwrap();
+        assert_eq!(streams[0].extra["pluginUnavailableReason"], "Content was removed.");
     }
 
     #[test]
