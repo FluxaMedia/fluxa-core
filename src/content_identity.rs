@@ -41,11 +41,38 @@ pub(crate) use playback_plan::{
 // consumer of this path, and default builds don't enable that feature.
 #[allow(unused_imports)]
 pub use text::percent_decode_component;
-pub(crate) use text::{normalize_content_type, provider_search_terms, stable_feed_part};
+pub(crate) use text::{
+    normalize_content_type, provider_search_terms, shorten_synopsis, stable_feed_part,
+};
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::{Value, json};
+    use serde_json::Value;
+
+    #[test]
+    fn shorten_synopsis_joins_paired_em_dash_aside_with_commas() {
+        let text = "Fighting crime full-time as Spider-Man in a world that doesn't remember him\u{2014}and the pressure of seeing his old friends move on without him\u{2014}sparks a change in Peter Parker he may not have the power to control. But that transformation might also be the only thing that can stop a shocking new threat to the city and those he loves - a powerful villain no one can even see.";
+        let result = shorten_synopsis(text);
+        assert_eq!(
+            result,
+            "Fighting crime full-time as Spider-Man in a world that doesn't remember him, and the pressure of seeing his old friends move on without him, sparks a change in Peter Parker he may not have the power to control."
+        );
+    }
+
+    #[test]
+    fn shorten_synopsis_keeps_short_single_sentence_untouched() {
+        let text = "When Bonnie receives a Lilypad tablet as a gift and becomes obsessed, Buzz, Woody, Jessie and the rest of the gang's jobs become exponentially harder when they have to go head to head with the all-new threat to playtime.";
+        assert_eq!(shorten_synopsis(text), text);
+    }
+
+    #[test]
+    fn shorten_synopsis_cuts_long_text_at_comma_not_mid_word() {
+        let text = "A family suddenly sealed inside their home must survive against dwindling resources and a mysterious threat, facing terror at every turn as the walls close in, unable to escape the nightmare that has consumed their once peaceful life, running out of options as each day brings new horrors, and losing hope with each passing hour, day, and night, until finally a stranger arrives.";
+        let result = shorten_synopsis(text);
+        assert!(result.ends_with('.'));
+        assert!(result.len() < text.len());
+        assert!(!result.ends_with(" ."));
+    }
 
     #[test]
     fn playback_intro_lookup_prefers_imdb_then_base_tmdb_number() {

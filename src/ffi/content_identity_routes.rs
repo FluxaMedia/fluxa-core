@@ -130,6 +130,9 @@ pub(super) fn route_content_identity(method: &str, args_json: &str) -> Outcome {
         "stableFeedPart" => Ok(Value::String(content_identity::stable_feed_part(&arg_str(
             args_json, "value",
         )?))),
+        "shortenSynopsis" => Ok(Value::String(content_identity::shorten_synopsis(
+            &arg_str(args_json, "text")?,
+        ))),
         "normalizeContentType" => Ok(json!(content_identity::normalize_content_type(&arg_str(
             args_json, "value",
         )?))),

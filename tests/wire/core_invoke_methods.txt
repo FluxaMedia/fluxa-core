@@ -246,6 +246,7 @@ selectContinueWatchingArtwork
 selectNextEpisodeStream
 selectStreamIndex
 setMetadataFeedGroupEnabled
+shortenSynopsis
 simklMatchEpisode
 simklMarkWatchedBody
 simklHistoryRequest

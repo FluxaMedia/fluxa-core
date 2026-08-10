@@ -104,3 +104,55 @@ pub(crate) fn parse_string_list(json: &str) -> Vec<String> {
 pub(crate) fn json_string_list(values: &[String]) -> Option<String> {
     serde_json::to_string(values).ok()
 }
+
+const SYNOPSIS_MAX_LENGTH: usize = 200;
+const SYNOPSIS_TOLERANCE: usize = 60;
+
+fn dash_regex() -> &'static regex::Regex {
+    use std::sync::OnceLock;
+    static REGEX: OnceLock<regex::Regex> = OnceLock::new();
+    REGEX.get_or_init(|| regex::Regex::new(r"\s*[—–]\s*").expect("valid dash regex"))
+}
+
+fn normalize_dashes_to_commas(text: &str) -> String {
+    let replaced = dash_regex().replace_all(text, ", ");
+    collapse_whitespace(&replaced.replace(",,", ","))
+}
+
+fn first_sentence(text: &str) -> Option<String> {
+    let chars: Vec<(usize, char)> = text.char_indices().collect();
+    for (i, &(byte_idx, ch)) in chars.iter().enumerate() {
+        if matches!(ch, '.' | '!' | '?') && byte_idx >= 20 {
+            let at_boundary = chars.get(i + 1).is_none_or(|&(_, c)| c.is_whitespace());
+            if at_boundary {
+                let end = byte_idx + ch.len_utf8();
+                return Some(text[..end].to_string());
+            }
+        }
+    }
+    None
+}
+
+pub(crate) fn shorten_synopsis(text: &str) -> String {
+    let normalized = normalize_dashes_to_commas(text.trim());
+    if let Some(sentence) = first_sentence(&normalized) {
+        if sentence.chars().count() <= SYNOPSIS_MAX_LENGTH + SYNOPSIS_TOLERANCE {
+            return sentence;
+        }
+    }
+    if normalized.chars().count() <= SYNOPSIS_MAX_LENGTH + SYNOPSIS_TOLERANCE {
+        return normalized;
+    }
+    let window: String = normalized.chars().take(SYNOPSIS_MAX_LENGTH).collect();
+    if let Some(last_comma) = window.rfind(',') {
+        if last_comma as f64 > SYNOPSIS_MAX_LENGTH as f64 * 0.4 {
+            return format!("{}.", &window[..last_comma]);
+        }
+    }
+    if let Some(last_space) = window.rfind(' ') {
+        if last_space > 0 {
+            return format!("{}.", &window[..last_space]);
+        }
+    }
+    format!("{window}.")
+}
