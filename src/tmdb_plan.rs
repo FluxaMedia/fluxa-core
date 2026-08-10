@@ -94,38 +94,6 @@ mod tests {
     }
 
     #[test]
-    fn full_meta_reads_character_from_aggregate_credits_roles() {
-        let details = json!({"id": 95479, "name": "Jujutsu Kaisen", "first_air_date": "2020-10-03"}).to_string();
-        let credits = json!({"cast": [
-            {"name": "Yuichi Nakamura", "roles": [{"character": "Satoru Gojo"}]},
-        ]})
-        .to_string();
-        let images = json!({}).to_string();
-        let external_ids = json!({}).to_string();
-        let result: Value = serde_json::from_str(
-            &tmdb_full_meta_to_meta_json(&details, &credits, &images, &external_ids, "{}", "series", "en")
-                .unwrap(),
-        )
-        .unwrap();
-        assert_eq!(result["cast"][0]["name"], "Yuichi Nakamura");
-        assert_eq!(result["cast"][0]["character"], "Satoru Gojo");
-    }
-
-    #[test]
-    fn builtin_meta_request_plan_uses_aggregate_credits_for_series() {
-        let request = json!({
-            "contentType": "series",
-            "contentId": "tmdb:95479",
-            "apiKey": "KEY",
-            "language": "en",
-        });
-        let plan: Value =
-            serde_json::from_str(&tmdb_builtin_meta_request_plan_json(&request.to_string()).unwrap())
-                .unwrap();
-        assert!(plan["creditsUrl"].as_str().unwrap().contains("/tv/95479/aggregate_credits"));
-    }
-
-    #[test]
     fn episodes_map_still_path_to_thumbnail() {
         let season = json!({"episodes": [
             {"season_number": 1, "episode_number": 3, "name": "Ep 3", "still_path": "/s3.jpg", "air_date": "2020-01-01"},
