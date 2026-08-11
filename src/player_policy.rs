@@ -290,6 +290,28 @@ mod tests {
     }
 
     #[test]
+    fn dv_proxy_structured_caps_p8_only_still_allows_p7_convert() {
+        // Legacy deviceHasDvDecoder=false would reject this; structured
+        // capabilities say the device decodes P8 (just not native P7), which is
+        // exactly what P7->P8.1 conversion needs.
+        let p = plan(
+            r#"{"stream":{"dvProfile":7},"url":"https://cdn.example/stream.hevc","fallbackMode":"convert_dv81","deviceHasDvDecoder":false,"deviceCapabilities":{"profile7":false,"profile8":true}}"#,
+        );
+        assert_eq!(p["action"], "rpu_convert");
+        assert_eq!(p["profile"], "P7");
+    }
+
+    #[test]
+    fn dv_proxy_structured_caps_no_p7_no_p8_rejects_convert() {
+        // Neither P7 nor P8 decodable — must not attempt native passthrough or
+        // conversion; falls through to the header-only dvcc_strip fallback.
+        let p = plan(
+            r#"{"stream":{"dvProfile":7},"url":"https://cdn.example/stream.hevc","fallbackMode":"convert_dv81","deviceHasDvDecoder":true,"deviceCapabilities":{"profile5":true,"profile7":false,"profile8":false}}"#,
+        );
+        assert_eq!(p["action"], "dvcc_strip");
+    }
+
+    #[test]
     fn dv_proxy_rpu_convert_rejected_for_mkv_falls_back_to_dvcc_strip() {
         // dv8 mode + MKV without a DV decoder → falls back to dvcc_strip because
         // rpu_convert needs a DV decoder in the convert_dv81 path, and dv8 mode

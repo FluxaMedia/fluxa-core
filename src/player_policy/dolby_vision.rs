@@ -26,6 +26,44 @@ struct DvProxyPlanRequest {
     device_has_dv_decoder: bool,
     #[serde(default)]
     device_has_dv_display: bool,
+    /// Per-profile decoder capabilities, as reported by a runtime MediaCodecList
+    /// probe. When present this overrides `device_has_dv_decoder` for the
+    /// profile actually detected in the stream — a device that decodes P5/P8
+    /// but not P7 should still get a P7->P8.1 conversion plan, not a blanket
+    /// "no DV decoder" fallback.
+    #[serde(default)]
+    device_capabilities: Option<DvDecoderCapabilities>,
+}
+
+#[derive(Debug, Clone, Copy, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct DvDecoderCapabilities {
+    #[serde(default)]
+    profile4: bool,
+    #[serde(default)]
+    profile5: bool,
+    #[serde(default)]
+    profile7: bool,
+    #[serde(default)]
+    profile8: bool,
+    #[serde(default)]
+    profile10: bool,
+}
+
+/// Whether the device can decode `profile`, preferring the structured
+/// per-profile capability report over the legacy blanket bool when present.
+fn decoder_supports(caps: Option<&DvDecoderCapabilities>, legacy_flag: bool, profile: DvProfile) -> bool {
+    let Some(caps) = caps else {
+        return legacy_flag;
+    };
+    match profile {
+        DvProfile::P4 => caps.profile4,
+        DvProfile::P5 => caps.profile5,
+        DvProfile::P7 => caps.profile7,
+        DvProfile::P8Hdr10 | DvProfile::P8Hlg | DvProfile::P8Unknown => caps.profile8,
+        DvProfile::P10Hdr10 | DvProfile::P10Other => caps.profile10,
+        DvProfile::Unknown => legacy_flag,
+    }
 }
 
 /// Per-stream Dolby Vision profile classification.
@@ -97,20 +135,27 @@ pub(crate) fn dv_proxy_plan_json(request_json: &str) -> Option<String> {
         return plan_rich("none", "not_dv", "unknown", "none", "high", &[]);
     }
 
-    let native_passthrough = req.device_has_dv_decoder
+    let profile = detect_dv_profile(&req.stream);
+    let container = detect_container(&req.url);
+    let caps = req.device_capabilities.as_ref();
+    // Native passthrough decodes the *source* profile as-is.
+    let has_native_decoder = decoder_supports(caps, req.device_has_dv_decoder, profile);
+    // rpu_convert/hls_rpu_convert always target Profile 8 — so conversion
+    // eligibility depends on P8 decode support, not on native support for
+    // whatever profile the source stream happens to be.
+    let has_p8_decoder = decoder_supports(caps, req.device_has_dv_decoder, DvProfile::P8Unknown);
+
+    let native_passthrough = has_native_decoder
         && (req.device_has_dv_display || req.fallback_mode != DvFallbackMode::ConvertDv81);
     if native_passthrough {
         return plan_rich("none", "hw_dv_decoder", "unknown", "DV", "high", &[]);
     }
 
-    let profile = detect_dv_profile(&req.stream);
-    let container = detect_container(&req.url);
-
     if is_hls || is_dash {
         if is_hls
             && matches!(profile, DvProfile::P7)
             && req.fallback_mode == DvFallbackMode::ConvertDv81
-            && req.device_has_dv_decoder
+            && has_p8_decoder
         {
             return plan_rich(
                 "hls_rpu_convert",
@@ -177,7 +222,7 @@ pub(crate) fn dv_proxy_plan_json(request_json: &str) -> Option<String> {
                 // convert_dv81 + DV decoder (no display): RPU conversion for Annex-B + fMP4.
                 // Without a DV decoder, conversion would produce DV8.1 that nothing can decode;
                 // fall through to dvcc_strip (handled by the catch-all arm below).
-                (DvFallbackMode::ConvertDv81, _) if req.device_has_dv_decoder => (
+                (DvFallbackMode::ConvertDv81, _) if has_p8_decoder => (
                     "rpu_convert",
                     "DV8",
                     "medium",
