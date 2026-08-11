@@ -627,4 +627,113 @@ mod tests {
             .unwrap();
         assert_eq!(out, sample);
     }
+
+    #[test]
+    fn length_delimited_framing_round_trips_every_prefix_width() {
+        for size in 1u8..=4 {
+            let vcl = vec![0x26, 0x01, 0x00, 0x11];
+            let mut sample = Vec::new();
+            write_length(&mut sample, vcl.len(), size as usize);
+            sample.extend_from_slice(&vcl);
+            let request = format!(
+                r#"{{"sampleBase64":"{}","framing":"length_delimited","nalLengthSize":{}}}"#,
+                BASE64.encode(&sample),
+                size
+            );
+            let result: serde_json::Value =
+                serde_json::from_str(&process_dv_sample_json(&request).unwrap()).unwrap();
+            assert_eq!(result["changed"], false, "size={size}");
+            let out = BASE64
+                .decode(result["outputBase64"].as_str().unwrap())
+                .unwrap();
+            assert_eq!(out, sample, "size={size}");
+        }
+    }
+
+    #[test]
+    fn length_delimited_el_drop_round_trips_every_prefix_width() {
+        for size in 1u8..=4 {
+            let bl = vec![0x26, 0x01, 0x00, 0x11];
+            let el = el_nal(1);
+            let mut sample = Vec::new();
+            write_length(&mut sample, bl.len(), size as usize);
+            sample.extend_from_slice(&bl);
+            write_length(&mut sample, el.len(), size as usize);
+            sample.extend_from_slice(&el);
+
+            let mut expected = Vec::new();
+            write_length(&mut expected, bl.len(), size as usize);
+            expected.extend_from_slice(&bl);
+
+            let request = format!(
+                r#"{{"sampleBase64":"{}","framing":"length_delimited","nalLengthSize":{}}}"#,
+                BASE64.encode(&sample),
+                size
+            );
+            let result: serde_json::Value =
+                serde_json::from_str(&process_dv_sample_json(&request).unwrap()).unwrap();
+            assert_eq!(result["elNalsDropped"], 1, "size={size}");
+            let out = BASE64
+                .decode(result["outputBase64"].as_str().unwrap())
+                .unwrap();
+            assert_eq!(out, expected, "size={size}");
+        }
+    }
+
+    fn annex_b_sample_with_start_codes(nals: &[(usize, Vec<u8>)]) -> Vec<u8> {
+        let mut out = Vec::new();
+        for (start_code_len, nal) in nals {
+            match start_code_len {
+                3 => out.extend_from_slice(&[0, 0, 1]),
+                _ => out.extend_from_slice(&[0, 0, 0, 1]),
+            }
+            out.extend_from_slice(nal);
+        }
+        out
+    }
+
+    #[test]
+    fn annex_b_three_byte_start_codes_are_parsed() {
+        // The transformer normalizes every emitted start code to 4 bytes, so a
+        // 3-byte-start-code input NAL survives with its payload intact even
+        // though the raw bytes aren't identical to the input.
+        let vcl = vec![0x26, 0x01, 0x00, 0x11];
+        let sample = annex_b_sample_with_start_codes(&[(3, vcl.clone())]);
+        let expected = annex_b_sample_with_start_codes(&[(4, vcl)]);
+        let request = format!(
+            r#"{{"sampleBase64":"{}","framing":"annex_b"}}"#,
+            BASE64.encode(&sample)
+        );
+        let result: serde_json::Value =
+            serde_json::from_str(&process_dv_sample_json(&request).unwrap()).unwrap();
+        let out = BASE64
+            .decode(result["outputBase64"].as_str().unwrap())
+            .unwrap();
+        assert_eq!(out, expected);
+    }
+
+    #[test]
+    fn annex_b_mixed_three_and_four_byte_start_codes_drop_el_correctly() {
+        let bl = vec![0x26, 0x01, 0x00, 0x11];
+        let el = el_nal(1);
+        let trailer = vec![0x24, 0x01, 0x99];
+        let sample = annex_b_sample_with_start_codes(&[
+            (4, bl.clone()),
+            (3, el),
+            (3, trailer.clone()),
+        ]);
+        let expected = annex_b_sample_with_start_codes(&[(4, bl), (4, trailer)]);
+
+        let request = format!(
+            r#"{{"sampleBase64":"{}","framing":"annex_b"}}"#,
+            BASE64.encode(&sample)
+        );
+        let result: serde_json::Value =
+            serde_json::from_str(&process_dv_sample_json(&request).unwrap()).unwrap();
+        assert_eq!(result["elNalsDropped"], 1);
+        let out = BASE64
+            .decode(result["outputBase64"].as_str().unwrap())
+            .unwrap();
+        assert_eq!(out, expected);
+    }
 }
