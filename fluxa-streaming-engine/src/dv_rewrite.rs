@@ -81,10 +81,12 @@ pub(crate) fn dv_rewrite_segment_bytes(
     } else if is_annexb {
         let mut state = NalRewriteState::new_rpu_convert(rpu_mode, zero_level5, remove_hdr10plus);
         let mut out = state.process(data);
-        let (conv, fail) = state.rpu_stats();
+        let (conv, fail, el_dropped) = state.rpu_stats();
         out.extend(state.flush());
-        stats::add(conv, fail, 0);
-        eprintln!("[fluxa/rpu_convert_sync] annexb rpu_converted={conv} rpu_failed={fail}");
+        stats::add(conv, fail, el_dropped);
+        eprintln!(
+            "[fluxa/rpu_convert_sync] annexb rpu_converted={conv} rpu_failed={fail} el_dropped={el_dropped}"
+        );
         out
     } else {
         // fMP4 (.m4s segments, HLS)
@@ -759,11 +761,13 @@ fn stream_rpu_convert(
     loop {
         let r = upstream.read(&mut buf).unwrap_or(0);
         if r == 0 {
-            let (conv, fail) = state.rpu_stats();
+            let (conv, fail, el_dropped) = state.rpu_stats();
             let tail = state.flush();
             let _ = downstream.write_all(&tail);
-            stats::add(conv, fail, 0);
-            eprintln!("[fluxa/rpu_convert] stream_end rpu_converted={conv} rpu_failed={fail}");
+            stats::add(conv, fail, el_dropped);
+            eprintln!(
+                "[fluxa/rpu_convert] stream_end rpu_converted={conv} rpu_failed={fail} el_dropped={el_dropped}"
+            );
             break;
         }
         let out = state.process(&buf[..r]);
@@ -1134,6 +1138,7 @@ struct NalRewriteState {
     mode: NalProcessMode,
     rpu_converted: u32,
     rpu_failed: u32,
+    el_dropped: u32,
 }
 
 impl NalRewriteState {
@@ -1153,6 +1158,7 @@ impl NalRewriteState {
             },
             rpu_converted: 0,
             rpu_failed: 0,
+            el_dropped: 0,
         }
     }
 
@@ -1162,6 +1168,7 @@ impl NalRewriteState {
             mode: NalProcessMode::Hdr10PlusStrip,
             rpu_converted: 0,
             rpu_failed: 0,
+            el_dropped: 0,
         }
     }
 
@@ -1173,17 +1180,19 @@ impl NalRewriteState {
         }
         let mut out = Vec::new();
         for window in positions.windows(2) {
-            let (conv, fail) = emit_nal(&self.pending[window[0]..window[1]], &self.mode, &mut out);
+            let (conv, fail, dropped) =
+                emit_nal(&self.pending[window[0]..window[1]], &self.mode, &mut out);
             self.rpu_converted += conv;
             self.rpu_failed += fail;
+            self.el_dropped += dropped;
         }
         let last = *positions.last().unwrap();
         self.pending = self.pending[last..].to_vec();
         out
     }
 
-    fn rpu_stats(&self) -> (u32, u32) {
-        (self.rpu_converted, self.rpu_failed)
+    fn rpu_stats(&self) -> (u32, u32, u32) {
+        (self.rpu_converted, self.rpu_failed, self.el_dropped)
     }
 
     fn flush(mut self) -> Vec<u8> {
@@ -1191,22 +1200,25 @@ impl NalRewriteState {
             return Vec::new();
         }
         let mut out = Vec::new();
-        let (conv, fail) = emit_nal(&self.pending, &self.mode, &mut out);
+        let (conv, fail, dropped) = emit_nal(&self.pending, &self.mode, &mut out);
         self.rpu_converted += conv;
         self.rpu_failed += fail;
+        self.el_dropped += dropped;
         out
     }
 }
 
-/// Emit one Annex-B NAL unit to `out` and return `(rpu_converted, rpu_failed)`.
-fn emit_nal(nal_with_sc: &[u8], mode: &NalProcessMode, out: &mut Vec<u8>) -> (u32, u32) {
+/// Emit one Annex-B NAL unit to `out` and return `(rpu_converted, rpu_failed, el_dropped)`.
+fn emit_nal(nal_with_sc: &[u8], mode: &NalProcessMode, out: &mut Vec<u8>) -> (u32, u32, u32) {
     let sc = start_code_len(nal_with_sc);
     let nal = &nal_with_sc[sc..];
     if nal.len() < 2 {
         out.extend_from_slice(nal_with_sc);
-        return (0, 0);
+        return (0, 0, 0);
     }
     let nal_type = (nal[0] >> 1) & 0x3F;
+    // HEVC NAL header: nuh_layer_id lives in bits [8:3] across both header bytes.
+    let layer_id = ((nal[0] & 0x01) << 5) | (nal[1] >> 3);
 
     match mode {
         NalProcessMode::RpuConvert {
@@ -1217,20 +1229,24 @@ fn emit_nal(nal_with_sc: &[u8], mode: &NalProcessMode, out: &mut Vec<u8>) -> (u3
             // Single-pass: strip HDR10+ SEIs and convert RPU NALs together.
             if *remove_hdr10plus && nal_is_hdr10plus_sei(nal) {
                 eprintln!("[fluxa/rpu_convert] stripped_hdr10plus_sei_nal");
-                return (0, 0);
+                return (0, 0, 0);
             }
             if nal_type == 62 {
                 if let Some(converted) = convert_rpu_nal(nal, *rpu_mode, *zero_level5) {
                     out.extend_from_slice(&nal_with_sc[..sc]);
                     out.extend_from_slice(&converted);
-                    return (1, 0);
+                    return (1, 0, 0);
                 }
                 // Conversion failed: keep original
                 out.extend_from_slice(nal_with_sc);
-                return (0, 1);
+                return (0, 1, 0);
+            }
+            if layer_id > 0 {
+                // Enhancement layer NAL — not needed for single-layer DV8.1.
+                return (0, 0, 1);
             }
             out.extend_from_slice(nal_with_sc);
-            (0, 0)
+            (0, 0, 0)
         }
         NalProcessMode::Hdr10PlusStrip => {
             if nal_is_hdr10plus_sei(nal) {
@@ -1238,7 +1254,7 @@ fn emit_nal(nal_with_sc: &[u8], mode: &NalProcessMode, out: &mut Vec<u8>) -> (u3
             } else {
                 out.extend_from_slice(nal_with_sc);
             }
-            (0, 0)
+            (0, 0, 0)
         }
     }
 }
@@ -1736,6 +1752,36 @@ mod tests {
         v.extend_from_slice(&header);
         v.extend_from_slice(payload);
         v
+    }
+
+    fn make_nal_with_layer(nal_type: u8, layer_id: u8, payload: &[u8]) -> Vec<u8> {
+        let byte0 = ((nal_type << 1) & 0xFE) | ((layer_id >> 5) & 0x01);
+        let byte1 = ((layer_id & 0x1F) << 3) | 0x01;
+        let mut v = vec![0x00, 0x00, 0x00, 0x01, byte0, byte1];
+        v.extend_from_slice(payload);
+        v
+    }
+
+    #[test]
+    fn nal_state_annexb_drops_el_nal_like_length_delimited_does() {
+        let bl = make_nal_with_layer(1, 0, &[0xAA, 0xBB]);
+        let el = make_nal_with_layer(1, 1, &[0xCC, 0xDD]);
+        let mut input = bl.clone();
+        input.extend_from_slice(&el);
+        input.extend_from_slice(&make_nal(9, &[0xFF])); // trailing NAL forces el to flush
+
+        let mut state = NalRewriteState::new(2);
+        let out = state.process(&input);
+        assert!(
+            out.windows(bl.len()).any(|w| w == bl.as_slice()),
+            "base-layer NAL must survive"
+        );
+        assert!(
+            !out.windows(el.len()).any(|w| w == el.as_slice()),
+            "enhancement-layer NAL must be dropped, matching the fMP4 rewriter"
+        );
+        let (_, _, el_dropped) = state.rpu_stats();
+        assert_eq!(el_dropped, 1);
     }
 
     #[test]
