@@ -1,6 +1,7 @@
 use ::dolby_vision::rpu::dovi_rpu::DoviRpu;
 use ::dolby_vision::rpu::rpu_data_nlq::DoviELType;
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
+use crate::dolby_vision_plan::{DvPlaybackPlan, SampleExecutionPlan};
 use serde::{Deserialize, Serialize};
 
 const RPU_NAL_TYPE: u8 = 62;
@@ -21,19 +22,20 @@ pub enum Framing {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize)]
 #[serde(rename_all = "snake_case")]
-pub enum EnhancementLayer {
-    #[default]
+pub enum EnhancementLayerKind {
     None,
     Mel,
     Fel,
+    #[default]
+    Unknown,
 }
 
-impl From<Option<&DoviELType>> for EnhancementLayer {
+impl From<Option<&DoviELType>> for EnhancementLayerKind {
     fn from(value: Option<&DoviELType>) -> Self {
         match value {
-            Some(DoviELType::MEL) => EnhancementLayer::Mel,
-            Some(DoviELType::FEL) => EnhancementLayer::Fel,
-            None => EnhancementLayer::None,
+            Some(DoviELType::MEL) => EnhancementLayerKind::Mel,
+            Some(DoviELType::FEL) => EnhancementLayerKind::Fel,
+            None => EnhancementLayerKind::None,
         }
     }
 }
@@ -48,12 +50,12 @@ struct SampleRequest {
     nal_length_size: u8,
     #[serde(default = "default_mode")]
     mode: u8,
+    #[serde(default = "default_drop_el")]
+    drop_el: bool,
+    #[serde(default)]
+    strip_dv_rpu: bool,
     #[serde(default)]
     strip_hdr10_plus: bool,
-    /// True when this sample is still CENC/Widevine-encrypted. NAL-level
-    /// rewriting requires the plaintext bitstream, so an encrypted sample
-    /// can't be transformed here — the host must decide on a non-rewrite
-    /// fallback (native decode or reject) instead.
     #[serde(default)]
     encrypted: bool,
 }
@@ -64,6 +66,10 @@ fn default_nal_length_size() -> u8 {
 
 fn default_mode() -> u8 {
     2
+}
+
+fn default_drop_el() -> bool {
+    true
 }
 
 #[derive(Debug, Default, Serialize)]
@@ -77,21 +83,12 @@ pub struct SampleTransformResult {
     rpu_converted: u32,
     rpu_failed: u32,
     el_nals_dropped: u32,
-    enhancement_layer: EnhancementLayer,
+    enhancement_layer: EnhancementLayerKind,
     hdr10_plus_messages_removed: u32,
     conversion_possible: bool,
     error: Option<String>,
 }
 
-/// Removes only HDR10+ dynamic-metadata SEI messages from a prefix/suffix SEI
-/// NAL, walking the payload_type/payload_size fields message by message so
-/// other SEI messages in the same NAL (mastering display, content light
-/// level, …) are preserved rather than dropped along with it.
-///
-/// Does not undo NAL emulation-prevention byte insertion — as with the
-/// existing single-message detector this assumes none land inside the
-/// payload_type/payload_size fields themselves, which holds for the small
-/// values those fields take in practice.
 fn strip_hdr10plus_sei(nal: &[u8]) -> (Vec<u8>, u32) {
     let mut out = Vec::with_capacity(nal.len());
     let Some(header) = nal.get(..2) else {
@@ -151,8 +148,6 @@ fn strip_hdr10plus_sei(nal: &[u8]) -> (Vec<u8>, u32) {
     }
 
     if kept_messages == 0 {
-        // Nothing left but the header — drop the trailing bits too so the
-        // caller can recognise an empty NAL by length alone.
         return (header.to_vec(), removed);
     }
     if let Some(trailing) = nal.get(i..) {
@@ -278,71 +273,120 @@ pub fn process_dv_sample_json(input: &str) -> Option<String> {
         .ok();
     }
 
-    let nals = match request.framing {
-        Framing::AnnexB => split_annex_b(&sample),
-        Framing::LengthDelimited => split_length_delimited(&sample, request.nal_length_size),
+    let plan = SampleExecutionPlan {
+        rpu_mode: Some(request.mode),
+        drop_el: request.drop_el,
+        strip_dv_rpu: request.strip_dv_rpu,
+        strip_hdr10plus: request.strip_hdr10_plus,
     };
-
-    let Some(nals) = nals else {
-        return serde_json::to_string(&SampleTransformResult {
+    let result = transform(&sample, request.framing, request.nal_length_size, &plan)
+        .unwrap_or_else(|error| SampleTransformResult {
             ok: false,
             output_base64: Some(request.sample_base64),
             output_size: sample.len(),
-            error: Some("failed_to_parse_nal_units".to_string()),
+            error: Some(error.to_string()),
             ..Default::default()
-        })
-        .ok();
+        });
+    serde_json::to_string(&result).ok()
+}
+
+#[allow(dead_code)]
+pub(crate) fn process_dv_sample(
+    sample: &[u8],
+    framing: Framing,
+    nal_length_size: u8,
+    plan: &DvPlaybackPlan,
+) -> SampleTransformResult {
+    let execution_plan = SampleExecutionPlan::from(plan);
+    transform(sample, framing, nal_length_size, &execution_plan).unwrap_or_else(|error| {
+        SampleTransformResult {
+            ok: false,
+            output_base64: Some(BASE64.encode(sample)),
+            output_size: sample.len(),
+            error: Some(error.to_string()),
+            ..Default::default()
+        }
+    })
+}
+
+enum SampleParseError {
+    FailedToParseNalUnits,
+}
+
+impl std::fmt::Display for SampleParseError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SampleParseError::FailedToParseNalUnits => write!(f, "failed_to_parse_nal_units"),
+        }
+    }
+}
+
+fn transform(
+    sample: &[u8],
+    framing: Framing,
+    nal_length_size: u8,
+    plan: &SampleExecutionPlan,
+) -> Result<SampleTransformResult, SampleParseError> {
+    let nals = match framing {
+        Framing::AnnexB => split_annex_b(sample),
+        Framing::LengthDelimited => split_length_delimited(sample, nal_length_size),
+    };
+    let Some(nals) = nals else {
+        return Err(SampleParseError::FailedToParseNalUnits);
     };
 
     let mut rpu_found = 0u32;
     let mut rpu_failed = 0u32;
-    let mut enhancement_layer = EnhancementLayer::None;
+    let mut enhancement_layer = EnhancementLayerKind::Unknown;
     let mut converted_rpu: Vec<Option<Vec<u8>>> = Vec::with_capacity(nals.len());
     let mut any_conversion_failed = false;
 
     for nal in &nals {
-        if nal.nal_type == RPU_NAL_TYPE && nal.layer_id == 0 {
-            rpu_found += 1;
-            match DoviRpu::parse_unspec62_nalu(nal.bytes) {
-                Ok(mut rpu) => {
-                    enhancement_layer = EnhancementLayer::from(rpu.el_type.as_ref());
-                    // mode 2/3 target Profile 8 specifically — convert_with_mode
-                    // updates dovi_profile in place, so a mismatch here means the
-                    // conversion silently produced the wrong output profile and
-                    // must be treated as a failure, not emitted.
-                    let wrong_output_profile = |rpu: &DoviRpu| {
-                        matches!(request.mode, 2 | 3) && rpu.dovi_profile != 8
-                    };
-                    let converted = match rpu.convert_with_mode(request.mode) {
-                        Ok(()) if wrong_output_profile(&rpu) => None,
-                        Ok(()) => rpu.write_hevc_unspec62_nalu().ok(),
-                        Err(_) => None,
-                    };
-                    match converted {
-                        Some(bytes) => converted_rpu.push(Some(bytes)),
-                        None => {
-                            rpu_failed += 1;
-                            any_conversion_failed = true;
-                            converted_rpu.push(None);
-                        }
+        if nal.nal_type != RPU_NAL_TYPE || nal.layer_id != 0 {
+            converted_rpu.push(None);
+            continue;
+        }
+        rpu_found += 1;
+        if plan.strip_dv_rpu {
+            converted_rpu.push(None);
+            continue;
+        }
+        let Some(rpu_mode) = plan.rpu_mode else {
+            converted_rpu.push(None);
+            continue;
+        };
+        match DoviRpu::parse_unspec62_nalu(nal.bytes) {
+            Ok(mut rpu) => {
+                enhancement_layer = EnhancementLayerKind::from(rpu.el_type.as_ref());
+                let wrong_output_profile =
+                    |rpu: &DoviRpu| matches!(rpu_mode, 2 | 3) && rpu.dovi_profile != 8;
+                let converted = match rpu.convert_with_mode(rpu_mode) {
+                    Ok(()) if wrong_output_profile(&rpu) => None,
+                    Ok(()) => rpu.write_hevc_unspec62_nalu().ok(),
+                    Err(_) => None,
+                };
+                match converted {
+                    Some(bytes) => converted_rpu.push(Some(bytes)),
+                    None => {
+                        rpu_failed += 1;
+                        any_conversion_failed = true;
+                        converted_rpu.push(None);
                     }
                 }
-                Err(_) => {
-                    rpu_failed += 1;
-                    any_conversion_failed = true;
-                    converted_rpu.push(None);
-                }
             }
-        } else {
-            converted_rpu.push(None);
+            Err(_) => {
+                rpu_failed += 1;
+                any_conversion_failed = true;
+                converted_rpu.push(None);
+            }
         }
     }
 
     if any_conversion_failed {
-        return serde_json::to_string(&SampleTransformResult {
+        return Ok(SampleTransformResult {
             ok: true,
             changed: false,
-            output_base64: Some(request.sample_base64),
+            output_base64: Some(BASE64.encode(sample)),
             output_size: sample.len(),
             rpu_found,
             rpu_converted: 0,
@@ -352,21 +396,24 @@ pub fn process_dv_sample_json(input: &str) -> Option<String> {
             hdr10_plus_messages_removed: 0,
             conversion_possible: true,
             error: Some("rpu_conversion_failed_original_sample_kept".to_string()),
-        })
-        .ok();
+        });
     }
 
     let mut output = Vec::with_capacity(sample.len());
     let mut el_nals_dropped = 0u32;
+    let mut rpu_removed = 0u32;
     let mut rpu_converted = 0u32;
-    let is_annex_b = matches!(request.framing, Framing::AnnexB);
-
+    let is_annex_b = matches!(framing, Framing::AnnexB);
     let mut hdr10_plus_messages_removed = 0u32;
 
     for (nal, replacement) in nals.iter().zip(converted_rpu.iter()) {
-        let is_el = nal.layer_id != 0 || nal.nal_type == EL_NAL_TYPE_63;
+        let is_el = plan.drop_el && (nal.layer_id != 0 || nal.nal_type == EL_NAL_TYPE_63);
         if is_el {
             el_nals_dropped += 1;
+            continue;
+        }
+        if plan.strip_dv_rpu && nal.nal_type == RPU_NAL_TYPE && nal.layer_id == 0 {
+            rpu_removed += 1;
             continue;
         }
         let bytes = if let Some(replacement) = replacement {
@@ -378,7 +425,7 @@ pub fn process_dv_sample_json(input: &str) -> Option<String> {
 
         let is_sei = nal.layer_id == 0
             && (nal.nal_type == SEI_PREFIX_NAL_TYPE || nal.nal_type == SEI_SUFFIX_NAL_TYPE);
-        let stripped_sei = if request.strip_hdr10_plus && is_sei {
+        let stripped_sei = if plan.strip_hdr10plus && is_sei {
             let (stripped, removed) = strip_hdr10plus_sei(bytes);
             hdr10_plus_messages_removed += removed;
             Some(stripped)
@@ -387,8 +434,6 @@ pub fn process_dv_sample_json(input: &str) -> Option<String> {
         };
         let bytes = stripped_sei.as_deref().unwrap_or(bytes);
         if bytes.len() <= 2 {
-            // Every message in this SEI NAL was HDR10+ dynamic metadata — drop
-            // the now-empty NAL entirely rather than emit a bare header.
             continue;
         }
 
@@ -401,11 +446,14 @@ pub fn process_dv_sample_json(input: &str) -> Option<String> {
         }
     }
 
-    let changed = rpu_converted > 0 || el_nals_dropped > 0 || hdr10_plus_messages_removed > 0;
+    let changed = rpu_converted > 0
+        || rpu_removed > 0
+        || el_nals_dropped > 0
+        || hdr10_plus_messages_removed > 0;
     let output_base64 = BASE64.encode(&output);
     let output_size = output.len();
 
-    serde_json::to_string(&SampleTransformResult {
+    Ok(SampleTransformResult {
         ok: true,
         changed,
         output_base64: Some(output_base64),
@@ -419,7 +467,6 @@ pub fn process_dv_sample_json(input: &str) -> Option<String> {
         conversion_possible: true,
         error: None,
     })
-    .ok()
 }
 
 #[cfg(test)]
@@ -598,6 +645,67 @@ mod tests {
     }
 
     #[test]
+    fn process_dv_sample_executes_a_convert_to_dv81_plan() {
+        use crate::dolby_vision_plan::{DvContainer, DvFallbackMode, DvProfile, build_dv_playback_plan};
+
+        let (plan, _) = build_dv_playback_plan(
+            DvProfile::P7,
+            DvContainer::RawHevc,
+            DvFallbackMode::ConvertDv81,
+            true,
+            false,
+            false,
+            false,
+            true,
+            false,
+            false,
+        );
+        assert!(plan.validate().is_ok());
+
+        let bl = vec![0x26, 0x01, 0x00, 0x11];
+        let el = el_nal(1);
+        let sample = annex_b_sample(&[bl.clone(), el]);
+
+        let result = process_dv_sample(&sample, Framing::AnnexB, 4, &plan);
+        assert_eq!(result.el_nals_dropped, 1);
+        let out = BASE64
+            .decode(result.output_base64.unwrap())
+            .unwrap();
+        assert_eq!(out, annex_b_sample(&[bl]));
+    }
+
+    #[test]
+    fn process_dv_sample_executes_a_strip_to_hdr10_plan_by_dropping_the_rpu() {
+        use crate::dolby_vision_plan::{DvContainer, DvFallbackMode, DvProfile, build_dv_playback_plan};
+
+        let (plan, _) = build_dv_playback_plan(
+            DvProfile::P8Hdr10,
+            DvContainer::Mp4,
+            DvFallbackMode::Auto,
+            true,
+            false,
+            false,
+            false,
+            false,
+            false,
+            false,
+        );
+        assert!(plan.strip_dv_rpu);
+
+        let bl = vec![0x26, 0x01, 0x00, 0x11];
+        let rpu = vec![0x7C, 0x01, 0xAA, 0xBB];
+        let sample = annex_b_sample(&[bl.clone(), rpu]);
+
+        let result = process_dv_sample(&sample, Framing::AnnexB, 4, &plan);
+        assert_eq!(result.rpu_found, 1);
+        assert_eq!(result.rpu_converted, 0);
+        let out = BASE64
+            .decode(result.output_base64.unwrap())
+            .unwrap();
+        assert_eq!(out, annex_b_sample(&[bl]));
+    }
+
+    #[test]
     fn malformed_sample_falls_back_to_original() {
         let request = format!(
             r#"{{"sampleBase64":"{}","framing":"annex_b"}}"#,
@@ -694,9 +802,6 @@ mod tests {
 
     #[test]
     fn annex_b_three_byte_start_codes_are_parsed() {
-        // The transformer normalizes every emitted start code to 4 bytes, so a
-        // 3-byte-start-code input NAL survives with its payload intact even
-        // though the raw bytes aren't identical to the input.
         let vcl = vec![0x26, 0x01, 0x00, 0x11];
         let sample = annex_b_sample_with_start_codes(&[(3, vcl.clone())]);
         let expected = annex_b_sample_with_start_codes(&[(4, vcl)]);

@@ -291,9 +291,6 @@ mod tests {
 
     #[test]
     fn dv_proxy_structured_caps_p8_only_still_allows_p7_convert() {
-        // Legacy deviceHasDvDecoder=false would reject this; structured
-        // capabilities say the device decodes P8 (just not native P7), which is
-        // exactly what P7->P8.1 conversion needs.
         let p = plan(
             r#"{"stream":{"dvProfile":7},"url":"https://cdn.example/stream.hevc","fallbackMode":"convert_dv81","deviceHasDvDecoder":false,"deviceCapabilities":{"profile7":false,"profile8":true}}"#,
         );
@@ -303,9 +300,6 @@ mod tests {
 
     #[test]
     fn dv_proxy_runtime_verified_p8_counts_even_when_not_advertised() {
-        // MediaCodecList never listed Profile 8, but an actual codec-instantiate
-        // probe succeeded — must count as supported, matching real Amlogic-class
-        // under-advertising devices.
         let p = plan(
             r#"{"stream":{"dvProfile":7},"url":"https://cdn.example/stream.hevc","fallbackMode":"convert_dv81","deviceHasDvDecoder":false,"deviceCapabilities":{"profile7":{"advertised":false,"runtimeVerified":false},"profile8":{"advertised":false,"runtimeVerified":true}}}"#,
         );
@@ -322,8 +316,6 @@ mod tests {
 
     #[test]
     fn dv_proxy_structured_caps_no_p7_no_p8_rejects_convert() {
-        // Neither P7 nor P8 decodable — must not attempt native passthrough or
-        // conversion; falls through to the header-only dvcc_strip fallback.
         let p = plan(
             r#"{"stream":{"dvProfile":7},"url":"https://cdn.example/stream.hevc","fallbackMode":"convert_dv81","deviceHasDvDecoder":true,"deviceCapabilities":{"profile5":true,"profile7":false,"profile8":false}}"#,
         );
@@ -392,9 +384,7 @@ mod tests {
 
     #[test]
     fn dv_detection_dvhe_08_01_in_name_gives_p8_unknown_not_p8_1() {
-        // "01" here is the codec-string *level*, not dv_bl_signal_compatibility_id —
-        // that field only exists in the dvcC/dvvC box. Without an explicit dvCompatId
-        // this must not guess P8.1; it stays P8Unknown.
+        // "01" is codec-string level, not compat id — must not guess P8.1.
         let p = plan(
             r#"{"stream":{"name":"dvhe.08.01 Remux"},"url":"https://cdn.example/f.mkv","fallbackMode":"auto"}"#,
         );
