@@ -306,12 +306,21 @@ pub fn process_dv_sample_json(input: &str) -> Option<String> {
             match DoviRpu::parse_unspec62_nalu(nal.bytes) {
                 Ok(mut rpu) => {
                     enhancement_layer = EnhancementLayer::from(rpu.el_type.as_ref());
-                    match rpu
-                        .convert_with_mode(request.mode)
-                        .and_then(|()| rpu.write_hevc_unspec62_nalu())
-                    {
-                        Ok(bytes) => converted_rpu.push(Some(bytes)),
-                        Err(_) => {
+                    // mode 2/3 target Profile 8 specifically — convert_with_mode
+                    // updates dovi_profile in place, so a mismatch here means the
+                    // conversion silently produced the wrong output profile and
+                    // must be treated as a failure, not emitted.
+                    let wrong_output_profile = |rpu: &DoviRpu| {
+                        matches!(request.mode, 2 | 3) && rpu.dovi_profile != 8
+                    };
+                    let converted = match rpu.convert_with_mode(request.mode) {
+                        Ok(()) if wrong_output_profile(&rpu) => None,
+                        Ok(()) => rpu.write_hevc_unspec62_nalu().ok(),
+                        Err(_) => None,
+                    };
+                    match converted {
+                        Some(bytes) => converted_rpu.push(Some(bytes)),
+                        None => {
                             rpu_failed += 1;
                             any_conversion_failed = true;
                             converted_rpu.push(None);
