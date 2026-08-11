@@ -5,6 +5,12 @@ use serde::{Deserialize, Serialize};
 
 const RPU_NAL_TYPE: u8 = 62;
 const EL_NAL_TYPE_63: u8 = 63;
+const SEI_PREFIX_NAL_TYPE: u8 = 39;
+const SEI_SUFFIX_NAL_TYPE: u8 = 40;
+const HDR10PLUS_PAYLOAD_TYPE: u32 = 4;
+const ITU_T_T35_COUNTRY_CODE_USA: u8 = 0xB5;
+const HDR10PLUS_PROVIDER_CODE: [u8; 2] = [0x00, 0x3C];
+const HDR10PLUS_PROVIDER_ORIENTED_CODE: [u8; 2] = [0x00, 0x01];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -42,6 +48,8 @@ struct SampleRequest {
     nal_length_size: u8,
     #[serde(default = "default_mode")]
     mode: u8,
+    #[serde(default)]
+    strip_hdr10_plus: bool,
 }
 
 fn default_nal_length_size() -> u8 {
@@ -64,7 +72,86 @@ pub struct SampleTransformResult {
     rpu_failed: u32,
     el_nals_dropped: u32,
     enhancement_layer: EnhancementLayer,
+    hdr10_plus_messages_removed: u32,
     error: Option<String>,
+}
+
+/// Removes only HDR10+ dynamic-metadata SEI messages from a prefix/suffix SEI
+/// NAL, walking the payload_type/payload_size fields message by message so
+/// other SEI messages in the same NAL (mastering display, content light
+/// level, …) are preserved rather than dropped along with it.
+///
+/// Does not undo NAL emulation-prevention byte insertion — as with the
+/// existing single-message detector this assumes none land inside the
+/// payload_type/payload_size fields themselves, which holds for the small
+/// values those fields take in practice.
+fn strip_hdr10plus_sei(nal: &[u8]) -> (Vec<u8>, u32) {
+    let mut out = Vec::with_capacity(nal.len());
+    let Some(header) = nal.get(..2) else {
+        return (nal.to_vec(), 0);
+    };
+    out.extend_from_slice(header);
+
+    let mut i = 2;
+    let mut removed = 0u32;
+    let mut kept_messages = 0u32;
+    while i < nal.len() {
+        if nal.get(i) == Some(&0x80) && i == nal.len() - 1 {
+            break;
+        }
+
+        let message_start = i;
+        let mut payload_type = 0u32;
+        while nal.get(i) == Some(&0xFF) {
+            payload_type += 255;
+            i += 1;
+        }
+        let Some(&last_type_byte) = nal.get(i) else {
+            break;
+        };
+        payload_type += last_type_byte as u32;
+        i += 1;
+
+        let mut payload_size = 0usize;
+        while nal.get(i) == Some(&0xFF) {
+            payload_size += 255;
+            i += 1;
+        }
+        let Some(&last_size_byte) = nal.get(i) else {
+            break;
+        };
+        payload_size += last_size_byte as usize;
+        i += 1;
+
+        let data_start = i;
+        let data_end = (data_start + payload_size).min(nal.len());
+        let Some(data) = nal.get(data_start..data_end) else {
+            break;
+        };
+
+        let is_hdr10plus = payload_type == HDR10PLUS_PAYLOAD_TYPE
+            && data.first() == Some(&ITU_T_T35_COUNTRY_CODE_USA)
+            && data.get(1..3) == Some(&HDR10PLUS_PROVIDER_CODE)
+            && data.get(3..5) == Some(&HDR10PLUS_PROVIDER_ORIENTED_CODE);
+
+        if is_hdr10plus {
+            removed += 1;
+        } else if let Some(message) = nal.get(message_start..data_end) {
+            kept_messages += 1;
+            out.extend_from_slice(message);
+        }
+        i = data_end;
+    }
+
+    if kept_messages == 0 {
+        // Nothing left but the header — drop the trailing bits too so the
+        // caller can recognise an empty NAL by length alone.
+        return (header.to_vec(), removed);
+    }
+    if let Some(trailing) = nal.get(i..) {
+        out.extend_from_slice(trailing);
+    }
+    (out, removed)
 }
 
 struct Nal<'a> {
@@ -234,6 +321,7 @@ pub fn process_dv_sample_json(input: &str) -> Option<String> {
             rpu_failed,
             el_nals_dropped: 0,
             enhancement_layer,
+            hdr10_plus_messages_removed: 0,
             error: Some("rpu_conversion_failed_original_sample_kept".to_string()),
         })
         .ok();
@@ -243,6 +331,8 @@ pub fn process_dv_sample_json(input: &str) -> Option<String> {
     let mut el_nals_dropped = 0u32;
     let mut rpu_converted = 0u32;
     let is_annex_b = matches!(request.framing, Framing::AnnexB);
+
+    let mut hdr10_plus_messages_removed = 0u32;
 
     for (nal, replacement) in nals.iter().zip(converted_rpu.iter()) {
         let is_el = nal.layer_id != 0 || nal.nal_type == EL_NAL_TYPE_63;
@@ -256,6 +346,23 @@ pub fn process_dv_sample_json(input: &str) -> Option<String> {
         } else {
             nal.bytes
         };
+
+        let is_sei = nal.layer_id == 0
+            && (nal.nal_type == SEI_PREFIX_NAL_TYPE || nal.nal_type == SEI_SUFFIX_NAL_TYPE);
+        let stripped_sei = if request.strip_hdr10_plus && is_sei {
+            let (stripped, removed) = strip_hdr10plus_sei(bytes);
+            hdr10_plus_messages_removed += removed;
+            Some(stripped)
+        } else {
+            None
+        };
+        let bytes = stripped_sei.as_deref().unwrap_or(bytes);
+        if bytes.len() <= 2 {
+            // Every message in this SEI NAL was HDR10+ dynamic metadata — drop
+            // the now-empty NAL entirely rather than emit a bare header.
+            continue;
+        }
+
         if is_annex_b {
             output.extend_from_slice(&[0, 0, 0, 1]);
             output.extend_from_slice(bytes);
@@ -265,7 +372,7 @@ pub fn process_dv_sample_json(input: &str) -> Option<String> {
         }
     }
 
-    let changed = rpu_converted > 0 || el_nals_dropped > 0;
+    let changed = rpu_converted > 0 || el_nals_dropped > 0 || hdr10_plus_messages_removed > 0;
     let output_base64 = BASE64.encode(&output);
     let output_size = output.len();
 
@@ -279,6 +386,7 @@ pub fn process_dv_sample_json(input: &str) -> Option<String> {
         rpu_failed: 0,
         el_nals_dropped,
         enhancement_layer,
+        hdr10_plus_messages_removed,
         error: None,
     })
     .ok()
@@ -301,6 +409,88 @@ mod tests {
             out.extend_from_slice(nal);
         }
         out
+    }
+
+    fn sei_nal(messages: &[(u32, Vec<u8>)]) -> Vec<u8> {
+        let mut nal = vec![0x4E, 0x01];
+        for (payload_type, data) in messages {
+            nal.push(*payload_type as u8);
+            nal.push(data.len() as u8);
+            nal.extend_from_slice(data);
+        }
+        nal.push(0x80);
+        nal
+    }
+
+    fn hdr10plus_message() -> Vec<u8> {
+        vec![0xB5, 0x00, 0x3C, 0x00, 0x01, 0, 0, 0, 0, 0]
+    }
+
+    #[test]
+    fn hdr10plus_message_stripped_other_sei_messages_preserved() {
+        let vcl = vec![0x26, 0x01, 0x00, 0x11];
+        let sei = sei_nal(&[
+            (4, hdr10plus_message()),
+            (137, vec![1, 2, 3]),
+        ]);
+        let sample = annex_b_sample(&[vcl, sei]);
+        let request = format!(
+            r#"{{"sampleBase64":"{}","framing":"annex_b","stripHdr10Plus":true}}"#,
+            BASE64.encode(&sample)
+        );
+        let result: serde_json::Value =
+            serde_json::from_str(&process_dv_sample_json(&request).unwrap()).unwrap();
+        assert_eq!(result["hdr10PlusMessagesRemoved"], 1);
+        assert_eq!(result["changed"], true);
+        let out = BASE64
+            .decode(result["outputBase64"].as_str().unwrap())
+            .unwrap();
+        let expected_sei = sei_nal(&[(137, vec![1, 2, 3])]);
+        assert!(
+            out.windows(expected_sei.len())
+                .any(|window| window == expected_sei.as_slice()),
+            "surviving SEI message should still be present"
+        );
+        assert!(
+            !out.windows(hdr10plus_message().len())
+                .any(|window| window == hdr10plus_message().as_slice()),
+            "HDR10+ message bytes must not appear in output"
+        );
+    }
+
+    #[test]
+    fn sei_nal_with_only_hdr10plus_message_is_dropped_entirely() {
+        let vcl = vec![0x26, 0x01, 0x00, 0x11];
+        let sei = sei_nal(&[(4, hdr10plus_message())]);
+        let sample = annex_b_sample(&[vcl.clone(), sei]);
+        let request = format!(
+            r#"{{"sampleBase64":"{}","framing":"annex_b","stripHdr10Plus":true}}"#,
+            BASE64.encode(&sample)
+        );
+        let result: serde_json::Value =
+            serde_json::from_str(&process_dv_sample_json(&request).unwrap()).unwrap();
+        let out = BASE64
+            .decode(result["outputBase64"].as_str().unwrap())
+            .unwrap();
+        assert_eq!(out, annex_b_sample(&[vcl]));
+    }
+
+    #[test]
+    fn strip_hdr10_plus_defaults_to_off() {
+        let vcl = vec![0x26, 0x01, 0x00, 0x11];
+        let sei = sei_nal(&[(4, hdr10plus_message())]);
+        let sample = annex_b_sample(&[vcl, sei.clone()]);
+        let request = format!(
+            r#"{{"sampleBase64":"{}","framing":"annex_b"}}"#,
+            BASE64.encode(&sample)
+        );
+        let result: serde_json::Value =
+            serde_json::from_str(&process_dv_sample_json(&request).unwrap()).unwrap();
+        assert_eq!(result["changed"], false);
+        let out = BASE64
+            .decode(result["outputBase64"].as_str().unwrap())
+            .unwrap();
+        assert!(out.windows(sei.len()).any(|window| window == sei.as_slice()));
     }
 
     #[test]
