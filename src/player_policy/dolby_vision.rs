@@ -36,18 +36,51 @@ struct DvProxyPlanRequest {
 }
 
 #[derive(Debug, Clone, Copy, Default, Deserialize)]
+#[serde(untagged)]
+enum DvProfileCapability {
+    #[default]
+    Unset,
+    /// Legacy shape: a device that has never run a runtime probe only knows
+    /// what MediaCodecList advertised.
+    Flag(bool),
+    /// A device that ran an actual codec-instantiate probe — `advertised`
+    /// alone can be false while `runtime_verified` is true (some decoders,
+    /// e.g. certain Amlogic SoCs, decode Profile 8 without ever listing it
+    /// in `getCapabilitiesForType`), so either one being true means support.
+    Verified {
+        #[serde(default)]
+        advertised: bool,
+        #[serde(default, rename = "runtimeVerified")]
+        runtime_verified: bool,
+    },
+}
+
+impl DvProfileCapability {
+    fn supported(self) -> bool {
+        match self {
+            DvProfileCapability::Unset => false,
+            DvProfileCapability::Flag(supported) => supported,
+            DvProfileCapability::Verified {
+                advertised,
+                runtime_verified,
+            } => advertised || runtime_verified,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct DvDecoderCapabilities {
     #[serde(default)]
-    profile4: bool,
+    profile4: DvProfileCapability,
     #[serde(default)]
-    profile5: bool,
+    profile5: DvProfileCapability,
     #[serde(default)]
-    profile7: bool,
+    profile7: DvProfileCapability,
     #[serde(default)]
-    profile8: bool,
+    profile8: DvProfileCapability,
     #[serde(default)]
-    profile10: bool,
+    profile10: DvProfileCapability,
 }
 
 /// Whether the device can decode `profile`, preferring the structured
@@ -57,11 +90,11 @@ fn decoder_supports(caps: Option<&DvDecoderCapabilities>, legacy_flag: bool, pro
         return legacy_flag;
     };
     match profile {
-        DvProfile::P4 => caps.profile4,
-        DvProfile::P5 => caps.profile5,
-        DvProfile::P7 => caps.profile7,
-        DvProfile::P8Hdr10 | DvProfile::P8Hlg | DvProfile::P8Unknown => caps.profile8,
-        DvProfile::P10Hdr10 | DvProfile::P10Other => caps.profile10,
+        DvProfile::P4 => caps.profile4.supported(),
+        DvProfile::P5 => caps.profile5.supported(),
+        DvProfile::P7 => caps.profile7.supported(),
+        DvProfile::P8Hdr10 | DvProfile::P8Hlg | DvProfile::P8Unknown => caps.profile8.supported(),
+        DvProfile::P10Hdr10 | DvProfile::P10Other => caps.profile10.supported(),
         DvProfile::Unknown => legacy_flag,
     }
 }

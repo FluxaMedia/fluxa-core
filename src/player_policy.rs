@@ -302,6 +302,25 @@ mod tests {
     }
 
     #[test]
+    fn dv_proxy_runtime_verified_p8_counts_even_when_not_advertised() {
+        // MediaCodecList never listed Profile 8, but an actual codec-instantiate
+        // probe succeeded — must count as supported, matching real Amlogic-class
+        // under-advertising devices.
+        let p = plan(
+            r#"{"stream":{"dvProfile":7},"url":"https://cdn.example/stream.hevc","fallbackMode":"convert_dv81","deviceHasDvDecoder":false,"deviceCapabilities":{"profile7":{"advertised":false,"runtimeVerified":false},"profile8":{"advertised":false,"runtimeVerified":true}}}"#,
+        );
+        assert_eq!(p["action"], "rpu_convert");
+    }
+
+    #[test]
+    fn dv_proxy_advertised_but_unverified_p8_still_counts() {
+        let p = plan(
+            r#"{"stream":{"dvProfile":7},"url":"https://cdn.example/stream.hevc","fallbackMode":"convert_dv81","deviceHasDvDecoder":false,"deviceCapabilities":{"profile8":{"advertised":true,"runtimeVerified":false}}}"#,
+        );
+        assert_eq!(p["action"], "rpu_convert");
+    }
+
+    #[test]
     fn dv_proxy_structured_caps_no_p7_no_p8_rejects_convert() {
         // Neither P7 nor P8 decodable — must not attempt native passthrough or
         // conversion; falls through to the header-only dvcc_strip fallback.
