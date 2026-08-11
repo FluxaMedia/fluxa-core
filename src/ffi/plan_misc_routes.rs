@@ -68,6 +68,9 @@ pub(super) fn route_dolby_vision_rpu(method: &str, args_json: &str) -> Outcome {
         "dolbyVisionConvertRpu" => {
             opt_json(dolby_vision_rpu::dolby_vision_convert_rpu_json(args_json))
         }
+        "dolbyVisionProcessSample" => {
+            opt_json(dolby_vision_sample::process_dv_sample_json(args_json))
+        }
 
         _ => Err(fail(
             ErrorKind::UnknownMethod,

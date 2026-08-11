@@ -57,6 +57,8 @@ mod device_resource;
 mod discovery_plan;
 #[cfg(feature = "native")]
 mod dolby_vision_rpu;
+#[cfg(feature = "native")]
+mod dolby_vision_sample;
 #[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
 mod external_sync;
 #[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]

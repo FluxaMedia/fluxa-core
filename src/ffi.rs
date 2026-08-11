@@ -56,6 +56,8 @@ use watchlist_offline_routes::{route_offline, route_watchlist};
 
 #[cfg(feature = "native")]
 use crate::dolby_vision_rpu;
+#[cfg(feature = "native")]
+use crate::dolby_vision_sample;
 use crate::{
     addon_protocol, addon_resource, addon_store, addon_uptime, anime_detection, app_state,
     calendar_plan, content_identity, content_warnings, core_contract, data_policy,
