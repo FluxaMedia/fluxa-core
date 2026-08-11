@@ -350,11 +350,24 @@ mod tests {
     }
 
     #[test]
-    fn dv_detection_dvhe_08_01_in_name_gives_p8_1() {
+    fn dv_detection_dvhe_08_01_in_name_gives_p8_unknown_not_p8_1() {
+        // "01" here is the codec-string *level*, not dv_bl_signal_compatibility_id —
+        // that field only exists in the dvcC/dvvC box. Without an explicit dvCompatId
+        // this must not guess P8.1; it stays P8Unknown.
         let p = plan(
             r#"{"stream":{"name":"dvhe.08.01 Remux"},"url":"https://cdn.example/f.mkv","fallbackMode":"auto"}"#,
         );
         assert_eq!(p["action"], "dvcc_strip");
+        assert_eq!(p["profile"], "P8");
+        assert_eq!(p["compatibility"], "HDR10_assumed");
+    }
+
+    #[test]
+    fn dv_detection_explicit_dv_profile_and_compat_id_still_gives_p8_1() {
+        // Compat id from an explicit field (not the codec string) is still trusted.
+        let p = plan(
+            r#"{"stream":{"name":"dvhe.08.01 Remux","dvProfile":8,"dvCompatId":1},"url":"https://cdn.example/f.mkv","fallbackMode":"auto"}"#,
+        );
         assert_eq!(p["profile"], "P8.1");
         assert_eq!(p["safety"], "low");
     }

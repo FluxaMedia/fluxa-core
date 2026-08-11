@@ -378,19 +378,19 @@ fn profile_from_nums(profile: i64, compat_id: Option<i64>) -> DvProfile {
 }
 
 /// Parse a DV fourcc codec string such as "dvhe.07.06" → P7.
+///
+/// The second field is the encoding *level*, not `dv_bl_signal_compatibility_id`
+/// — that value only lives in the dvcC/dvvC box, never in the codec string. So
+/// this never derives a compat_id here; profile 8 stays `P8Unknown` unless an
+/// explicit `dvCompatId` was supplied elsewhere.
 fn parse_dv_codec_string(text: &str) -> Option<DvProfile> {
     let lower = text.to_lowercase();
     for prefix in &["dvhe.", "dvh1.", "dva1.", "dvav."] {
         if let Some(pos) = lower.find(prefix) {
             let after = &text[pos + prefix.len()..];
             let mut parts = after.splitn(3, '.');
-            // Take only the leading digits from each field (e.g. "08" from "08.01 Remux").
             let profile: i64 = leading_digits(parts.next()?)?.parse().ok()?;
-            let compat: Option<i64> = parts
-                .next()
-                .and_then(leading_digits)
-                .and_then(|s| s.parse().ok());
-            return Some(profile_from_nums(profile, compat));
+            return Some(profile_from_nums(profile, None));
         }
     }
     None
