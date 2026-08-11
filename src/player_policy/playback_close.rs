@@ -19,6 +19,10 @@ pub(crate) fn playback_close_plan_json(input: &str) -> Option<String> {
         .get("duration")
         .and_then(Value::as_f64)
         .unwrap_or_default();
+    let playback_started = value
+        .get("playbackStarted")
+        .and_then(Value::as_bool)
+        .unwrap_or(true);
     let prefs = value.get("prefs").cloned().unwrap_or_else(|| json!({}));
     let safe_prefs: Value = crate::profile_prefs::profile_safe_prefs_json(&prefs.to_string())
         .and_then(|json| serde_json::from_str(&json).ok())
@@ -33,7 +37,7 @@ pub(crate) fn playback_close_plan_json(input: &str) -> Option<String> {
         .get("scrobbleTraktPause")
         .and_then(Value::as_bool)
         .unwrap_or(true);
-    let meaningful = time_pos > 30.0 && duration > 0.0;
+    let meaningful = playback_started && time_pos > 30.0 && duration > 0.0;
     let watched = meaningful && time_pos / duration >= threshold;
     let text_field = |source: Option<&Value>, names: &[&str]| {
         names
@@ -83,21 +87,23 @@ pub(crate) fn playback_close_plan_json(input: &str) -> Option<String> {
             refresh_external_continue_watching: Some(scrobble && meaningful),
         })
     };
-    let progress_action = progress(
-        episode,
-        if meaningful {
-            time_pos.floor() as i64
-        } else {
-            1
-        },
-        if duration > 0.0 {
-            duration.floor() as i64
-        } else {
-            0
-        },
-        scrobble_pause,
-        true,
-    );
+    let progress_action = playback_started.then(|| {
+        progress(
+            episode,
+            if meaningful {
+                time_pos.floor() as i64
+            } else {
+                1
+            },
+            if duration > 0.0 {
+                duration.floor() as i64
+            } else {
+                0
+            },
+            scrobble_pause,
+            true,
+        )
+    });
     let mark_watched_action = watched.then(|| {
         mark_watched_action_value(&MarkWatchedAction {
             series_id: text_field(Some(meta), &["id"]).unwrap_or_default(),
