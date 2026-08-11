@@ -50,6 +50,12 @@ struct SampleRequest {
     mode: u8,
     #[serde(default)]
     strip_hdr10_plus: bool,
+    /// True when this sample is still CENC/Widevine-encrypted. NAL-level
+    /// rewriting requires the plaintext bitstream, so an encrypted sample
+    /// can't be transformed here — the host must decide on a non-rewrite
+    /// fallback (native decode or reject) instead.
+    #[serde(default)]
+    encrypted: bool,
 }
 
 fn default_nal_length_size() -> u8 {
@@ -73,6 +79,7 @@ pub struct SampleTransformResult {
     el_nals_dropped: u32,
     enhancement_layer: EnhancementLayer,
     hdr10_plus_messages_removed: u32,
+    conversion_possible: bool,
     error: Option<String>,
 }
 
@@ -259,6 +266,18 @@ pub fn process_dv_sample_json(input: &str) -> Option<String> {
         }
     };
 
+    if request.encrypted {
+        return serde_json::to_string(&SampleTransformResult {
+            ok: true,
+            output_base64: Some(request.sample_base64),
+            output_size: sample.len(),
+            conversion_possible: false,
+            error: Some("encrypted_samples".to_string()),
+            ..Default::default()
+        })
+        .ok();
+    }
+
     let nals = match request.framing {
         Framing::AnnexB => split_annex_b(&sample),
         Framing::LengthDelimited => split_length_delimited(&sample, request.nal_length_size),
@@ -322,6 +341,7 @@ pub fn process_dv_sample_json(input: &str) -> Option<String> {
             el_nals_dropped: 0,
             enhancement_layer,
             hdr10_plus_messages_removed: 0,
+            conversion_possible: true,
             error: Some("rpu_conversion_failed_original_sample_kept".to_string()),
         })
         .ok();
@@ -387,6 +407,7 @@ pub fn process_dv_sample_json(input: &str) -> Option<String> {
         el_nals_dropped,
         enhancement_layer,
         hdr10_plus_messages_removed,
+        conversion_possible: true,
         error: None,
     })
     .ok()
@@ -543,6 +564,28 @@ mod tests {
         assert_eq!(result["changed"], false);
         assert_eq!(result["elNalsDropped"], 0);
         assert_eq!(result["rpuFound"], 0);
+    }
+
+    #[test]
+    fn encrypted_sample_is_never_rewritten() {
+        let rpu = {
+            let mut header = vec![0x7C, 0x01];
+            header.extend_from_slice(&[0xAA; 8]);
+            header
+        };
+        let sample = annex_b_sample(&[rpu]);
+        let request = format!(
+            r#"{{"sampleBase64":"{}","framing":"annex_b","encrypted":true}}"#,
+            BASE64.encode(&sample)
+        );
+        let result: serde_json::Value =
+            serde_json::from_str(&process_dv_sample_json(&request).unwrap()).unwrap();
+        assert_eq!(result["conversionPossible"], false);
+        assert_eq!(result["changed"], false);
+        let out = BASE64
+            .decode(result["outputBase64"].as_str().unwrap())
+            .unwrap();
+        assert_eq!(out, sample);
     }
 
     #[test]
