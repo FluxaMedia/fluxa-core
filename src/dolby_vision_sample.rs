@@ -321,6 +321,26 @@ impl std::fmt::Display for SampleParseError {
     }
 }
 
+#[cfg(feature = "fuzzing")]
+pub fn fuzz_process_sample(data: &[u8]) {
+    let Some((&flags, sample)) = data.split_first() else {
+        return;
+    };
+    let framing = if flags & 1 == 0 {
+        Framing::AnnexB
+    } else {
+        Framing::LengthDelimited
+    };
+    let nal_length_size = 1 + ((flags >> 1) & 0x3);
+    let plan = SampleExecutionPlan {
+        rpu_mode: Some(2),
+        drop_el: flags & 0x10 != 0,
+        strip_dv_rpu: flags & 0x20 != 0,
+        strip_hdr10plus: flags & 0x40 != 0,
+    };
+    let _ = transform(sample, framing, nal_length_size, &plan);
+}
+
 fn transform(
     sample: &[u8],
     framing: Framing,

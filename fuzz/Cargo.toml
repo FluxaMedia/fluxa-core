@@ -13,7 +13,7 @@ libfuzzer-sys = "0.4"
 [dependencies.fluxa_core]
 path = ".."
 default-features = false
-features = ["fuzzing"]
+features = ["fuzzing", "dv-codec"]
 
 [[bin]]
 name = "episode_matching"
@@ -39,6 +39,13 @@ bench = false
 [[bin]]
 name = "engine_dispatch"
 path = "fuzz_targets/engine_dispatch.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "dv_sample"
+path = "fuzz_targets/dv_sample.rs"
 test = false
 doc = false
 bench = false

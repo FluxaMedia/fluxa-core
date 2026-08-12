@@ -152,6 +152,8 @@ pub mod fuzz_targets {
         create_headless_engine, destroy_headless_engine, headless_engine_complete_effect_json,
         headless_engine_dispatch_json,
     };
+    #[cfg(feature = "dv-codec")]
+    pub use crate::dolby_vision_sample::{fuzz_process_sample, process_dv_sample_json};
 }
 
 #[cfg(all(test, any(feature = "full-api", not(feature = "streaming-shared"))))]
