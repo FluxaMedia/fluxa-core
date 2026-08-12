@@ -265,31 +265,41 @@ pub fn execute_scraper(
         .ok_or_else(|| "plugin worker pool unavailable".to_string())?;
     let (result, receiver) = mpsc::channel();
     let cancelled = Arc::new(AtomicBool::new(false));
-    worker
-        .jobs
-        .try_send(ScraperJob {
-            client,
-            code,
-            repository_url,
-            scraper_id,
-            scraper_settings_json,
-            tmdb_id,
-            media_type,
-            season,
-            episode,
-            result,
-            deadline: Instant::now() + Duration::from_secs(PLUGIN_TIMEOUT_SECS + 5),
-            cancelled: cancelled.clone(),
-        })
-        .map_err(|error| match error {
-            tokio::sync::mpsc::error::TrySendError::Full(_) => {
-                "plugin worker queue is full".to_string()
+    let deadline = Instant::now() + Duration::from_secs(PLUGIN_TIMEOUT_SECS + 5);
+    let job = ScraperJob {
+        client,
+        code,
+        repository_url,
+        scraper_id,
+        scraper_settings_json,
+        tmdb_id,
+        media_type,
+        season,
+        episode,
+        result,
+        deadline,
+        cancelled: cancelled.clone(),
+    };
+    let mut job = Some(job);
+    loop {
+        match worker.jobs.try_reserve() {
+            Ok(permit) => {
+                permit.send(job.take().expect("plugin job is present"));
+                break;
             }
-            tokio::sync::mpsc::error::TrySendError::Closed(_) => {
-                "plugin worker pool closed".to_string()
+            Err(tokio::sync::mpsc::error::TrySendError::Full(())) => {
+                if Instant::now() >= deadline {
+                    cancelled.store(true, Ordering::Release);
+                    return Err("plugin worker queue wait timed out".to_string());
+                }
+                std::thread::sleep(Duration::from_millis(25));
             }
-        })?;
-    match receiver.recv_timeout(Duration::from_secs(PLUGIN_TIMEOUT_SECS + 5)) {
+            Err(tokio::sync::mpsc::error::TrySendError::Closed(())) => {
+                return Err("plugin worker pool closed".to_string());
+            }
+        }
+    }
+    match receiver.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
         Ok(result) => result,
         Err(mpsc::RecvTimeoutError::Timeout) => {
             cancelled.store(true, Ordering::Release);
