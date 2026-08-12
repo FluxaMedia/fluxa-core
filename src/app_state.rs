@@ -243,7 +243,7 @@ fn default_buffering() -> bool {
     true
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct AppCoreAction {
     #[serde(rename = "type")]
@@ -310,16 +310,16 @@ pub fn app_core_dispatch_json(handle: u64, action_json: &str) -> Option<String> 
 
 pub fn app_core_dispatch_delta_json(handle: u64, action_json: &str) -> Option<String> {
     let action: AppCoreAction = serde_json::from_str(action_json).ok()?;
-    let patch = action_patch(&action);
     let state = lock_store().get(&handle)?.clone();
     let mut state = lock_app_state(&state)?;
-    if !reduce(&mut state, action) {
+    if !reduce(&mut state, action.clone()) {
         return None;
     }
+    let patch = action_patch(&action, &state);
     Some(json!({ "patch": patch }).to_string())
 }
 
-fn action_patch(action: &AppCoreAction) -> Value {
+fn action_patch(action: &AppCoreAction, state: &AppCoreState) -> Value {
     let (domain, field) = match action.action_type.as_str() {
         "setHomeCategories" => ("home", "categories"),
         "setHomeLoading" => ("home", "isLoading"),
@@ -370,7 +370,16 @@ fn action_patch(action: &AppCoreAction) -> Value {
         }
         _ => return json!({}),
     };
-    json!({ domain: { field: action.value } })
+    let normalized_value = serde_json::to_value(state)
+        .ok()
+        .and_then(|state| {
+            state
+                .get(domain)
+                .and_then(|domain| domain.get(field))
+                .cloned()
+        })
+        .unwrap_or(Value::Null);
+    json!({ domain: { field: normalized_value } })
 }
 
 pub fn app_core_set_player_position(handle: u64, position_ms: i64) -> bool {

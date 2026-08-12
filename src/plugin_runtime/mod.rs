@@ -11,8 +11,9 @@ use settings_layout::run_settings_layout;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::OnceLock;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::mpsc::{self, Sender};
 use std::time::Duration;
-use tokio::sync::Semaphore;
 use url::{Host, Url};
 
 pub(super) const PLUGIN_TIMEOUT_SECS: u64 = 60;
@@ -45,21 +46,81 @@ fn plugin_runtime() -> Result<&'static tokio::runtime::Runtime, String> {
         .map_err(Clone::clone)
 }
 
-fn plugin_slots() -> Arc<Semaphore> {
-    static SLOTS: OnceLock<Arc<Semaphore>> = OnceLock::new();
-    SLOTS
-        .get_or_init(|| {
-            let default = std::thread::available_parallelism()
-                .map(|cores| cores.get().clamp(1, 4))
-                .unwrap_or(2);
-            let count = std::env::var("FLUXA_PLUGIN_WORKERS")
-                .ok()
-                .and_then(|value| value.parse::<usize>().ok())
-                .filter(|value| (1..=8).contains(value))
-                .unwrap_or(default);
-            Arc::new(Semaphore::new(count))
-        })
-        .clone()
+struct ScraperJob {
+    client: Arc<dyn PluginHttpClient>,
+    code: String,
+    repository_url: String,
+    scraper_id: String,
+    scraper_settings_json: String,
+    tmdb_id: String,
+    media_type: String,
+    season: Option<i32>,
+    episode: Option<i32>,
+    result: Sender<Result<String, String>>,
+}
+
+struct ScraperWorker {
+    jobs: tokio::sync::mpsc::UnboundedSender<ScraperJob>,
+}
+
+fn plugin_worker_count() -> usize {
+    let default = if cfg!(target_os = "android") {
+        1
+    } else {
+        std::thread::available_parallelism()
+            .map(|cores| cores.get().clamp(1, 4))
+            .unwrap_or(2)
+    };
+    std::env::var("FLUXA_PLUGIN_WORKERS")
+        .ok()
+        .and_then(|value| value.parse::<usize>().ok())
+        .filter(|value| (1..=8).contains(value))
+        .unwrap_or(default)
+}
+
+fn scraper_workers() -> &'static [ScraperWorker] {
+    static WORKERS: OnceLock<Vec<ScraperWorker>> = OnceLock::new();
+    WORKERS.get_or_init(|| {
+        (0..plugin_worker_count())
+            .filter_map(|index| {
+                let (jobs, mut receiver) = tokio::sync::mpsc::unbounded_channel::<ScraperJob>();
+                let name = format!("fluxa-plugin-worker-{index}");
+                std::thread::Builder::new()
+                    .name(name)
+                    .spawn(move || {
+                        let runtime = tokio::runtime::Builder::new_current_thread()
+                            .enable_all()
+                            .build()
+                            .ok()?;
+                        let local = tokio::task::LocalSet::new();
+                        local.block_on(&runtime, async move {
+                            while let Some(job) = receiver.recv().await {
+                                let result = tokio::time::timeout(
+                                    Duration::from_secs(PLUGIN_TIMEOUT_SECS),
+                                    run(
+                                        job.client,
+                                        job.code,
+                                        format!("{}\u{1f}{}", job.repository_url, job.scraper_id),
+                                        job.scraper_id,
+                                        job.scraper_settings_json,
+                                        job.tmdb_id,
+                                        job.media_type,
+                                        job.season,
+                                        job.episode,
+                                    ),
+                                )
+                                .await
+                                .unwrap_or_else(|_| Err("plugin timed out".to_string()));
+                                let _ = job.result.send(result);
+                            }
+                        });
+                        Some(())
+                    })
+                    .ok()?;
+                Some(ScraperWorker { jobs })
+            })
+            .collect()
+    })
 }
 
 pub fn plugin_http_request_error(request: &PluginHttpRequest) -> Option<&'static str> {
@@ -170,6 +231,7 @@ pub trait PluginHttpClient: Send + Sync {
 pub fn execute_scraper(
     client: Arc<dyn PluginHttpClient>,
     code: String,
+    repository_url: String,
     scraper_id: String,
     scraper_settings_json: String,
     tmdb_id: String,
@@ -177,30 +239,33 @@ pub fn execute_scraper(
     season: Option<i32>,
     episode: Option<i32>,
 ) -> Result<String, String> {
-    let rt = plugin_runtime()?;
-    let slots = plugin_slots();
-    let local = tokio::task::LocalSet::new();
-    local.block_on(rt, async move {
-        let _slot = slots
-            .acquire_owned()
-            .await
-            .map_err(|_| "plugin worker pool closed".to_string())?;
-        tokio::time::timeout(
-            Duration::from_secs(PLUGIN_TIMEOUT_SECS),
-            run(
-                client,
-                code,
-                scraper_id,
-                scraper_settings_json,
-                tmdb_id,
-                media_type,
-                season,
-                episode,
-            ),
-        )
-        .await
-        .unwrap_or_else(|_| Err("plugin timed out".to_string()))
-    })
+    static NEXT_WORKER: AtomicUsize = AtomicUsize::new(0);
+    let workers = scraper_workers();
+    if workers.is_empty() {
+        return Err("plugin worker pool unavailable".to_string());
+    }
+    let worker = workers
+        .get(NEXT_WORKER.fetch_add(1, Ordering::Relaxed) % workers.len())
+        .ok_or_else(|| "plugin worker pool unavailable".to_string())?;
+    let (result, receiver) = mpsc::channel();
+    worker
+        .jobs
+        .send(ScraperJob {
+            client,
+            code,
+            repository_url,
+            scraper_id,
+            scraper_settings_json,
+            tmdb_id,
+            media_type,
+            season,
+            episode,
+            result,
+        })
+        .map_err(|_| "plugin worker pool closed".to_string())?;
+    receiver
+        .recv_timeout(Duration::from_secs(PLUGIN_TIMEOUT_SECS + 5))
+        .map_err(|_| "plugin worker result timed out".to_string())?
 }
 
 pub fn get_settings_layout(code: String, scraper_id: String) -> String {
@@ -274,6 +339,7 @@ mod tests {
         execute_scraper(
             mock_client(),
             code.to_string(),
+            "test-repository".to_string(),
             "test-scraper".to_string(),
             "{}".to_string(),
             tmdb_id.to_string(),
@@ -431,6 +497,7 @@ mod tests {
         let result = execute_scraper(
             mock_client(),
             code.to_string(),
+            "test-repository".to_string(),
             "my-scraper".to_string(),
             r#"{"quality":"1080p"}"#.to_string(),
             "1".to_string(),

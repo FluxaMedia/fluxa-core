@@ -50,10 +50,13 @@ async fn quickjs_context(scraper_id: &str) -> Result<(AsyncRuntime, AsyncContext
                 });
             }
         }
-        state.insert(scraper_id.to_string(), QuickJsState {
-            runtime: runtime.clone(),
-            context: context.clone(),
-        });
+        state.insert(
+            scraper_id.to_string(),
+            QuickJsState {
+                runtime: runtime.clone(),
+                context: context.clone(),
+            },
+        );
     });
     Ok((runtime, context, true))
 }
@@ -65,6 +68,7 @@ async fn quickjs_context(scraper_id: &str) -> Result<(AsyncRuntime, AsyncContext
 pub(super) async fn run(
     client: Arc<dyn PluginHttpClient>,
     code: String,
+    context_key: String,
     scraper_id: String,
     scraper_settings_json: String,
     tmdb_id: String,
@@ -72,7 +76,7 @@ pub(super) async fn run(
     season: Option<i32>,
     episode: Option<i32>,
 ) -> Result<String, String> {
-    let (qjs_rt, ctx, new_context) = quickjs_context(&scraper_id).await?;
+    let (qjs_rt, ctx, new_context) = quickjs_context(&context_key).await?;
     qjs_rt.set_memory_limit(plugin_memory_limit()).await;
     let deadline = std::time::Instant::now() + Duration::from_secs(PLUGIN_TIMEOUT_SECS);
     qjs_rt
@@ -151,7 +155,7 @@ pub(super) async fn run(
             } else {
                 scraper_settings_json.clone()
             };
-            let cache_key = (scraper_id.clone(), code_key);
+            let cache_key = (context_key.clone(), code_key);
             let function = SCRAPER_CACHE.with(|cache| {
                 let mut cache = cache.borrow_mut();
                 if let Some(function) = cache.get(&cache_key) {

@@ -195,6 +195,7 @@ pub fn app_core_update_player(
 pub fn execute_plugin_scraper(
     client: Box<dyn crate::plugin_runtime::PluginHttpClient>,
     code: String,
+    repository_url: String,
     scraper_id: String,
     scraper_settings_json: String,
     tmdb_id: String,
@@ -206,6 +207,7 @@ pub fn execute_plugin_scraper(
         crate::plugin_runtime::execute_scraper(
             Arc::from(client),
             code,
+            repository_url,
             scraper_id,
             scraper_settings_json,
             tmdb_id,

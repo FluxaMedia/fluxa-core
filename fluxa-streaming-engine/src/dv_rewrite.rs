@@ -66,6 +66,7 @@ pub(crate) fn dv_rewrite_segment_bytes(
     rpu_mode: u8,
     zero_level5: bool,
     remove_hdr10plus: bool,
+    spool_dir: Option<PathBuf>,
 ) -> Vec<u8> {
     if data.len() < 4 {
         return data.to_vec();
@@ -90,11 +91,46 @@ pub(crate) fn dv_rewrite_segment_bytes(
         out
     } else {
         // fMP4 (.m4s segments, HLS)
-        let mut rewriter = FMp4NalRewriter::new(rpu_mode, zero_level5, remove_hdr10plus);
+        let mut rewriter =
+            FMp4NalRewriter::with_spool_dir(rpu_mode, zero_level5, remove_hdr10plus, spool_dir);
         let mut out = rewriter.process(data);
         out.extend(rewriter.flush()); // flush calls dv_stats_add internally
         out
     }
+}
+
+fn synchronous_rewriters() -> &'static Mutex<HashMap<u64, FMp4NalRewriter>> {
+    static REWRITERS: OnceLock<Mutex<HashMap<u64, FMp4NalRewriter>>> = OnceLock::new();
+    REWRITERS.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+pub(crate) fn create_dv_segment_rewriter(
+    rpu_mode: u8,
+    zero_level5: bool,
+    remove_hdr10plus: bool,
+    spool_dir: Option<PathBuf>,
+) -> u64 {
+    static NEXT_REWRITER: AtomicU64 = AtomicU64::new(1);
+    let id = NEXT_REWRITER.fetch_add(1, Ordering::Relaxed);
+    if let Ok(mut rewriters) = synchronous_rewriters().lock() {
+        rewriters.insert(
+            id,
+            FMp4NalRewriter::with_spool_dir(rpu_mode, zero_level5, remove_hdr10plus, spool_dir),
+        );
+        id
+    } else {
+        0
+    }
+}
+
+pub(crate) fn process_dv_segment_rewriter(id: u64, data: &[u8]) -> Option<Vec<u8>> {
+    let mut rewriters = synchronous_rewriters().lock().ok()?;
+    Some(rewriters.get_mut(&id)?.process(data))
+}
+
+pub(crate) fn finish_dv_segment_rewriter(id: u64) -> Option<Vec<u8>> {
+    let rewriter = synchronous_rewriters().lock().ok()?.remove(&id)?;
+    Some(rewriter.flush())
 }
 
 // Per-stream conversion stats
@@ -106,9 +142,9 @@ pub(crate) fn dv_get_stream_stats_json() -> String {
     stats::as_json()
 }
 use serde_json::json;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::net::{TcpListener, TcpStream};
-use std::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::thread;
 use std::time::Duration;
@@ -871,12 +907,8 @@ fn stream_rpu_convert_fmp4(
     remove_hdr10plus: bool,
     spool_dir: Option<PathBuf>,
 ) {
-    let mut rewriter = FMp4NalRewriter::with_spool_dir(
-        rpu_mode,
-        zero_level5,
-        remove_hdr10plus,
-        spool_dir,
-    );
+    let mut rewriter =
+        FMp4NalRewriter::with_spool_dir(rpu_mode, zero_level5, remove_hdr10plus, spool_dir);
     let init = rewriter.process(probe);
     if !init.is_empty() && downstream.write_all(&init).is_err() {
         return;
@@ -931,6 +963,7 @@ enum FMp4State {
     MdatEofSpool {
         spool: MdatSpool,
     },
+    ForwardEof,
 }
 
 struct FMp4NalRewriter {
@@ -967,6 +1000,7 @@ fn new_mdat_spool(spool_dir: Option<&std::path::Path>) -> std::io::Result<MdatSp
         .map(PathBuf::from)
         .unwrap_or_else(std::env::temp_dir);
     std::fs::create_dir_all(&directory)?;
+    cleanup_stale_mdat_spools(&directory);
     let path = directory.join(format!("fluxa-fmp4-{}.mdat", next_local_stream_id()));
     let file = OpenOptions::new()
         .create_new(true)
@@ -974,6 +1008,31 @@ fn new_mdat_spool(spool_dir: Option<&std::path::Path>) -> std::io::Result<MdatSp
         .write(true)
         .open(&path)?;
     Ok(MdatSpool { file, path })
+}
+
+fn cleanup_stale_mdat_spools(directory: &std::path::Path) {
+    static CLEANED_DIRECTORIES: OnceLock<Mutex<HashSet<PathBuf>>> = OnceLock::new();
+    let cleaned = CLEANED_DIRECTORIES.get_or_init(|| Mutex::new(HashSet::new()));
+    let should_scan = cleaned
+        .lock()
+        .map(|mut directories| directories.insert(directory.to_path_buf()))
+        .unwrap_or(false);
+    if !should_scan {
+        return;
+    }
+    let Ok(entries) = std::fs::read_dir(directory) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(|name| name.starts_with("fluxa-fmp4-") && name.ends_with(".mdat"))
+        {
+            let _ = std::fs::remove_file(path);
+        }
+    }
 }
 
 struct LengthDelimitedRewriteState {
@@ -1378,12 +1437,12 @@ impl FMp4NalRewriter {
                     remaining -= take as u64;
                     if remaining == 0 {
                         let result = rewrite_mdat_spool_to_spool(
-                                spool,
-                                self.rpu_mode,
-                                self.zero_level5,
-                                self.remove_hdr10plus,
-                                self.spool_dir.as_deref(),
-                            );
+                            spool,
+                            self.rpu_mode,
+                            self.zero_level5,
+                            self.remove_hdr10plus,
+                            self.spool_dir.as_deref(),
+                        );
                         match result {
                             Ok((spool, length, rpu_count, rpu_fail, el_dropped)) => {
                                 stats::add(rpu_count, rpu_fail, el_dropped);
@@ -1453,13 +1512,19 @@ impl FMp4NalRewriter {
                             out.extend_from_slice(b"mdat");
                             out.extend_from_slice(&original);
                             pos = input.len();
-                            self.state = FMp4State::Header;
+                            self.state = FMp4State::ForwardEof;
                             continue;
                         }
                         return out;
                     }
                     pos = input.len();
                     self.state = FMp4State::MdatEofSpool { spool };
+                }
+
+                FMp4State::ForwardEof => {
+                    out.extend_from_slice(&input[pos..]);
+                    pos = input.len();
+                    self.state = FMp4State::ForwardEof;
                 }
             }
         }
@@ -1497,13 +1562,13 @@ impl FMp4NalRewriter {
                         out.extend_from_slice(b"mdat");
                         out.extend_from_slice(&processed);
                     }
-            Err((_, spool)) => {
-                if let Ok(original) = read_mdat_spool(spool) {
-                    out.extend_from_slice(&[0, 0, 0, 0]);
-                    out.extend_from_slice(b"mdat");
-                    out.extend_from_slice(&original);
-                }
-            }
+                    Err((_, spool)) => {
+                        if let Ok(original) = read_mdat_spool(spool) {
+                            out.extend_from_slice(&[0, 0, 0, 0]);
+                            out.extend_from_slice(b"mdat");
+                            out.extend_from_slice(&original);
+                        }
+                    }
                 }
             }
             FMp4State::MdatOutput {
