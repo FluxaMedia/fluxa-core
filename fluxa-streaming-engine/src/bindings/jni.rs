@@ -28,20 +28,20 @@ fn write_jstring(env: &mut JNIEnv<'_>, value: Option<String>) -> JStringReturn {
         .unwrap_or(ptr::null_mut())
 }
 
-fn read_byte_array(env: &mut JNIEnv<'_>, data: &JByteArray<'_>) -> Option<Vec<u8>> {
+fn read_signed_byte_array(env: &mut JNIEnv<'_>, data: &JByteArray<'_>) -> Option<Vec<i8>> {
     let len = env.get_array_length(data).ok()? as usize;
     let mut values = vec![0i8; len];
     if len > 0 && env.get_byte_array_region(data, 0, &mut values).is_err() {
         return None;
     }
-    Some(values.into_iter().map(|value| value as u8).collect())
+    Some(values)
 }
 
 fn write_byte_array(env: &mut JNIEnv<'_>, data: &[u8]) -> jbyteArray {
     let Ok(result) = env.new_byte_array(data.len() as i32) else {
         return ptr::null_mut();
     };
-    let values: Vec<i8> = data.iter().map(|value| *value as i8).collect();
+    let values = unsafe { std::slice::from_raw_parts(data.as_ptr() as *const i8, data.len()) };
     if env.set_byte_array_region(&result, 0, &values).is_err() {
         return ptr::null_mut();
     }
@@ -270,10 +270,11 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaStreamingNative_
     data: JByteArray<'_>,
 ) -> jbyteArray {
     std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        let Some(input) = read_byte_array(&mut env, &data) else {
+        let Some(input) = read_signed_byte_array(&mut env, &data) else {
             return ptr::null_mut();
         };
-        let Some(output) = process_dv_segment_rewriter(handle as u64, &input) else {
+        let input = unsafe { std::slice::from_raw_parts(input.as_ptr() as *const u8, input.len()) };
+        let Some(output) = process_dv_segment_rewriter(handle as u64, input) else {
             return ptr::null_mut();
         };
         write_byte_array(&mut env, &output)
