@@ -90,6 +90,7 @@ mod platform_plan;
 mod player_flow;
 #[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
 mod dolby_vision_plan;
+#[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
 mod player_policy;
 #[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
 mod player_scrobble;
