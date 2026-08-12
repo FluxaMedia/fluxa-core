@@ -64,6 +64,7 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaStreamingNative_
     headers_json: JString<'_>,
     dv_config_json: JString<'_>,
     preferred_port: JInt,
+    spool_directory: JString<'_>,
 ) -> JStringReturn {
     std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         let output = read_jstring(&mut env, &target_url).and_then(|target_url| {
@@ -72,6 +73,7 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaStreamingNative_
                 &read_jstring(&mut env, &headers_json).unwrap_or_default(),
                 &read_jstring(&mut env, &dv_config_json).unwrap_or_default(),
                 preferred_port,
+                &read_jstring(&mut env, &spool_directory).unwrap_or_default(),
             )
         });
         write_jstring(&mut env, output)

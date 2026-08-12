@@ -153,6 +153,9 @@ pub(crate) struct DvRewriteConfig {
     /// Fallback mode: "auto" | "off"  (mirrors DolbyVisionFallbackMode).
     #[serde(default = "default_fallback_mode")]
     pub fallback_mode: String,
+
+    #[serde(default)]
+    pub spool_dir: Option<PathBuf>,
 }
 
 fn default_rpu_mode() -> u8 {
@@ -213,10 +216,14 @@ fn shared_dv_port() -> Result<u16, String> {
                             else {
                                 return;
                             };
-                            let Ok(stream) = stream.into_std() else {
-                                return;
-                            };
+                            let permit = dv_cpu_semaphore().clone().acquire_owned().await;
                             let _ = tokio::task::spawn_blocking(move || {
+                                let Ok(_permit) = permit else {
+                                    return;
+                                };
+                                let Ok(stream) = stream.into_std() else {
+                                    return;
+                                };
                                 if stream.set_nonblocking(false).is_ok() {
                                     handle_dv_stream(stream, config, &dv);
                                 }
@@ -245,9 +252,14 @@ pub(crate) fn start_dv_rewrite_local_stream_server(
     headers_json: &str,
     dv_config_json: &str,
     preferred_port: i32,
+    spool_directory: &str,
 ) -> Option<String> {
     let headers = serde_json::from_str::<HashMap<String, String>>(headers_json).unwrap_or_default();
-    let dv_config = Arc::new(serde_json::from_str::<DvRewriteConfig>(dv_config_json).ok()?);
+    let mut config = serde_json::from_str::<DvRewriteConfig>(dv_config_json).ok()?;
+    if !spool_directory.is_empty() {
+        config.spool_dir = Some(PathBuf::from(spool_directory));
+    }
+    let dv_config = Arc::new(config);
 
     let id = next_local_stream_id();
     let bind_port = preferred_port.clamp(0, u16::MAX as i32) as u16;
@@ -301,18 +313,18 @@ pub(crate) fn start_dv_rewrite_local_stream_server(
                 tokio::select! {
                     accepted = listener.accept() => match accepted {
                         Ok((stream, _)) => {
-                            let cfg = config.clone();
-                            let dv = dv_config.clone();
-                            let permit = dv_cpu_semaphore().clone().acquire_owned().await;
-                            tokio::task::spawn_blocking(move || {
-                                let Ok(_permit) = permit else {
-                                    return;
-                                };
-                                if let Ok(stream) = stream.into_std()
-                                    && stream.set_nonblocking(false).is_ok() {
-                                        handle_dv_stream(stream, cfg, &dv);
-                                    }
-                            });
+                                let cfg = config.clone();
+                                let dv = dv_config.clone();
+                                let permit = dv_cpu_semaphore().clone().acquire_owned().await;
+                                tokio::task::spawn_blocking(move || {
+                                    let Ok(_permit) = permit else {
+                                        return;
+                                    };
+                                    if let Ok(stream) = stream.into_std()
+                                        && stream.set_nonblocking(false).is_ok() {
+                                            handle_dv_stream(stream, cfg, &dv);
+                                        }
+                                });
                         }
                         Err(_) => break,
                     },
@@ -418,6 +430,7 @@ fn handle_dv_stream(mut stream: TcpStream, config: LocalStreamConfig, dv: &DvRew
             dv.rpu_mode,
             dv.zero_level5,
             dv.remove_hdr10plus,
+            dv.spool_dir.clone(),
         ),
         "hdr10plus_strip" => stream_hdr10plus_strip(&mut response, &mut stream),
         "auto_detect" => stream_auto_detect(&mut response, &mut stream, dv),
@@ -556,6 +569,7 @@ fn serve_hls_segment_rpu_convert(
             dv.rpu_mode,
             dv.zero_level5,
             dv.remove_hdr10plus,
+            dv.spool_dir.clone(),
         );
     }
 }
@@ -770,6 +784,7 @@ fn stream_rpu_convert(
     rpu_mode: u8,
     zero_level5: bool,
     remove_hdr10plus: bool,
+    spool_dir: Option<PathBuf>,
 ) {
     // Probe the first 8 bytes to detect whether this is an Annex-B HEVC bitstream or an
     // ISO-BMFF (fMP4/MP4) container. HLS segments and direct MP4 files use length-prefixed
@@ -802,6 +817,7 @@ fn stream_rpu_convert(
             rpu_mode,
             zero_level5,
             remove_hdr10plus,
+            spool_dir,
         );
         return;
     }
@@ -853,8 +869,14 @@ fn stream_rpu_convert_fmp4(
     rpu_mode: u8,
     zero_level5: bool,
     remove_hdr10plus: bool,
+    spool_dir: Option<PathBuf>,
 ) {
-    let mut rewriter = FMp4NalRewriter::new(rpu_mode, zero_level5, remove_hdr10plus);
+    let mut rewriter = FMp4NalRewriter::with_spool_dir(
+        rpu_mode,
+        zero_level5,
+        remove_hdr10plus,
+        spool_dir,
+    );
     let init = rewriter.process(probe);
     if !init.is_empty() && downstream.write_all(&init).is_err() {
         return;
@@ -917,6 +939,7 @@ struct FMp4NalRewriter {
     rpu_mode: u8,
     zero_level5: bool,
     remove_hdr10plus: bool,
+    spool_dir: Option<PathBuf>,
 }
 
 const FMP4_MDAT_RAM_LIMIT: u64 = 16 * 1024 * 1024;
@@ -926,14 +949,25 @@ struct MdatSpool {
     path: PathBuf,
 }
 
+fn read_mdat_spool(mut spool: MdatSpool) -> std::io::Result<Vec<u8>> {
+    spool.file.seek(SeekFrom::Start(0))?;
+    let mut output = Vec::new();
+    spool.file.read_to_end(&mut output)?;
+    Ok(output)
+}
+
 impl Drop for MdatSpool {
     fn drop(&mut self) {
         let _ = remove_file(&self.path);
     }
 }
 
-fn new_mdat_spool() -> std::io::Result<MdatSpool> {
-    let path = std::env::temp_dir().join(format!("fluxa-fmp4-{}.mdat", next_local_stream_id()));
+fn new_mdat_spool(spool_dir: Option<&std::path::Path>) -> std::io::Result<MdatSpool> {
+    let directory = spool_dir
+        .map(PathBuf::from)
+        .unwrap_or_else(std::env::temp_dir);
+    std::fs::create_dir_all(&directory)?;
+    let path = directory.join(format!("fluxa-fmp4-{}.mdat", next_local_stream_id()));
     let file = OpenOptions::new()
         .create_new(true)
         .read(true)
@@ -1043,13 +1077,18 @@ fn rewrite_mdat_spool(
     rpu_mode: u8,
     zero_level5: bool,
     remove_hdr10plus: bool,
-) -> std::io::Result<(Vec<u8>, u32, u32, u32)> {
-    spool.file.seek(SeekFrom::Start(0))?;
+) -> Result<(Vec<u8>, u32, u32, u32), (std::io::Error, MdatSpool)> {
+    if let Err(error) = spool.file.seek(SeekFrom::Start(0)) {
+        return Err((error, spool));
+    }
     let mut state = LengthDelimitedRewriteState::new(rpu_mode, zero_level5, remove_hdr10plus);
     let mut output = Vec::new();
     let mut input = [0u8; 65536];
     loop {
-        let read = spool.file.read(&mut input)?;
+        let read = match spool.file.read(&mut input) {
+            Ok(read) => read,
+            Err(error) => return Err((error, spool)),
+        };
         if read == 0 {
             break;
         }
@@ -1069,26 +1108,44 @@ fn rewrite_mdat_spool_to_spool(
     rpu_mode: u8,
     zero_level5: bool,
     remove_hdr10plus: bool,
-) -> std::io::Result<(MdatSpool, u64, u32, u32, u32)> {
-    source.file.seek(SeekFrom::Start(0))?;
-    let mut target = new_mdat_spool()?;
+    spool_dir: Option<&std::path::Path>,
+) -> Result<(MdatSpool, u64, u32, u32, u32), (std::io::Error, MdatSpool)> {
+    if let Err(error) = source.file.seek(SeekFrom::Start(0)) {
+        return Err((error, source));
+    }
+    let mut target = match new_mdat_spool(spool_dir) {
+        Ok(target) => target,
+        Err(error) => return Err((error, source)),
+    };
     let mut state = LengthDelimitedRewriteState::new(rpu_mode, zero_level5, remove_hdr10plus);
     let mut input = [0u8; 65536];
     let mut output = Vec::with_capacity(65536);
     loop {
-        let read = source.file.read(&mut input)?;
+        let read = match source.file.read(&mut input) {
+            Ok(read) => read,
+            Err(error) => return Err((error, source)),
+        };
         if read == 0 {
             break;
         }
         output.clear();
         state.process_into(&input[..read], &mut output);
-        target.file.write_all(&output)?;
+        if let Err(error) = target.file.write_all(&output) {
+            return Err((error, source));
+        }
     }
     output.clear();
     state.flush_into(&mut output);
-    target.file.write_all(&output)?;
-    let length = target.file.stream_position()?;
-    target.file.seek(SeekFrom::Start(0))?;
+    if let Err(error) = target.file.write_all(&output) {
+        return Err((error, source));
+    }
+    let length = match target.file.stream_position() {
+        Ok(length) => length,
+        Err(error) => return Err((error, source)),
+    };
+    if let Err(error) = target.file.seek(SeekFrom::Start(0)) {
+        return Err((error, source));
+    }
     Ok((
         target,
         length,
@@ -1100,12 +1157,22 @@ fn rewrite_mdat_spool_to_spool(
 
 impl FMp4NalRewriter {
     fn new(rpu_mode: u8, zero_level5: bool, remove_hdr10plus: bool) -> Self {
+        Self::with_spool_dir(rpu_mode, zero_level5, remove_hdr10plus, None)
+    }
+
+    fn with_spool_dir(
+        rpu_mode: u8,
+        zero_level5: bool,
+        remove_hdr10plus: bool,
+        spool_dir: Option<PathBuf>,
+    ) -> Self {
         Self {
             state: FMp4State::Header,
             header_buf: Vec::with_capacity(8),
             rpu_mode,
             zero_level5,
             remove_hdr10plus,
+            spool_dir,
         }
     }
 
@@ -1164,7 +1231,7 @@ impl FMp4NalRewriter {
                     self.state = if is_mdat {
                         match size_field {
                             // size=0: mdat extends to EOF
-                            0 => match new_mdat_spool() {
+                            0 => match new_mdat_spool(self.spool_dir.as_deref()) {
                                 Ok(spool) => FMp4State::MdatEofSpool { spool },
                                 Err(_) => FMp4State::MdatEof { buf: Vec::new() },
                             },
@@ -1184,7 +1251,7 @@ impl FMp4NalRewriter {
                                 } else {
                                     // Buffer the mdat payload; write corrected header after processing.
                                     if content > FMP4_MDAT_RAM_LIMIT {
-                                        match new_mdat_spool() {
+                                        match new_mdat_spool(self.spool_dir.as_deref()) {
                                             Ok(spool) => FMp4State::MdatSpool {
                                                 spool,
                                                 remaining: content,
@@ -1281,28 +1348,60 @@ impl FMp4NalRewriter {
                 } => {
                     let available = (input.len() - pos) as u64;
                     let take = available.min(remaining) as usize;
+                    let start = spool.file.stream_position().unwrap_or(0);
                     if spool.file.write_all(&input[pos..pos + take]).is_err() {
+                        let written = spool
+                            .file
+                            .stream_position()
+                            .unwrap_or(start)
+                            .saturating_sub(start) as usize;
+                        let rest = remaining.saturating_sub(take as u64);
+                        if let Ok(mut original) = read_mdat_spool(spool) {
+                            original.extend_from_slice(&input[pos + written..pos + take]);
+                            let size = (original.len() as u64)
+                                .saturating_add(rest)
+                                .saturating_add(8) as u32;
+                            out.extend_from_slice(&size.to_be_bytes());
+                            out.extend_from_slice(b"mdat");
+                            out.extend_from_slice(&original);
+                            pos += take;
+                            self.state = if rest == 0 {
+                                FMp4State::Header
+                            } else {
+                                FMp4State::Forward { remaining: rest }
+                            };
+                            continue;
+                        }
                         return out;
                     }
                     pos += take;
                     remaining -= take as u64;
                     if remaining == 0 {
-                        let Ok((spool, length, rpu_count, rpu_fail, el_dropped)) =
-                            rewrite_mdat_spool_to_spool(
+                        let result = rewrite_mdat_spool_to_spool(
                                 spool,
                                 self.rpu_mode,
                                 self.zero_level5,
                                 self.remove_hdr10plus,
-                            )
-                        else {
-                            self.state = FMp4State::Header;
-                            continue;
-                        };
-                        stats::add(rpu_count, rpu_fail, el_dropped);
-                        self.state = FMp4State::MdatOutput {
-                            spool,
-                            remaining: length,
-                            header_written: false,
+                                self.spool_dir.as_deref(),
+                            );
+                        match result {
+                            Ok((spool, length, rpu_count, rpu_fail, el_dropped)) => {
+                                stats::add(rpu_count, rpu_fail, el_dropped);
+                                self.state = FMp4State::MdatOutput {
+                                    spool,
+                                    remaining: length,
+                                    header_written: false,
+                                };
+                            }
+                            Err((_, mut source)) => {
+                                let length = source.file.seek(SeekFrom::End(0)).unwrap_or(0);
+                                let _ = source.file.seek(SeekFrom::Start(0));
+                                self.state = FMp4State::MdatOutput {
+                                    spool: source,
+                                    remaining: length,
+                                    header_written: false,
+                                };
+                            }
                         };
                     } else {
                         self.state = FMp4State::MdatSpool { spool, remaining };
@@ -1341,7 +1440,22 @@ impl FMp4NalRewriter {
                 }
 
                 FMp4State::MdatEofSpool { mut spool } => {
+                    let start = spool.file.stream_position().unwrap_or(0);
                     if spool.file.write_all(&input[pos..]).is_err() {
+                        let written = spool
+                            .file
+                            .stream_position()
+                            .unwrap_or(start)
+                            .saturating_sub(start) as usize;
+                        if let Ok(mut original) = read_mdat_spool(spool) {
+                            original.extend_from_slice(&input[pos + written..]);
+                            out.extend_from_slice(&[0, 0, 0, 0]);
+                            out.extend_from_slice(b"mdat");
+                            out.extend_from_slice(&original);
+                            pos = input.len();
+                            self.state = FMp4State::Header;
+                            continue;
+                        }
                         return out;
                     }
                     pos = input.len();
@@ -1371,16 +1485,25 @@ impl FMp4NalRewriter {
                 out.extend_from_slice(&processed);
             }
             FMp4State::MdatEofSpool { spool } => {
-                if let Ok((processed, rpu_count, rpu_fail, el_dropped)) = rewrite_mdat_spool(
+                match rewrite_mdat_spool(
                     spool,
                     self.rpu_mode,
                     self.zero_level5,
                     self.remove_hdr10plus,
                 ) {
-                    stats::add(rpu_count, rpu_fail, el_dropped);
+                    Ok((processed, rpu_count, rpu_fail, el_dropped)) => {
+                        stats::add(rpu_count, rpu_fail, el_dropped);
+                        out.extend_from_slice(&[0, 0, 0, 0]);
+                        out.extend_from_slice(b"mdat");
+                        out.extend_from_slice(&processed);
+                    }
+            Err((_, spool)) => {
+                if let Ok(original) = read_mdat_spool(spool) {
                     out.extend_from_slice(&[0, 0, 0, 0]);
                     out.extend_from_slice(b"mdat");
-                    out.extend_from_slice(&processed);
+                    out.extend_from_slice(&original);
+                }
+            }
                 }
             }
             FMp4State::MdatOutput {
@@ -1453,6 +1576,7 @@ impl FMp4NalRewriter {
                     self.rpu_mode,
                     self.zero_level5,
                     self.remove_hdr10plus,
+                    self.spool_dir.as_deref(),
                 ) {
                     Ok((spool, length, rpu_count, rpu_fail, el_dropped)) => {
                         stats::add(rpu_count, rpu_fail, el_dropped);
@@ -1463,7 +1587,16 @@ impl FMp4NalRewriter {
                         };
                         return self.flush_streaming();
                     }
-                    Err(_) => {}
+                    Err((_, mut source)) => {
+                        let length = source.file.seek(SeekFrom::End(0)).unwrap_or(0);
+                        let _ = source.file.seek(SeekFrom::Start(0));
+                        self.state = FMp4State::MdatOutput {
+                            spool: source,
+                            remaining: length,
+                            header_written: false,
+                        };
+                        return self.flush_streaming();
+                    }
                 }
             }
             FMp4State::Header if !self.header_buf.is_empty() => {

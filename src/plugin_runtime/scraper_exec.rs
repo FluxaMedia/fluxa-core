@@ -18,16 +18,19 @@ struct QuickJsState {
 }
 
 thread_local! {
-    static QUICKJS_STATE: RefCell<Option<QuickJsState>> = const { RefCell::new(None) };
-    static SCRAPER_CACHE: RefCell<HashMap<u64, Persistent<Function<'static>>>> =
+    static QUICKJS_STATE: RefCell<HashMap<String, QuickJsState>> =
+        RefCell::new(HashMap::new());
+    static SCRAPER_CACHE: RefCell<HashMap<(String, u64), Persistent<Function<'static>>>> =
         RefCell::new(HashMap::new());
 }
 
-async fn quickjs_context() -> Result<(AsyncRuntime, AsyncContext, bool), String> {
+const MAX_QUICKJS_PLUGIN_CONTEXTS: usize = if cfg!(target_os = "android") { 2 } else { 4 };
+
+async fn quickjs_context(scraper_id: &str) -> Result<(AsyncRuntime, AsyncContext, bool), String> {
     if let Some((runtime, context)) = QUICKJS_STATE.with(|state| {
         state
             .borrow()
-            .as_ref()
+            .get(scraper_id)
             .map(|state| (state.runtime.clone(), state.context.clone()))
     }) {
         return Ok((runtime, context, false));
@@ -38,7 +41,16 @@ async fn quickjs_context() -> Result<(AsyncRuntime, AsyncContext, bool), String>
         .await
         .map_err(|e| e.to_string())?;
     QUICKJS_STATE.with(|state| {
-        *state.borrow_mut() = Some(QuickJsState {
+        let mut state = state.borrow_mut();
+        if state.len() >= MAX_QUICKJS_PLUGIN_CONTEXTS {
+            if let Some(evicted) = state.keys().next().cloned() {
+                state.remove(&evicted);
+                SCRAPER_CACHE.with(|cache| {
+                    cache.borrow_mut().retain(|(id, _), _| id != &evicted);
+                });
+            }
+        }
+        state.insert(scraper_id.to_string(), QuickJsState {
             runtime: runtime.clone(),
             context: context.clone(),
         });
@@ -60,7 +72,7 @@ pub(super) async fn run(
     season: Option<i32>,
     episode: Option<i32>,
 ) -> Result<String, String> {
-    let (qjs_rt, ctx, new_context) = quickjs_context().await?;
+    let (qjs_rt, ctx, new_context) = quickjs_context(&scraper_id).await?;
     qjs_rt.set_memory_limit(plugin_memory_limit()).await;
     let deadline = std::time::Instant::now() + Duration::from_secs(PLUGIN_TIMEOUT_SECS);
     qjs_rt
@@ -139,9 +151,10 @@ pub(super) async fn run(
             } else {
                 scraper_settings_json.clone()
             };
+            let cache_key = (scraper_id.clone(), code_key);
             let function = SCRAPER_CACHE.with(|cache| {
                 let mut cache = cache.borrow_mut();
-                if let Some(function) = cache.get(&code_key) {
+                if let Some(function) = cache.get(&cache_key) {
                     return function
                         .clone()
                         .restore(&ctx)
@@ -180,7 +193,7 @@ pub(super) async fn run(
                 if cache.len() >= 32 {
                     cache.clear();
                 }
-                cache.insert(code_key, Persistent::save(&ctx, function.clone()));
+                cache.insert(cache_key, Persistent::save(&ctx, function.clone()));
                 Ok(function)
             })?;
 
