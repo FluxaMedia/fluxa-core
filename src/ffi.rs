@@ -38,7 +38,7 @@ use external_sync_routes::{
 use intro_plugins_routes::{route_intro_segments, route_plugins};
 use library_routes::route_library_state;
 use mdblist_routes::route_mdblist;
-#[cfg(feature = "native")]
+#[cfg(feature = "dv-codec")]
 use plan_misc_routes::route_dolby_vision_rpu;
 use plan_misc_routes::{
     route_data_policy, route_device_resource, route_discovery_plan, route_headless_adapter_plan,
@@ -54,9 +54,9 @@ use stream_policy_routes::route_stream_policy;
 use tmdb_routes::route_tmdb;
 use watchlist_offline_routes::{route_offline, route_watchlist};
 
-#[cfg(feature = "native")]
+#[cfg(feature = "dv-codec")]
 use crate::dolby_vision_rpu;
-#[cfg(feature = "native")]
+#[cfg(feature = "dv-codec")]
 use crate::dolby_vision_sample;
 use crate::{
     addon_protocol, addon_resource, addon_store, addon_uptime, anime_detection, app_state,
@@ -162,7 +162,7 @@ const ROUTERS: &[fn(&str, &str) -> Outcome] = &[
     route_discovery_plan,
     route_data_policy,
     route_device_resource,
-    #[cfg(feature = "native")]
+    #[cfg(feature = "dv-codec")]
     route_dolby_vision_rpu,
     route_player_flow,
     route_player_scrobble,

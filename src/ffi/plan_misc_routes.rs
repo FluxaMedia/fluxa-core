@@ -60,7 +60,7 @@ pub(super) fn route_data_policy(method: &str, args_json: &str) -> Outcome {
     }
 }
 
-#[cfg(feature = "native")]
+#[cfg(feature = "dv-codec")]
 pub(super) fn route_dolby_vision_rpu(method: &str, args_json: &str) -> Outcome {
     match method {
         // args_json IS the request object for both of these

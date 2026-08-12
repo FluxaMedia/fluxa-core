@@ -47,10 +47,11 @@ default = ["native"]
 native = [
     "full-api",
     "dep:jni",
-    "dep:dolby_vision",
+    "dv-codec",
     "uniffi-bindings",
     "plugin-js-engine",
 ]
+dv-codec = ["dep:dolby_vision"]
 desktop = ["full-api", "plugin-js-engine"]
 ios = ["full-api", "uniffi-bindings", "plugin-js-engine"]
 full-api = []
