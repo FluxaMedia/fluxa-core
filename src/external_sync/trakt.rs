@@ -25,7 +25,11 @@ pub(crate) fn trakt_artwork(source: &Value) -> TraktArtwork {
             background: trakt_image_url(images, "fanart"),
             logo: trakt_image_url(images, "logo"),
         },
-        None => TraktArtwork { poster: None, background: None, logo: None },
+        None => TraktArtwork {
+            poster: None,
+            background: None,
+            logo: None,
+        },
     }
 }
 

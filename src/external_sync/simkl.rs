@@ -87,7 +87,10 @@ fn simkl_playback_item_to_continue_meta(item: &Value) -> Option<Value> {
         .and_then(Value::as_f64)
         .unwrap_or(0.0)
         .clamp(0.0, 100.0);
-    let title = source.get("title").and_then(Value::as_str).unwrap_or("Untitled");
+    let title = source
+        .get("title")
+        .and_then(Value::as_str)
+        .unwrap_or("Untitled");
     let episode_title = episode.and_then(|e| e.get("title")).and_then(Value::as_str);
     let content_type = if movie.is_some() { "movie" } else { "series" };
     let last_video_id = episode.map(|e| {

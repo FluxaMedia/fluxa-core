@@ -265,7 +265,10 @@ fn legacy(
     }
 }
 
-#[expect(clippy::too_many_arguments, reason = "planning inputs are all independent facts about the stream/device, not naturally groupable without an intermediate context struct this crate doesn't otherwise need")]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "planning inputs are all independent facts about the stream/device, not naturally groupable without an intermediate context struct this crate doesn't otherwise need"
+)]
 pub(crate) fn build_dv_playback_plan(
     source_profile: DvProfile,
     container: DvContainer,
@@ -395,7 +398,13 @@ pub(crate) fn build_dv_playback_plan(
                     output_signaling: convert_to_dv81_signaling(),
                     reason: DvPlanReason::NativeP7UnavailableButP8Verified,
                 },
-                legacy("hls_rpu_convert", "p7_hls_segment_rpu_convert", "DV8", "medium", &[]),
+                legacy(
+                    "hls_rpu_convert",
+                    "p7_hls_segment_rpu_convert",
+                    "DV8",
+                    "medium",
+                    &[],
+                ),
             );
         }
         return (
@@ -470,7 +479,13 @@ pub(crate) fn build_dv_playback_plan(
                     output_signaling: convert_to_dv81_signaling(),
                     reason: DvPlanReason::NativeP7UnavailableButP8Verified,
                 },
-                legacy("rpu_convert", "p7_rpu_convert_to_dv81", "DV8", "medium", &[]),
+                legacy(
+                    "rpu_convert",
+                    "p7_rpu_convert_to_dv81",
+                    "DV8",
+                    "medium",
+                    &[],
+                ),
             ),
             (DvFallbackMode::Dv8, DvContainer::RawHevc) => (
                 DvPlaybackPlan {

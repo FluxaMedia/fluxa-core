@@ -57,10 +57,17 @@ pub(super) fn route_engine_lifecycle(method: &str, args_json: &str) -> Outcome {
                 method,
             )
         }
+        "app.dispatchDelta" => {
+            let args = object(args_json)?;
+            result_json(
+                app_state::app_core_dispatch_delta_json(
+                    field_u64(&args, "handle")?,
+                    &field(&args, "action")?.to_string(),
+                ),
+                method,
+            )
+        }
         "app.destroy" => Ok(json!(app_state::destroy_app_core_state(handle(args_json)?))),
-        _ => Err(fail(
-            ErrorKind::UnknownMethod,
-            format!("no such method `{method}`"),
-        )),
+        _ => Err(unknown_method()),
     }
 }

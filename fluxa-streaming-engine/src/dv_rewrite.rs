@@ -1,6 +1,9 @@
 use dolby_vision::rpu::dovi_rpu::DoviRpu;
 use dolby_vision::rpu::extension_metadata::blocks::ExtMetadataBlock;
 use serde::Deserialize;
+use std::fs::{File, OpenOptions, remove_file};
+use std::io::{Read, Seek, SeekFrom, Write};
+use std::path::PathBuf;
 
 mod dvcc;
 mod hls_urls;
@@ -84,9 +87,6 @@ pub(crate) fn dv_rewrite_segment_bytes(
         let (conv, fail, el_dropped) = state.rpu_stats();
         out.extend(state.flush());
         stats::add(conv, fail, el_dropped);
-        eprintln!(
-            "[fluxa/rpu_convert_sync] annexb rpu_converted={conv} rpu_failed={fail} el_dropped={el_dropped}"
-        );
         out
     } else {
         // fMP4 (.m4s segments, HLS)
@@ -107,17 +107,18 @@ pub(crate) fn dv_get_stream_stats_json() -> String {
 }
 use serde_json::json;
 use std::collections::HashMap;
-use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::thread;
 use std::time::Duration;
 use tokio::net::TcpListener as TokioTcpListener;
+use tokio::sync::Semaphore;
 
 use crate::local_stream::{
-    LocalStreamConfig, LocalStreamHandle, build_proxy_client, local_stream_servers,
-    next_local_stream_id, parse_request, send_upstream_request, write_simple_response,
+    LocalStreamConfig, LocalStreamHandle, build_async_proxy_client, build_proxy_client,
+    local_stream_runtime, local_stream_servers, next_local_stream_id, parse_async_request,
+    parse_request, send_upstream_request, write_simple_response,
 };
 
 // Public config
@@ -162,6 +163,82 @@ fn default_fallback_mode() -> String {
     "auto".to_string()
 }
 
+static SHARED_DV_CONFIGS: OnceLock<
+    Mutex<HashMap<String, (LocalStreamConfig, Arc<DvRewriteConfig>)>>,
+> = OnceLock::new();
+static SHARED_DV_SERVER: OnceLock<Result<u16, String>> = OnceLock::new();
+
+fn shared_dv_configs() -> &'static Mutex<HashMap<String, (LocalStreamConfig, Arc<DvRewriteConfig>)>>
+{
+    SHARED_DV_CONFIGS.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn shared_dv_port() -> Result<u16, String> {
+    SHARED_DV_SERVER
+        .get_or_init(|| {
+            let listener =
+                TcpListener::bind(("127.0.0.1", 0)).map_err(|error| error.to_string())?;
+            let port = listener
+                .local_addr()
+                .map_err(|error| error.to_string())?
+                .port();
+            listener
+                .set_nonblocking(true)
+                .map_err(|error| error.to_string())?;
+            thread::spawn(move || {
+                let Ok(runtime) = local_stream_runtime() else {
+                    return;
+                };
+                runtime.block_on(async move {
+                    let Ok(listener) = TokioTcpListener::from_std(listener) else {
+                        return;
+                    };
+                    while let Ok((stream, _)) = listener.accept().await {
+                        tokio::spawn(async move {
+                            let mut stream = stream;
+                            let Some(request) = parse_async_request(&mut stream).await else {
+                                return;
+                            };
+                            let Some(id) = request
+                                .path
+                                .strip_prefix("/stream/")
+                                .and_then(|path| path.split('/').next())
+                            else {
+                                return;
+                            };
+                            let Some((config, dv)) = shared_dv_configs()
+                                .lock()
+                                .ok()
+                                .and_then(|configs| configs.get(id).cloned())
+                            else {
+                                return;
+                            };
+                            let Ok(stream) = stream.into_std() else {
+                                return;
+                            };
+                            let _ = tokio::task::spawn_blocking(move || {
+                                if stream.set_nonblocking(false).is_ok() {
+                                    handle_dv_stream(stream, config, &dv);
+                                }
+                            })
+                            .await;
+                        });
+                    }
+                });
+            });
+            Ok(port)
+        })
+        .clone()
+}
+
+pub(crate) fn remove_shared_dv_config(id: &str) -> bool {
+    shared_dv_configs()
+        .lock()
+        .ok()
+        .and_then(|mut configs| configs.remove(id))
+        .is_some()
+}
+
 // Entry point
 pub(crate) fn start_dv_rewrite_local_stream_server(
     target_url: &str,
@@ -174,6 +251,28 @@ pub(crate) fn start_dv_rewrite_local_stream_server(
 
     let id = next_local_stream_id();
     let bind_port = preferred_port.clamp(0, u16::MAX as i32) as u16;
+    if bind_port == 0 {
+        let port = shared_dv_port().ok()?;
+        let config = LocalStreamConfig {
+            id: id.clone(),
+            target_url: target_url.to_string(),
+            headers,
+            client: build_proxy_client(),
+            async_client: build_async_proxy_client(),
+            active_connections: Arc::new(AtomicUsize::new(0)),
+            port,
+        };
+        shared_dv_configs()
+            .lock()
+            .ok()?
+            .insert(id.clone(), (config, dv_config));
+        return serde_json::to_string(&json!({
+            "id": id.clone(),
+            "url": format!("http://127.0.0.1:{port}/stream/{id}"),
+            "port": port
+        }))
+        .ok();
+    }
     let listener = TcpListener::bind(("127.0.0.1", bind_port)).ok()?;
     let port = listener.local_addr().ok()?.port();
     listener.set_nonblocking(true).ok()?;
@@ -184,16 +283,14 @@ pub(crate) fn start_dv_rewrite_local_stream_server(
         id: id.clone(),
         target_url: target_url.to_string(),
         headers,
-        client: Arc::new(build_proxy_client()),
+        client: build_proxy_client(),
+        async_client: build_async_proxy_client(),
         active_connections: Arc::new(AtomicUsize::new(0)),
         port,
     };
 
     let thread = thread::spawn(move || {
-        let Ok(runtime) = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-        else {
+        let Ok(runtime) = local_stream_runtime() else {
             return;
         };
         runtime.block_on(async move {
@@ -206,7 +303,11 @@ pub(crate) fn start_dv_rewrite_local_stream_server(
                         Ok((stream, _)) => {
                             let cfg = config.clone();
                             let dv = dv_config.clone();
+                            let permit = dv_cpu_semaphore().clone().acquire_owned().await;
                             tokio::task::spawn_blocking(move || {
+                                let Ok(_permit) = permit else {
+                                    return;
+                                };
                                 if let Ok(stream) = stream.into_std()
                                     && stream.set_nonblocking(false).is_ok() {
                                         handle_dv_stream(stream, cfg, &dv);
@@ -235,6 +336,20 @@ pub(crate) fn start_dv_rewrite_local_stream_server(
         "port": port
     }))
     .ok()
+}
+
+fn dv_cpu_semaphore() -> &'static Arc<Semaphore> {
+    static LIMIT: OnceLock<Arc<Semaphore>> = OnceLock::new();
+    LIMIT.get_or_init(|| {
+        let cores = std::thread::available_parallelism()
+            .map(|value| value.get())
+            .unwrap_or(2);
+        Arc::new(Semaphore::new(if cfg!(target_os = "android") {
+            cores.clamp(1, 2)
+        } else {
+            cores.clamp(1, 4)
+        }))
+    })
 }
 
 fn handle_dv_stream(mut stream: TcpStream, config: LocalStreamConfig, dv: &DvRewriteConfig) {
@@ -461,25 +576,15 @@ fn stream_dvcc_strip(upstream: &mut reqwest::blocking::Response, downstream: &mu
         .and_then(|v| v.to_str().ok())
         .map(str::to_owned);
 
-    let (file_offset, range_source): (u64, &str) = match raw_range_header
+    let file_offset = match raw_range_header
         .as_deref()
         .and_then(dvcc::parse_content_range_start)
     {
-        Some(offset) => (offset, "content_range_header"),
-        None if raw_range_header.is_some() => (0, "content_range_parse_error_assumed_zero"),
-        None => (0, "missing_assumed_zero"),
+        Some(offset) => offset,
+        None => 0,
     };
 
-    eprintln!(
-        "[fluxa/dvcc_strip] range_header={range_source} file_offset={file_offset} \
-         scan_limit={SCAN_WINDOW}"
-    );
-
     if file_offset >= SCAN_WINDOW as u64 {
-        eprintln!(
-            "[fluxa/dvcc_strip] planned=dvcc_strip applied=false \
-             reason=range_past_scan_window"
-        );
         let _ = std::io::copy(upstream, downstream);
         return;
     }
@@ -496,22 +601,7 @@ fn stream_dvcc_strip(upstream: &mut reqwest::blocking::Response, downstream: &mu
         header_buf.extend_from_slice(&tmp[..n]);
     }
 
-    let patch_count = dvcc::apply_patch_at_offset(&mut header_buf, file_offset, SCAN_WINDOW);
-    let box_found = patch_count > 0;
-
-    if box_found {
-        eprintln!(
-            "[fluxa/dvcc_strip] box_found=true patch_count={patch_count} \
-             file_offset={file_offset} patch_region={patch_region} \
-             scan_limit={SCAN_WINDOW} patch_scope=header_only"
-        );
-    } else {
-        eprintln!(
-            "[fluxa/dvcc_strip] planned=dvcc_strip applied=false \
-             reason=no_dv_config_found_in_scan_window \
-             file_offset={file_offset} scan_limit={SCAN_WINDOW}"
-        );
-    }
+    dvcc::apply_patch_at_offset(&mut header_buf, file_offset, SCAN_WINDOW);
 
     if downstream.write_all(&header_buf).is_err() {
         return;
@@ -610,26 +700,15 @@ fn stream_auto_detect(
         .and_then(|v| v.to_str().ok())
         .map(str::to_owned);
 
-    let (file_offset, range_source): (u64, &str) = match raw_range_header
+    let file_offset = match raw_range_header
         .as_deref()
         .and_then(dvcc::parse_content_range_start)
     {
-        Some(offset) => (offset, "content_range_header"),
-        None if raw_range_header.is_some() => (0, "content_range_parse_error_assumed_zero"),
-        None => (0, "missing_assumed_zero"),
+        Some(offset) => offset,
+        None => 0,
     };
 
-    eprintln!(
-        "[fluxa/auto_detect] range_header={range_source} file_offset={file_offset} \
-         scan_limit={SCAN_WINDOW} fallback_mode={}",
-        config.fallback_mode
-    );
-
     if file_offset >= SCAN_WINDOW as u64 {
-        eprintln!(
-            "[fluxa/auto_detect] applied=false reason=range_past_scan_window \
-             file_offset={file_offset}"
-        );
         let _ = std::io::copy(upstream, downstream);
         return;
     }
@@ -646,10 +725,7 @@ fn stream_auto_detect(
     }
 
     let should_strip = match dvcc::scan_info(&header_buf) {
-        None => {
-            eprintln!("[fluxa/auto_detect] decision=pass_through reason=no_dvcC_in_scan_window");
-            false
-        }
+        None => false,
         Some(info) => {
             let not_has_fallback = info.not_has_hdr10_fallback();
             let device_supports_dv =
@@ -666,33 +742,12 @@ fn stream_auto_detect(
             let is_p5_iptpqc2 = strip && info.profile == 5 && info.compat_id != 1;
             DV_LAST_AUTO_DETECT_IPTPQC2.store(is_p5_iptpqc2, Ordering::Relaxed);
 
-            let decision = if strip {
-                if is_p5_iptpqc2 {
-                    "dvcc_strip_p5_iptpqc2"
-                } else {
-                    "dvcc_strip_to_hdr10"
-                }
-            } else if device_supports_dv {
-                "keep_dv_native"
-            } else {
-                "pass_through_no_fallback"
-            };
-            eprintln!(
-                "[fluxa/auto_detect] dv_profile={} compat_id={} not_has_fallback={} \
-                 device_has_dv_decoder={} device_has_dv_display={} decision={decision} iptpqc2={is_p5_iptpqc2}",
-                info.profile,
-                info.compat_id,
-                not_has_fallback,
-                config.device_has_dv_decoder,
-                config.device_has_dv_display,
-            );
             strip
         }
     };
 
     if should_strip {
-        let patch_count = dvcc::apply_patch_at_offset(&mut header_buf, file_offset, SCAN_WINDOW);
-        eprintln!("[fluxa/auto_detect] dvcc_patch_count={patch_count}");
+        dvcc::apply_patch_at_offset(&mut header_buf, file_offset, SCAN_WINDOW);
     }
 
     if downstream.write_all(&header_buf).is_err() {
@@ -753,7 +808,8 @@ fn stream_rpu_convert(
 
     // Annex-B confirmed — run NAL rewrite, feeding probe bytes as the first chunk.
     let mut state = NalRewriteState::new_rpu_convert(rpu_mode, zero_level5, remove_hdr10plus);
-    let out = state.process(&probe[..n]);
+    let mut out = Vec::with_capacity(65536);
+    state.process_into(&probe[..n], &mut out);
     if downstream.write_all(&out).is_err() {
         return;
     }
@@ -762,15 +818,12 @@ fn stream_rpu_convert(
         let r = upstream.read(&mut buf).unwrap_or(0);
         if r == 0 {
             let (conv, fail, el_dropped) = state.rpu_stats();
-            let tail = state.flush();
-            let _ = downstream.write_all(&tail);
+            state.flush_into(&mut out);
+            let _ = downstream.write_all(&out);
             stats::add(conv, fail, el_dropped);
-            eprintln!(
-                "[fluxa/rpu_convert] stream_end rpu_converted={conv} rpu_failed={fail} el_dropped={el_dropped}"
-            );
             break;
         }
-        let out = state.process(&buf[..r]);
+        state.process_into(&buf[..r], &mut out);
         if downstream.write_all(&out).is_err() {
             break;
         }
@@ -801,7 +854,6 @@ fn stream_rpu_convert_fmp4(
     zero_level5: bool,
     remove_hdr10plus: bool,
 ) {
-    eprintln!("[fluxa/rpu_convert] fmp4 detected — length-delimited NAL rewriter");
     let mut rewriter = FMp4NalRewriter::new(rpu_mode, zero_level5, remove_hdr10plus);
     let init = rewriter.process(probe);
     if !init.is_empty() && downstream.write_all(&init).is_err() {
@@ -811,8 +863,15 @@ fn stream_rpu_convert_fmp4(
     loop {
         let n = upstream.read(&mut buf).unwrap_or(0);
         if n == 0 {
-            let tail = rewriter.flush();
-            let _ = downstream.write_all(&tail);
+            loop {
+                let tail = rewriter.flush_streaming();
+                if tail.is_empty() {
+                    break;
+                }
+                if downstream.write_all(&tail).is_err() {
+                    break;
+                }
+            }
             break;
         }
         let out = rewriter.process(&buf[..n]);
@@ -826,11 +885,30 @@ enum FMp4State {
     /// Waiting to accumulate an 8-byte ISO-BMFF box header.
     Header,
     /// Forwarding a non-mdat box's content verbatim.
-    Forward { remaining: u64 },
+    Forward {
+        remaining: u64,
+    },
     /// Accumulating mdat payload before NAL processing (box size is known).
-    Mdat { buf: Vec<u8>, remaining: u64 },
+    Mdat {
+        buf: Vec<u8>,
+        remaining: u64,
+    },
+    MdatSpool {
+        spool: MdatSpool,
+        remaining: u64,
+    },
+    MdatOutput {
+        spool: MdatSpool,
+        remaining: u64,
+        header_written: bool,
+    },
     /// Accumulating mdat payload that extends to EOF (box size field = 0).
-    MdatEof { buf: Vec<u8> },
+    MdatEof {
+        buf: Vec<u8>,
+    },
+    MdatEofSpool {
+        spool: MdatSpool,
+    },
 }
 
 struct FMp4NalRewriter {
@@ -839,6 +917,185 @@ struct FMp4NalRewriter {
     rpu_mode: u8,
     zero_level5: bool,
     remove_hdr10plus: bool,
+}
+
+const FMP4_MDAT_RAM_LIMIT: u64 = 16 * 1024 * 1024;
+
+struct MdatSpool {
+    file: File,
+    path: PathBuf,
+}
+
+impl Drop for MdatSpool {
+    fn drop(&mut self) {
+        let _ = remove_file(&self.path);
+    }
+}
+
+fn new_mdat_spool() -> std::io::Result<MdatSpool> {
+    let path = std::env::temp_dir().join(format!("fluxa-fmp4-{}.mdat", next_local_stream_id()));
+    let file = OpenOptions::new()
+        .create_new(true)
+        .read(true)
+        .write(true)
+        .open(&path)?;
+    Ok(MdatSpool { file, path })
+}
+
+struct LengthDelimitedRewriteState {
+    pending: Vec<u8>,
+    rpu_converted: u32,
+    rpu_failed: u32,
+    el_dropped: u32,
+    rpu_mode: u8,
+    zero_level5: bool,
+    remove_hdr10plus: bool,
+}
+
+impl LengthDelimitedRewriteState {
+    fn new(rpu_mode: u8, zero_level5: bool, remove_hdr10plus: bool) -> Self {
+        Self {
+            pending: Vec::with_capacity(65536),
+            rpu_converted: 0,
+            rpu_failed: 0,
+            el_dropped: 0,
+            rpu_mode,
+            zero_level5,
+            remove_hdr10plus,
+        }
+    }
+
+    fn process_into(&mut self, input: &[u8], output: &mut Vec<u8>) {
+        self.pending.extend_from_slice(input);
+        let mut consumed = 0;
+        while self.pending.len() - consumed >= 4 {
+            let len = u32::from_be_bytes([
+                self.pending[consumed],
+                self.pending[consumed + 1],
+                self.pending[consumed + 2],
+                self.pending[consumed + 3],
+            ]) as usize;
+            let end = consumed.saturating_add(4).saturating_add(len);
+            if end > self.pending.len() {
+                break;
+            }
+            emit_length_delimited_nal(
+                &self.pending[consumed..end],
+                output,
+                self.rpu_mode,
+                self.zero_level5,
+                self.remove_hdr10plus,
+                &mut self.rpu_converted,
+                &mut self.rpu_failed,
+                &mut self.el_dropped,
+            );
+            consumed = end;
+        }
+        if consumed > 0 {
+            self.pending.copy_within(consumed.., 0);
+            self.pending.truncate(self.pending.len() - consumed);
+        }
+    }
+
+    fn flush_into(&mut self, output: &mut Vec<u8>) {
+        if !self.pending.is_empty() {
+            output.extend_from_slice(&self.pending);
+            self.pending.clear();
+        }
+    }
+}
+
+fn emit_length_delimited_nal(
+    framed: &[u8],
+    output: &mut Vec<u8>,
+    rpu_mode: u8,
+    zero_level5: bool,
+    remove_hdr10plus: bool,
+    rpu_converted: &mut u32,
+    rpu_failed: &mut u32,
+    el_dropped: &mut u32,
+) {
+    let nal = &framed[4..];
+    if nal.len() < 2 {
+        output.extend_from_slice(framed);
+        return;
+    }
+    let nal_type = (nal[0] >> 1) & 0x3F;
+    let layer_id = ((nal[0] & 0x01) << 5) | (nal[1] >> 3);
+    if nal_type == 62 {
+        if let Some(converted) = convert_rpu_nal(nal, rpu_mode, zero_level5) {
+            output.extend_from_slice(&(converted.len() as u32).to_be_bytes());
+            output.extend_from_slice(&converted);
+            *rpu_converted += 1;
+        } else {
+            output.extend_from_slice(framed);
+            *rpu_failed += 1;
+        }
+    } else if layer_id > 0 {
+        *el_dropped += 1;
+    } else if !(remove_hdr10plus && nal_is_hdr10plus_sei(nal)) {
+        output.extend_from_slice(framed);
+    }
+}
+
+fn rewrite_mdat_spool(
+    mut spool: MdatSpool,
+    rpu_mode: u8,
+    zero_level5: bool,
+    remove_hdr10plus: bool,
+) -> std::io::Result<(Vec<u8>, u32, u32, u32)> {
+    spool.file.seek(SeekFrom::Start(0))?;
+    let mut state = LengthDelimitedRewriteState::new(rpu_mode, zero_level5, remove_hdr10plus);
+    let mut output = Vec::new();
+    let mut input = [0u8; 65536];
+    loop {
+        let read = spool.file.read(&mut input)?;
+        if read == 0 {
+            break;
+        }
+        state.process_into(&input[..read], &mut output);
+    }
+    state.flush_into(&mut output);
+    Ok((
+        output,
+        state.rpu_converted,
+        state.rpu_failed,
+        state.el_dropped,
+    ))
+}
+
+fn rewrite_mdat_spool_to_spool(
+    mut source: MdatSpool,
+    rpu_mode: u8,
+    zero_level5: bool,
+    remove_hdr10plus: bool,
+) -> std::io::Result<(MdatSpool, u64, u32, u32, u32)> {
+    source.file.seek(SeekFrom::Start(0))?;
+    let mut target = new_mdat_spool()?;
+    let mut state = LengthDelimitedRewriteState::new(rpu_mode, zero_level5, remove_hdr10plus);
+    let mut input = [0u8; 65536];
+    let mut output = Vec::with_capacity(65536);
+    loop {
+        let read = source.file.read(&mut input)?;
+        if read == 0 {
+            break;
+        }
+        output.clear();
+        state.process_into(&input[..read], &mut output);
+        target.file.write_all(&output)?;
+    }
+    output.clear();
+    state.flush_into(&mut output);
+    target.file.write_all(&output)?;
+    let length = target.file.stream_position()?;
+    target.file.seek(SeekFrom::Start(0))?;
+    Ok((
+        target,
+        length,
+        state.rpu_converted,
+        state.rpu_failed,
+        state.el_dropped,
+    ))
 }
 
 impl FMp4NalRewriter {
@@ -850,6 +1107,30 @@ impl FMp4NalRewriter {
             zero_level5,
             remove_hdr10plus,
         }
+    }
+
+    fn drain_mdat_output(
+        spool: &mut MdatSpool,
+        remaining: &mut u64,
+        header_written: &mut bool,
+        output: &mut Vec<u8>,
+    ) -> std::io::Result<()> {
+        if !*header_written {
+            let size = remaining.saturating_add(8) as u32;
+            output.extend_from_slice(&size.to_be_bytes());
+            output.extend_from_slice(b"mdat");
+            *header_written = true;
+        }
+        if *remaining == 0 {
+            return Ok(());
+        }
+        let take = (*remaining).min(65536) as usize;
+        let start = output.len();
+        output.resize(start + take, 0);
+        let read = spool.file.read(&mut output[start..])?;
+        output.truncate(start + read);
+        *remaining -= read as u64;
+        Ok(())
     }
 
     fn process(&mut self, input: &[u8]) -> Vec<u8> {
@@ -883,7 +1164,10 @@ impl FMp4NalRewriter {
                     self.state = if is_mdat {
                         match size_field {
                             // size=0: mdat extends to EOF
-                            0 => FMp4State::MdatEof { buf: Vec::new() },
+                            0 => match new_mdat_spool() {
+                                Ok(spool) => FMp4State::MdatEofSpool { spool },
+                                Err(_) => FMp4State::MdatEof { buf: Vec::new() },
+                            },
                             // size=1: 64-bit extended size — rare, treat as opaque forward
                             1 => {
                                 out.extend_from_slice(&header);
@@ -899,11 +1183,24 @@ impl FMp4NalRewriter {
                                     FMp4State::Header
                                 } else {
                                     // Buffer the mdat payload; write corrected header after processing.
-                                    FMp4State::Mdat {
-                                        buf: Vec::with_capacity(
-                                            content.min(32 * 1024 * 1024) as usize
-                                        ),
-                                        remaining: content,
+                                    if content > FMP4_MDAT_RAM_LIMIT {
+                                        match new_mdat_spool() {
+                                            Ok(spool) => FMp4State::MdatSpool {
+                                                spool,
+                                                remaining: content,
+                                            },
+                                            Err(_) => FMp4State::Mdat {
+                                                buf: Vec::with_capacity(
+                                                    content.min(32 * 1024 * 1024) as usize,
+                                                ),
+                                                remaining: content,
+                                            },
+                                        }
+                                    } else {
+                                        FMp4State::Mdat {
+                                            buf: Vec::with_capacity(content as usize),
+                                            remaining: content,
+                                        }
                                     }
                                 }
                             }
@@ -960,20 +1257,14 @@ impl FMp4NalRewriter {
                     remaining -= take as u64;
 
                     if remaining == 0 {
-                        let original_len = buf.len();
                         let (processed, rpu_count, rpu_fail, el_dropped) =
-                            rewrite_length_delimited_nals(
-                                &buf,
+                            rewrite_length_delimited_nals_owned(
+                                buf,
                                 self.rpu_mode,
                                 self.zero_level5,
                                 self.remove_hdr10plus,
                             );
                         stats::add(rpu_count, rpu_fail, el_dropped);
-                        eprintln!(
-                            "[fluxa/rpu_convert_fmp4] mdat original_size={original_len} \
-                             new_size={} rpu_converted={rpu_count} rpu_failed={rpu_fail} el_dropped={el_dropped}",
-                            processed.len()
-                        );
                         let new_box_size = (processed.len() + 8) as u32;
                         out.extend_from_slice(&new_box_size.to_be_bytes());
                         out.extend_from_slice(b"mdat");
@@ -984,10 +1275,77 @@ impl FMp4NalRewriter {
                     }
                 }
 
+                FMp4State::MdatSpool {
+                    mut spool,
+                    mut remaining,
+                } => {
+                    let available = (input.len() - pos) as u64;
+                    let take = available.min(remaining) as usize;
+                    if spool.file.write_all(&input[pos..pos + take]).is_err() {
+                        return out;
+                    }
+                    pos += take;
+                    remaining -= take as u64;
+                    if remaining == 0 {
+                        let Ok((spool, length, rpu_count, rpu_fail, el_dropped)) =
+                            rewrite_mdat_spool_to_spool(
+                                spool,
+                                self.rpu_mode,
+                                self.zero_level5,
+                                self.remove_hdr10plus,
+                            )
+                        else {
+                            self.state = FMp4State::Header;
+                            continue;
+                        };
+                        stats::add(rpu_count, rpu_fail, el_dropped);
+                        self.state = FMp4State::MdatOutput {
+                            spool,
+                            remaining: length,
+                            header_written: false,
+                        };
+                    } else {
+                        self.state = FMp4State::MdatSpool { spool, remaining };
+                    }
+                }
+
+                FMp4State::MdatOutput {
+                    mut spool,
+                    mut remaining,
+                    mut header_written,
+                } => {
+                    if Self::drain_mdat_output(
+                        &mut spool,
+                        &mut remaining,
+                        &mut header_written,
+                        &mut out,
+                    )
+                    .is_err()
+                    {
+                        self.state = FMp4State::Header;
+                    } else if remaining == 0 {
+                        self.state = FMp4State::Header;
+                    } else {
+                        self.state = FMp4State::MdatOutput {
+                            spool,
+                            remaining,
+                            header_written,
+                        };
+                    }
+                }
+
                 FMp4State::MdatEof { mut buf } => {
                     buf.extend_from_slice(&input[pos..]);
                     pos = input.len();
                     self.state = FMp4State::MdatEof { buf };
+                }
+
+                FMp4State::MdatEofSpool { mut spool } => {
+                    if spool.file.write_all(&input[pos..]).is_err() {
+                        return out;
+                    }
+                    pos = input.len();
+                    self.state = FMp4State::MdatEofSpool { spool };
                 }
             }
         }
@@ -999,29 +1357,120 @@ impl FMp4NalRewriter {
         let mut out = Vec::new();
         match self.state {
             FMp4State::MdatEof { buf } => {
-                let original_len = buf.len();
-                let (processed, rpu_count, rpu_fail, el_dropped) = rewrite_length_delimited_nals(
-                    &buf,
-                    self.rpu_mode,
-                    self.zero_level5,
-                    self.remove_hdr10plus,
-                );
+                let (processed, rpu_count, rpu_fail, el_dropped) =
+                    rewrite_length_delimited_nals_owned(
+                        buf,
+                        self.rpu_mode,
+                        self.zero_level5,
+                        self.remove_hdr10plus,
+                    );
                 stats::add(rpu_count, rpu_fail, el_dropped);
-                eprintln!(
-                    "[fluxa/rpu_convert_fmp4] mdat(eof) original_size={original_len} \
-                     new_size={} rpu_converted={rpu_count} rpu_failed={rpu_fail} el_dropped={el_dropped}",
-                    processed.len()
-                );
                 // Preserve size=0 (EOF-scoped) semantics in the output box.
                 out.extend_from_slice(&[0, 0, 0, 0]);
                 out.extend_from_slice(b"mdat");
                 out.extend_from_slice(&processed);
+            }
+            FMp4State::MdatEofSpool { spool } => {
+                if let Ok((processed, rpu_count, rpu_fail, el_dropped)) = rewrite_mdat_spool(
+                    spool,
+                    self.rpu_mode,
+                    self.zero_level5,
+                    self.remove_hdr10plus,
+                ) {
+                    stats::add(rpu_count, rpu_fail, el_dropped);
+                    out.extend_from_slice(&[0, 0, 0, 0]);
+                    out.extend_from_slice(b"mdat");
+                    out.extend_from_slice(&processed);
+                }
+            }
+            FMp4State::MdatOutput {
+                mut spool,
+                mut remaining,
+                mut header_written,
+            } => {
+                while remaining > 0 || !header_written {
+                    if Self::drain_mdat_output(
+                        &mut spool,
+                        &mut remaining,
+                        &mut header_written,
+                        &mut out,
+                    )
+                    .is_err()
+                    {
+                        break;
+                    }
+                }
             }
             FMp4State::Header if !self.header_buf.is_empty() => {
                 // Incomplete box header at EOF: forward the partial bytes as-is.
                 out.extend_from_slice(&self.header_buf);
             }
             _ => {}
+        }
+        out
+    }
+
+    fn flush_streaming(&mut self) -> Vec<u8> {
+        let state = std::mem::replace(&mut self.state, FMp4State::Header);
+        let mut out = Vec::with_capacity(65544);
+        match state {
+            FMp4State::MdatOutput {
+                mut spool,
+                mut remaining,
+                mut header_written,
+            } => {
+                let ok = Self::drain_mdat_output(
+                    &mut spool,
+                    &mut remaining,
+                    &mut header_written,
+                    &mut out,
+                )
+                .is_ok();
+                if ok && remaining > 0 {
+                    self.state = FMp4State::MdatOutput {
+                        spool,
+                        remaining,
+                        header_written,
+                    };
+                }
+            }
+            FMp4State::MdatEof { buf } => {
+                let (processed, rpu_count, rpu_fail, el_dropped) =
+                    rewrite_length_delimited_nals_owned(
+                        buf,
+                        self.rpu_mode,
+                        self.zero_level5,
+                        self.remove_hdr10plus,
+                    );
+                stats::add(rpu_count, rpu_fail, el_dropped);
+                out.extend_from_slice(&[0, 0, 0, 0]);
+                out.extend_from_slice(b"mdat");
+                out.extend_from_slice(&processed);
+            }
+            FMp4State::MdatEofSpool { spool } => {
+                match rewrite_mdat_spool_to_spool(
+                    spool,
+                    self.rpu_mode,
+                    self.zero_level5,
+                    self.remove_hdr10plus,
+                ) {
+                    Ok((spool, length, rpu_count, rpu_fail, el_dropped)) => {
+                        stats::add(rpu_count, rpu_fail, el_dropped);
+                        self.state = FMp4State::MdatOutput {
+                            spool,
+                            remaining: length,
+                            header_written: false,
+                        };
+                        return self.flush_streaming();
+                    }
+                    Err(_) => {}
+                }
+            }
+            FMp4State::Header if !self.header_buf.is_empty() => {
+                out.extend_from_slice(&self.header_buf);
+                self.header_buf.clear();
+            }
+            other => self.state = other,
         }
         out
     }
@@ -1079,7 +1528,6 @@ pub(crate) fn rewrite_length_delimited_nals(
                 el_dropped += 1;
             } else if remove_hdr10plus && nal_is_hdr10plus_sei(nal) {
                 // Single-pass: strip HDR10+ SEI alongside RPU processing.
-                eprintln!("[fluxa/rpu_convert_fmp4] stripped_hdr10plus_sei_nal");
             } else {
                 out.extend_from_slice(&data[i..payload_end]);
             }
@@ -1091,6 +1539,39 @@ pub(crate) fn rewrite_length_delimited_nals(
     }
 
     (out, rpu_converted, rpu_failed, el_dropped)
+}
+
+fn rewrite_length_delimited_nals_owned(
+    data: Vec<u8>,
+    rpu_mode: u8,
+    zero_level5: bool,
+    remove_hdr10plus: bool,
+) -> (Vec<u8>, u32, u32, u32) {
+    if !has_length_delimited_rewrite_target(&data, remove_hdr10plus) {
+        return (data, 0, 0, 0);
+    }
+    rewrite_length_delimited_nals(&data, rpu_mode, zero_level5, remove_hdr10plus)
+}
+
+fn has_length_delimited_rewrite_target(data: &[u8], remove_hdr10plus: bool) -> bool {
+    let mut i = 0;
+    while i + 4 <= data.len() {
+        let len = u32::from_be_bytes([data[i], data[i + 1], data[i + 2], data[i + 3]]) as usize;
+        let end = i + 4 + len;
+        if end > data.len() {
+            return false;
+        }
+        let nal = &data[i + 4..end];
+        if nal.len() >= 2 {
+            let nal_type = (nal[0] >> 1) & 0x3F;
+            let layer_id = ((nal[0] & 0x01) << 5) | (nal[1] >> 3);
+            if nal_type == 62 || layer_id > 0 || (remove_hdr10plus && nal_is_hdr10plus_sei(nal)) {
+                return true;
+            }
+        }
+        i = end;
+    }
+    false
 }
 
 // HDR10+ SEI strip (Annex-B HEVC bitstream)
@@ -1109,14 +1590,15 @@ fn run_nal_stream(
     mut state: NalRewriteState,
 ) {
     let mut buf = [0u8; 65536];
+    let mut out = Vec::with_capacity(65536);
     loop {
         let n = upstream.read(&mut buf).unwrap_or(0);
         if n == 0 {
-            let tail = state.flush();
-            let _ = downstream.write_all(&tail);
+            state.flush_into(&mut out);
+            let _ = downstream.write_all(&out);
             break;
         }
-        let out = state.process(&buf[..n]);
+        state.process_into(&buf[..n], &mut out);
         if downstream.write_all(&out).is_err() {
             break;
         }
@@ -1173,38 +1655,58 @@ impl NalRewriteState {
     }
 
     fn process(&mut self, input: &[u8]) -> Vec<u8> {
+        let mut output = Vec::with_capacity(input.len());
+        self.process_into(input, &mut output);
+        output
+    }
+
+    fn process_into(&mut self, input: &[u8], output: &mut Vec<u8>) {
         self.pending.extend_from_slice(input);
-        let positions = find_start_code_positions(&self.pending);
-        if positions.len() < 2 {
-            return Vec::new();
-        }
-        let mut out = Vec::new();
-        for window in positions.windows(2) {
-            let (conv, fail, dropped) =
-                emit_nal(&self.pending[window[0]..window[1]], &self.mode, &mut out);
+        let Some((mut start, start_len)) = find_start_code(&self.pending, 0) else {
+            output.clear();
+            return;
+        };
+        let Some((mut next, _)) = find_start_code(&self.pending, start + start_len) else {
+            output.clear();
+            return;
+        };
+        output.clear();
+        loop {
+            let (conv, fail, dropped) = emit_nal(&self.pending[start..next], &self.mode, output);
             self.rpu_converted += conv;
             self.rpu_failed += fail;
             self.el_dropped += dropped;
+            start = next;
+            let Some((candidate, _)) = find_start_code(&self.pending, start + 3) else {
+                break;
+            };
+            next = candidate;
         }
-        let last = *positions.last().unwrap();
-        self.pending = self.pending[last..].to_vec();
-        out
+        self.pending.copy_within(start.., 0);
+        self.pending.truncate(self.pending.len() - start);
     }
 
     fn rpu_stats(&self) -> (u32, u32, u32) {
         (self.rpu_converted, self.rpu_failed, self.el_dropped)
     }
 
-    fn flush(mut self) -> Vec<u8> {
+    fn flush(self) -> Vec<u8> {
+        let mut output = Vec::new();
+        let mut state = self;
+        state.flush_into(&mut output);
+        output
+    }
+
+    fn flush_into(&mut self, output: &mut Vec<u8>) {
         if self.pending.is_empty() {
-            return Vec::new();
+            output.clear();
+            return;
         }
-        let mut out = Vec::new();
-        let (conv, fail, dropped) = emit_nal(&self.pending, &self.mode, &mut out);
+        output.clear();
+        let (conv, fail, dropped) = emit_nal(&self.pending, &self.mode, output);
         self.rpu_converted += conv;
         self.rpu_failed += fail;
         self.el_dropped += dropped;
-        out
     }
 }
 
@@ -1228,7 +1730,6 @@ fn emit_nal(nal_with_sc: &[u8], mode: &NalProcessMode, out: &mut Vec<u8>) -> (u3
         } => {
             // Single-pass: strip HDR10+ SEIs and convert RPU NALs together.
             if *remove_hdr10plus && nal_is_hdr10plus_sei(nal) {
-                eprintln!("[fluxa/rpu_convert] stripped_hdr10plus_sei_nal");
                 return (0, 0, 0);
             }
             if nal_type == 62 {
@@ -1250,7 +1751,6 @@ fn emit_nal(nal_with_sc: &[u8], mode: &NalProcessMode, out: &mut Vec<u8>) -> (u3
         }
         NalProcessMode::Hdr10PlusStrip => {
             if nal_is_hdr10plus_sei(nal) {
-                eprintln!("[fluxa/hdr10plus_strip] stripped_hdr10plus_sei_nal");
             } else {
                 out.extend_from_slice(nal_with_sc);
             }
@@ -1315,26 +1815,35 @@ fn nal_is_hdr10plus_sei(nal: &[u8]) -> bool {
 }
 
 // Annex-B utilities
+#[cfg(test)]
 fn find_start_code_positions(data: &[u8]) -> Vec<usize> {
     let mut positions = Vec::new();
-    let len = data.len();
     let mut i = 0;
-    while i + 2 < len {
-        if data[i] == 0 && data[i + 1] == 0 {
-            if i + 3 < len && data[i + 2] == 0 && data[i + 3] == 1 {
-                positions.push(i);
-                i += 4;
-                continue;
+    while let Some((position, length)) = find_start_code(data, i) {
+        positions.push(position);
+        i = position + length;
+    }
+    positions
+}
+
+fn find_start_code(data: &[u8], from: usize) -> Option<(usize, usize)> {
+    let mut i = from;
+    while let Some(offset) = memchr::memchr(0, &data[i..]) {
+        i += offset;
+        if i + 2 >= data.len() {
+            break;
+        }
+        if data[i + 1] == 0 {
+            if i + 3 < data.len() && data[i + 2] == 0 && data[i + 3] == 1 {
+                return Some((i, 4));
             }
             if data[i + 2] == 1 {
-                positions.push(i);
-                i += 3;
-                continue;
+                return Some((i, 3));
             }
         }
         i += 1;
     }
-    positions
+    None
 }
 
 fn start_code_len(data: &[u8]) -> usize {
@@ -2100,6 +2609,29 @@ mod tests {
 
         assert!(all.windows(4).any(|w| w == payload_a.as_slice()));
         assert!(all.windows(4).any(|w| w == payload_b.as_slice()));
+    }
+
+    #[test]
+    fn fmp4_large_mdat_uses_spool_and_keeps_payload() {
+        let nal = make_ld_nal(1, 0, &[0x3Cu8; 1024]);
+        let repeat = (FMP4_MDAT_RAM_LIMIT as usize / nal.len()) + 1;
+        let mut content = Vec::with_capacity(repeat * nal.len());
+        for _ in 0..repeat {
+            content.extend_from_slice(&nal);
+        }
+        let segment = make_mdat_box(&content);
+        let mut rewriter = FMp4NalRewriter::new(2, false, false);
+        let mut all = rewriter.process(&segment);
+        loop {
+            let chunk = rewriter.flush_streaming();
+            if chunk.is_empty() {
+                break;
+            }
+            all.extend_from_slice(&chunk);
+        }
+        let box_size = u32::from_be_bytes([all[0], all[1], all[2], all[3]]) as usize;
+        assert_eq!(box_size, all.len());
+        assert_eq!(&all[8..], &content);
     }
 
     // EBML primitive tests

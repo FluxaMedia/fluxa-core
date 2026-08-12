@@ -3,11 +3,48 @@ use super::host_functions::{
     register_host_functions,
 };
 use super::web_compat::WEB_COMPAT_POLYFILL;
-use super::{PLUGIN_MEMORY_LIMIT, PLUGIN_TIMEOUT_SECS, PluginHttpClient};
+use super::{PLUGIN_TIMEOUT_SECS, PluginHttpClient, plugin_memory_limit};
 use crate::plugin_runtime::dom_bridge::DomBridge;
-use rquickjs::{AsyncContext, AsyncRuntime, CatchResultExt, Function};
-use std::sync::{Arc, Mutex};
+use rquickjs::{AsyncContext, AsyncRuntime, CatchResultExt, Function, Persistent, Promise};
+use std::cell::RefCell;
+use std::collections::HashMap;
+use std::hash::{Hash, Hasher};
+use std::sync::Arc;
 use std::time::Duration;
+
+struct QuickJsState {
+    runtime: AsyncRuntime,
+    context: AsyncContext,
+}
+
+thread_local! {
+    static QUICKJS_STATE: RefCell<Option<QuickJsState>> = const { RefCell::new(None) };
+    static SCRAPER_CACHE: RefCell<HashMap<u64, Persistent<Function<'static>>>> =
+        RefCell::new(HashMap::new());
+}
+
+async fn quickjs_context() -> Result<(AsyncRuntime, AsyncContext, bool), String> {
+    if let Some((runtime, context)) = QUICKJS_STATE.with(|state| {
+        state
+            .borrow()
+            .as_ref()
+            .map(|state| (state.runtime.clone(), state.context.clone()))
+    }) {
+        return Ok((runtime, context, false));
+    }
+
+    let runtime = AsyncRuntime::new().map_err(|e| e.to_string())?;
+    let context = AsyncContext::full(&runtime)
+        .await
+        .map_err(|e| e.to_string())?;
+    QUICKJS_STATE.with(|state| {
+        *state.borrow_mut() = Some(QuickJsState {
+            runtime: runtime.clone(),
+            context: context.clone(),
+        });
+    });
+    Ok((runtime, context, true))
+}
 
 #[expect(
     clippy::too_many_arguments,
@@ -23,141 +60,146 @@ pub(super) async fn run(
     season: Option<i32>,
     episode: Option<i32>,
 ) -> Result<String, String> {
-    let qjs_rt = AsyncRuntime::new().map_err(|e| e.to_string())?;
-    qjs_rt.set_memory_limit(PLUGIN_MEMORY_LIMIT).await;
+    let (qjs_rt, ctx, new_context) = quickjs_context().await?;
+    qjs_rt.set_memory_limit(plugin_memory_limit()).await;
     let deadline = std::time::Instant::now() + Duration::from_secs(PLUGIN_TIMEOUT_SECS);
     qjs_rt
         .set_interrupt_handler(Some(Box::new(move || std::time::Instant::now() > deadline)))
         .await;
-    tokio::task::spawn_local(qjs_rt.drive());
-    let ctx = AsyncContext::full(&qjs_rt)
-        .await
-        .map_err(|e| e.to_string())?;
+    if new_context {
+        tokio::task::spawn_local(qjs_rt.drive());
+    }
 
-    let captured: Arc<Mutex<Option<String>>> = Default::default();
-    let captured_clone = captured.clone();
     let dom = DomBridge::new();
+    let mut code_hasher = std::collections::hash_map::DefaultHasher::new();
+    code.hash(&mut code_hasher);
+    let code_key = code_hasher.finish();
 
-    let eval_result: rquickjs::Result<()> = ctx
+    let eval_result: rquickjs::Result<String> = ctx
         .async_with(async |ctx| {
             register_host_functions(&ctx, &dom, client)?;
 
-            let scraper_id_arg = serde_json::to_string(&scraper_id).unwrap_or_else(|_| "\"\"".into());
+            if new_context {
+                let setup = format!(
+                    r#"
+                    globalThis.global = globalThis;
+                    globalThis.window = globalThis;
+                    globalThis.self = globalThis;
+                    {web_compat_polyfill}
+                    {base64_polyfill}
+                    {text_encoder_polyfill}
+                    {crypto_polyfill}
+                    {cheerio_polyfill}
+                    globalThis.fetch = function(url, options) {{
+                        options = options || {{}};
+                        var requestUrl = url && url.href ? String(url.href) : String(url);
+                        var method = String(options.method || 'GET').toUpperCase();
+                        var headersJson = JSON.stringify(__normalize_fetch_headers(options.headers));
+                        var body = options.body === undefined || options.body === null ? null : String(options.body);
+                        var followRedirects = options.redirect !== 'manual';
+                        if (options.signal && options.signal.aborted) return Promise.reject(new Error('AbortError'));
+                        var raw = __native_fetch(requestUrl, method, headersJson, body, followRedirects);
+                        var parsed = JSON.parse(raw);
+                        var response = {{
+                            ok: parsed.ok,
+                            status: parsed.status,
+                            statusText: parsed.statusText || '',
+                            url: parsed.url || requestUrl,
+                            headers: new Headers(parsed.headers || {{}}),
+                            text: function() {{ return Promise.resolve(parsed.body); }},
+                            json: function() {{
+                                try {{
+                                    if (parsed.body === null || parsed.body === undefined || parsed.body === '') return Promise.resolve(null);
+                                    return Promise.resolve(JSON.parse(parsed.body));
+                                }} catch (e) {{ return Promise.resolve(null); }}
+                            }},
+                            clone: function() {{ return response; }}
+                        }};
+                        return Promise.resolve(response);
+                    }};
+                    var require = function(name) {{
+                        if (name.indexOf('cheerio') !== -1) return cheerio;
+                        if (name === 'crypto-js') return CryptoJS;
+                        throw new Error('module not available: ' + name);
+                    }};
+                    "#,
+                    web_compat_polyfill = WEB_COMPAT_POLYFILL,
+                    base64_polyfill = BASE64_POLYFILL,
+                    text_encoder_polyfill = TEXT_ENCODER_POLYFILL,
+                    crypto_polyfill = CRYPTO_POLYFILL,
+                    cheerio_polyfill = CHEERIO_POLYFILL,
+                );
+                ctx.eval::<(), _>(setup).catch(&ctx).map_err(|e| {
+                    rquickjs::Error::new_from_js_message("plugin", "setup", e.to_string())
+                })?;
+            }
+
             let scraper_settings_arg = if scraper_settings_json.trim().is_empty() {
                 "{}".to_string()
             } else {
                 scraper_settings_json.clone()
             };
-            let tmdb_id_arg = serde_json::to_string(&tmdb_id).unwrap_or_else(|_| "\"\"".into());
-            let media_type_arg =
-                serde_json::to_string(&media_type).unwrap_or_else(|_| "\"movie\"".into());
-            let season_arg = season.map(|s| s.to_string()).unwrap_or_else(|| "undefined".into());
-            let episode_arg = episode.map(|e| e.to_string()).unwrap_or_else(|| "undefined".into());
+            let function = SCRAPER_CACHE.with(|cache| {
+                let mut cache = cache.borrow_mut();
+                if let Some(function) = cache.get(&code_key) {
+                    return function
+                        .clone()
+                        .restore(&ctx)
+                        .map_err(|error| rquickjs::Error::new_from_js_message("plugin", "cache", error.to_string()));
+                }
 
-            let script = format!(
-                r#"
-                globalThis.global = globalThis;
-                globalThis.window = globalThis;
-                globalThis.self = globalThis;
-                globalThis.SCRAPER_ID = {scraper_id_arg};
-                globalThis.SCRAPER_SETTINGS = {scraper_settings_arg};
-
-                {web_compat_polyfill}
-
-                function fetch(url, options) {{
-                    options = options || {{}};
-                    var requestUrl = url && url.href ? String(url.href) : String(url);
-                    var method = String(options.method || 'GET').toUpperCase();
-                    var headersJson = JSON.stringify(__normalize_fetch_headers(options.headers));
-                    var body = options.body === undefined || options.body === null ? null : String(options.body);
-                    var followRedirects = options.redirect !== 'manual';
-                    if (options.signal && options.signal.aborted) return Promise.reject(new Error('AbortError'));
-                    var raw = __native_fetch(requestUrl, method, headersJson, body, followRedirects);
-                    var parsed = JSON.parse(raw);
-                    var response = {{
-                        ok: parsed.ok,
-                        status: parsed.status,
-                        statusText: parsed.statusText || '',
-                        url: parsed.url || requestUrl,
-                        headers: new Headers(parsed.headers || {{}}),
-                        text: function() {{ return Promise.resolve(parsed.body); }},
-                        json: function() {{
+                let script = format!(
+                    r#"(function() {{
+                        return async function(scraperId, settingsJson, tmdbId, mediaType, season, episode) {{
+                            globalThis.SCRAPER_ID = scraperId;
                             try {{
-                                if (parsed.body === null || parsed.body === undefined || parsed.body === '') return Promise.resolve(null);
-                                return Promise.resolve(JSON.parse(parsed.body));
+                                globalThis.SCRAPER_SETTINGS = JSON.parse(settingsJson || '{{}}');
+                            }} catch (e) {{
+                                globalThis.SCRAPER_SETTINGS = {{}};
                             }}
-                            catch (e) {{ return Promise.resolve(null); }}
-                        }},
-                        clone: function() {{ return response; }}
-                    }};
-                    return Promise.resolve(response);
-                }}
-
-                {base64_polyfill}
-                {text_encoder_polyfill}
-                {crypto_polyfill}
-                {cheerio_polyfill}
-
-                var require = function(name) {{
-                    if (name.indexOf('cheerio') !== -1) return cheerio;
-                    if (name === 'crypto-js') return CryptoJS;
-                    throw new Error('module not available: ' + name);
-                }};
-
-                var module = {{ exports: {{}} }};
-                var exports = module.exports;
-                (function() {{
-                    {code}
-                }})();
-
-                (async function() {{
-                    try {{
-                        var getStreams = module.exports.getStreams || globalThis.getStreams;
-                        if (!getStreams) {{
-                            console.error('getStreams function not found');
-                            __capture_result(JSON.stringify([]));
-                            return;
-                        }}
-                        var streams = await getStreams({tmdb_id_arg}, {media_type_arg}, {season_arg}, {episode_arg});
-                        __capture_result(JSON.stringify(streams || []));
-                    }} catch (e) {{
-                        console.error('getStreams error: ' + (e && e.message ? e.message : String(e)));
-                        __capture_result(JSON.stringify([]));
-                    }}
-                }})();
-                "#,
-                web_compat_polyfill = WEB_COMPAT_POLYFILL,
-                base64_polyfill = BASE64_POLYFILL,
-                text_encoder_polyfill = TEXT_ENCODER_POLYFILL,
-                crypto_polyfill = CRYPTO_POLYFILL,
-                cheerio_polyfill = CHEERIO_POLYFILL,
-                code = code,
-            );
-
-            ctx.globals().set(
-                "__capture_result",
-                Function::new(ctx.clone(), move |s: String| {
-                    if let Ok(mut captured) = captured_clone.lock() {
-                        *captured = Some(s);
-                    }
-                })?,
-            )?;
-
-            ctx.eval::<(), _>(script).catch(&ctx).map_err(|e| {
-                rquickjs::Error::new_from_js_message("plugin", "js", e.to_string())
+                            var module = {{ exports: {{}} }};
+                            var exports = module.exports;
+                            (function() {{
+                                {code}
+                            }})();
+                            try {{
+                                var getStreams = module.exports.getStreams || globalThis.getStreams;
+                                if (!getStreams) return '[]';
+                                var streams = await getStreams(tmdbId, mediaType, season, episode);
+                                return JSON.stringify(streams || []);
+                            }} catch (e) {{
+                                return '[]';
+                            }}
+                        }};
+                    }})()"#,
+                    code = code,
+                );
+                let function: Function = ctx.eval(script).catch(&ctx).map_err(|e| {
+                    rquickjs::Error::new_from_js_message("plugin", "compile", e.to_string())
+                })?;
+                if cache.len() >= 32 {
+                    cache.clear();
+                }
+                cache.insert(code_key, Persistent::save(&ctx, function.clone()));
+                Ok(function)
             })?;
 
-            Ok(())
+            let promise: Promise = function.call((
+                scraper_id,
+                scraper_settings_arg,
+                tmdb_id,
+                media_type,
+                season,
+                episode,
+            ))?;
+            let result: String = promise.into_future().await.catch(&ctx).map_err(|e| {
+                rquickjs::Error::new_from_js_message("plugin", "execute", e.to_string())
+            })?;
+            Ok(result)
         })
         .await;
 
-    eval_result.map_err(|e| e.to_string())?;
+    let result = eval_result.map_err(|e| e.to_string())?;
     qjs_rt.idle().await;
-
-    let result = captured
-        .lock()
-        .ok()
-        .and_then(|mut captured| captured.take())
-        .unwrap_or_else(|| "[]".to_string());
     Ok(result)
 }

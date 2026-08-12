@@ -200,7 +200,9 @@ pub(crate) fn plugin_stream_results_to_streams_json(raw_json: &str) -> String {
     };
 
     let streams: Vec<Stream> = if results.is_empty() {
-        vec![plugin_unavailable_stream(plugin_unavailable_reason(raw_json))]
+        vec![plugin_unavailable_stream(plugin_unavailable_reason(
+            raw_json,
+        ))]
     } else {
         results.into_iter().map(plugin_result_to_stream).collect()
     };
@@ -355,7 +357,10 @@ mod tests {
             r#"[{"unavailableReason":"Content was removed."}]"#,
         );
         let streams: Vec<Stream> = serde_json::from_str(&parsed).unwrap();
-        assert_eq!(streams[0].extra["pluginUnavailableReason"], "Content was removed.");
+        assert_eq!(
+            streams[0].extra["pluginUnavailableReason"],
+            "Content was removed."
+        );
     }
 
     #[test]

@@ -1,4 +1,6 @@
 use serde_json::{Value, json};
+use std::collections::HashMap;
+use std::sync::{Mutex, OnceLock};
 
 mod addon_protocol_routes;
 mod addon_resource_routes;
@@ -61,12 +63,12 @@ use crate::dolby_vision_sample;
 use crate::{
     addon_protocol, addon_resource, addon_store, addon_uptime, anime_detection, app_state,
     calendar_plan, content_identity, content_warnings, core_contract, data_policy,
-    desktop_playback, device_resource, discovery_plan,
-    external_sync, headless_adapter_plan, headless_engine, home_ranking, integration_settings,
-    intro_segments, library_state, mdblist_plan, nuvio_sync, offline_download, platform_plan,
-    player_flow, player_policy, player_scrobble, plugins, profile_avatar_pack, profile_contract,
-    profile_prefs, publicmetadb_plan, repository_flow, search_plan, stream_policy, tmdb_plan,
-    trailer_subtitles, watchlist_plan,
+    desktop_playback, device_resource, discovery_plan, external_sync, headless_adapter_plan,
+    headless_engine, home_ranking, integration_settings, intro_segments, library_persistence,
+    library_state, mdblist_plan, nuvio_sync, offline_download, platform_plan, player_flow,
+    player_policy, player_scrobble, plugins, profile_avatar_pack, profile_contract, profile_prefs,
+    publicmetadb_plan, repository_flow, search_plan, stream_policy, tmdb_plan, trailer_subtitles,
+    watchlist_plan,
 };
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -100,9 +102,36 @@ fn fail(kind: ErrorKind, message: impl Into<String>) -> CallError {
     }
 }
 
+fn unknown_method() -> CallError {
+    CallError {
+        kind: ErrorKind::UnknownMethod,
+        message: String::new(),
+    }
+}
+
 type Outcome = Result<Value, CallError>;
 
 pub fn core_invoke(method: &str, args_json: &str) -> String {
+    if matches!(
+        method,
+        "app.dispatchDelta" | "engine.dispatch" | "engine.completeEffect"
+    ) {
+        return match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            raw_dispatch(method, args_json)
+        })) {
+            Ok(Ok(value)) => format!(r#"{{"ok":true,"value":{value}}}"#),
+            Ok(Err(error)) => json!({
+                "ok": false,
+                "error": { "kind": error.kind.as_str(), "message": error.message, "method": method },
+            })
+            .to_string(),
+            Err(_) => json!({
+                "ok": false,
+                "error": { "kind": ErrorKind::Internal.as_str(), "message": "internal panic", "method": method },
+            })
+            .to_string(),
+        };
+    }
     // A panic anywhere in route()/the domain modules must not take the host
     // process down with it — catch it here and hand back the same error
     // envelope shape callers already handle for any other failure.
@@ -121,6 +150,38 @@ pub fn core_invoke(method: &str, args_json: &str) -> String {
         })
         .to_string(),
     }
+}
+
+fn raw_dispatch(method: &str, args_json: &str) -> Result<String, CallError> {
+    let args = object(args_json)?;
+    let value = match method {
+        "app.dispatchDelta" => app_state::app_core_dispatch_delta_json(
+            field_u64(&args, "handle")?,
+            &field(&args, "action")?.to_string(),
+        ),
+        "engine.dispatch" => headless_engine::headless_engine_dispatch_json(
+            field_u64(&args, "handle")?,
+            &field(&args, "action")?.to_string(),
+        ),
+        "engine.completeEffect" => headless_engine::headless_engine_complete_effect_json(
+            field_u64(&args, "handle")?,
+            &field(&args, "result")?.to_string(),
+        ),
+        _ => unreachable!(),
+    }
+    .ok_or_else(|| {
+        fail(
+            ErrorKind::NotFound,
+            format!("`{method}` produced no result"),
+        )
+    })?;
+    serde_json::from_str::<&serde_json::value::RawValue>(&value).map_err(|error| {
+        fail(
+            ErrorKind::Internal,
+            format!("core produced invalid JSON: {error}"),
+        )
+    })?;
+    Ok(value)
 }
 
 // Each route_* function owns one domain's method names. `route` tries them in
@@ -169,15 +230,64 @@ const ROUTERS: &[fn(&str, &str) -> Outcome] = &[
     route_trailer_subtitles,
 ];
 
+static ROUTE_CACHE: OnceLock<Mutex<HashMap<String, Option<usize>>>> = OnceLock::new();
+
 fn route(method: &str, args_json: &str) -> Outcome {
-    for router in ROUTERS {
+    match method {
+        "engine.dispatch"
+        | "engine.completeEffect"
+        | "app.dispatch"
+        | "app.dispatchDelta"
+        | "streamPlaybackInfo"
+        | "torrentRuntimeInfo"
+        | "torrentStatusInfo"
+        | "playerTrackState"
+        | "curateHomeItems"
+        | "prioritizeHomeRows"
+        | "optimizeHomeRows" => {
+            return match method {
+                "engine.dispatch"
+                | "engine.completeEffect"
+                | "app.dispatch"
+                | "app.dispatchDelta" => route_engine_lifecycle(method, args_json),
+                "streamPlaybackInfo" | "torrentRuntimeInfo" | "torrentStatusInfo"
+                | "playerTrackState" => route_stream_policy(method, args_json),
+                _ => route_library_state(method, args_json),
+            };
+        }
+        _ => {}
+    }
+    let cache = ROUTE_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+    if let Some(index) = cache
+        .lock()
+        .ok()
+        .and_then(|routes| routes.get(method).copied())
+    {
+        return index
+            .map(|index| ROUTERS[index](method, args_json))
+            .unwrap_or_else(|| {
+                Err(fail(
+                    ErrorKind::UnknownMethod,
+                    format!("no such method `{method}`"),
+                ))
+            });
+    }
+    for (index, router) in ROUTERS.iter().enumerate() {
         match router(method, args_json) {
             Err(CallError {
                 kind: ErrorKind::UnknownMethod,
                 ..
             }) => continue,
-            result => return result,
+            result => {
+                if let Ok(mut routes) = cache.lock() {
+                    routes.insert(method.to_string(), Some(index));
+                }
+                return result;
+            }
         }
+    }
+    if let Ok(mut routes) = cache.lock() {
+        routes.insert(method.to_string(), None);
     }
     Err(fail(
         ErrorKind::UnknownMethod,
@@ -386,6 +496,22 @@ mod tests {
             assert_eq!(result["ok"], json!(false));
             assert_eq!(result["error"]["kind"], json!("invalid_args"));
         }
+    }
+
+    #[test]
+    fn app_delta_keeps_the_same_wire_value_without_reparsing() {
+        let created = parse(&core_invoke("app.create", "{}"));
+        let handle = created["value"].as_i64().unwrap();
+        let delta = parse(&core_invoke(
+            "app.dispatchDelta",
+            &format!(r#"{{"handle":{handle},"action":{{"type":"setHomeLoading","value":true}}}}"#),
+        ));
+        assert_eq!(delta["ok"], json!(true));
+        assert_eq!(delta["value"]["patch"]["home"]["isLoading"], json!(true));
+        assert_eq!(
+            parse(&core_invoke("app.destroy", &handle.to_string()))["value"],
+            json!(true)
+        );
     }
 
     #[test]

@@ -44,9 +44,6 @@ pub(super) fn route_addon_resource(method: &str, args_json: &str) -> Outcome {
         "parseDirectStreams" => opt_json(addon_resource::parse_direct_streams_json(&arg_str(
             args_json, "body",
         )?)),
-        _ => Err(fail(
-            ErrorKind::UnknownMethod,
-            format!("no such method `{method}`"),
-        )),
+        _ => Err(unknown_method()),
     }
 }

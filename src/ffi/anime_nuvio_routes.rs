@@ -21,10 +21,7 @@ pub(super) fn route_anime_detection(method: &str, args_json: &str) -> Outcome {
             &object(args_json)?
         ))),
 
-        _ => Err(fail(
-            ErrorKind::UnknownMethod,
-            format!("no such method `{method}`"),
-        )),
+        _ => Err(unknown_method()),
     }
 }
 
@@ -34,12 +31,16 @@ pub(super) fn route_nuvio_sync(method: &str, args_json: &str) -> Outcome {
         "nuvioBuildLocalProfiles" => opt_json(nuvio_sync::build_local_profiles_json(args_json)),
         "nuvioLibraryToWatchlist" => opt_json(nuvio_sync::library_to_watchlist_json(args_json)),
         "nuvioProgressMetaNeeds" => opt_json(nuvio_sync::progress_meta_needs_json(args_json)),
-        "nuvioProgressSyncRequestPlan" => opt_json(nuvio_sync::progress_sync_request_plan_json(args_json)),
+        "nuvioProgressSyncRequestPlan" => {
+            opt_json(nuvio_sync::progress_sync_request_plan_json(args_json))
+        }
         "nuvioApplyProgressSync" => opt_json(nuvio_sync::apply_progress_sync_json(args_json)),
         "nuvioResolveContinueWatching" => {
             opt_json(nuvio_sync::resolve_continue_watching_json(args_json))
         }
-        "nuvioDeltaSyncRequestPlan" => opt_json(nuvio_sync::delta_sync_request_plan_json(args_json)),
+        "nuvioDeltaSyncRequestPlan" => {
+            opt_json(nuvio_sync::delta_sync_request_plan_json(args_json))
+        }
         "nuvioApplyDeltaSync" => opt_json(nuvio_sync::apply_delta_sync_json(args_json)),
         "nuvioImportMergePlan" => opt_json(nuvio_sync::import_merge_plan_json(args_json)),
         "nuvioExportPushPlan" => opt_json(nuvio_sync::export_push_plan_json(args_json)),
@@ -59,9 +60,6 @@ pub(super) fn route_nuvio_sync(method: &str, args_json: &str) -> Outcome {
         }
         "nuvioCollectionRequest" => opt_json(nuvio_sync::collection_request_json(args_json)),
 
-        _ => Err(fail(
-            ErrorKind::UnknownMethod,
-            format!("`{method}` is not a nuvio-sync method"),
-        )),
+        _ => Err(unknown_method()),
     }
 }

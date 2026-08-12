@@ -34,10 +34,7 @@ pub(super) fn route_profile_contract(method: &str, args_json: &str) -> Outcome {
             ))
         }
 
-        _ => Err(fail(
-            ErrorKind::UnknownMethod,
-            format!("no such method `{method}`"),
-        )),
+        _ => Err(unknown_method()),
     }
 }
 
@@ -73,9 +70,6 @@ pub(super) fn route_profile_prefs(method: &str, args_json: &str) -> Outcome {
         // args_json IS the profile object
         "profileSafePrefs" => opt_json(profile_prefs::profile_safe_prefs_json(args_json)),
 
-        _ => Err(fail(
-            ErrorKind::UnknownMethod,
-            format!("no such method `{method}`"),
-        )),
+        _ => Err(unknown_method()),
     }
 }

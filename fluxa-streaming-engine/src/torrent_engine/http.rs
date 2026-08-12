@@ -63,9 +63,10 @@ pub(super) async fn prioritize_stream_file(
     // a season pack replaces the old video instead of accumulating episodes;
     // subtitles remain selectable without evicting that primary video.
     let (only_files, previous_primary) = state
-        .prioritized_files
+        .runtime
         .lock()
-        .map(|mut files| {
+        .map(|mut runtime| {
+            let files = &mut runtime.prioritized_files;
             let focus = files.entry(torrent_id).or_default();
             let previous = focus.primary_video;
             let selected = update_file_focus(focus, file_id, role);
@@ -80,13 +81,16 @@ pub(super) async fn prioritize_stream_file(
         let _ = state
             .api
             .api_clear_streaming_window(TorrentIdOrHash::Id(torrent_id), previous_file);
-        if let Ok(mut windows) = state.playback_windows.lock() {
-            windows.remove(&(torrent_id, previous_file));
-        }
-        if let Ok(mut sessions) = state.playback_sessions.lock()
-            && let Some(session) = sessions.remove(&(torrent_id, previous_file))
-        {
-            session.cancel.cancel();
+        if let Ok(mut runtime) = state.runtime.lock() {
+            runtime
+                .playback_windows
+                .remove(&(torrent_id, previous_file));
+            if let Some(session) = runtime
+                .playback_sessions
+                .remove(&(torrent_id, previous_file))
+            {
+                session.cancel.cancel();
+            }
         }
     }
     let Some(only_files) = only_files else {
@@ -125,11 +129,12 @@ pub(super) fn update_file_focus(
 
 pub(super) fn lookup_known_link(state: &EngineState, link: Option<&str>) -> Option<usize> {
     let link = link?.trim();
-    state.known_links.lock().ok()?.get(link).copied()
+    state.runtime.lock().ok()?.known_links.get(link).copied()
 }
 
 pub(super) fn remember_link(state: &EngineState, link: &str, id: usize) {
-    if let Ok(mut links) = state.known_links.lock() {
+    if let Ok(mut runtime) = state.runtime.lock() {
+        let links = &mut runtime.known_links;
         if links.len() >= 64 {
             links.clear();
         }

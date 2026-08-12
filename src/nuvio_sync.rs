@@ -9,7 +9,10 @@ mod reconciliation;
 
 pub(crate) use addon_priority::{addon_state_json, sort_addons_by_priority_json};
 pub(crate) use collections::map_collections_json;
-pub(crate) use delta_state::{apply_delta_sync_json, apply_progress_sync_json, delta_sync_request_plan_json, progress_sync_request_plan_json};
+pub(crate) use delta_state::{
+    apply_delta_sync_json, apply_progress_sync_json, delta_sync_request_plan_json,
+    progress_sync_request_plan_json,
+};
 pub(crate) use export_push::{
     collection_request_json, export_push_plan_json, library_item_request_json,
     playback_progress_request_json, watched_items_request_json,
@@ -271,11 +274,14 @@ mod tests {
             .unwrap(),
         )
         .unwrap();
-        assert_eq!(needs, json!([{
-            "contentId": "show",
-            "contentType": "series",
-            "progressKey": "show_s1e2"
-        }]));
+        assert_eq!(
+            needs,
+            json!([{
+                "contentId": "show",
+                "contentType": "series",
+                "progressKey": "show_s1e2"
+            }])
+        );
     }
 
     #[test]

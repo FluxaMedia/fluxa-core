@@ -269,9 +269,10 @@ pub(crate) fn resolve_folder_catalog_sources(
                     .and_then(Value::as_str)
                     .map(str::trim)
                     .filter(|genre| !genre.is_empty() && !genre.eq_ignore_ascii_case("none"))
-                    && let Some(fields) = entry.as_object_mut() {
-                        fields.insert("genre".to_string(), Value::String(genre.to_string()));
-                    }
+                    && let Some(fields) = entry.as_object_mut()
+                {
+                    fields.insert("genre".to_string(), Value::String(genre.to_string()));
+                }
                 resolved.push(entry);
             }
         }
@@ -302,9 +303,10 @@ pub(crate) fn resolve_folder_catalog_sources(
                     .and_then(Value::as_str)
                     .map(str::trim)
                     .filter(|genre| !genre.is_empty() && !genre.eq_ignore_ascii_case("none"))
-                    && let Some(fields) = entry.as_object_mut() {
-                        fields.insert("genre".to_string(), Value::String(genre.to_string()));
-                    }
+                    && let Some(fields) = entry.as_object_mut()
+                {
+                    fields.insert("genre".to_string(), Value::String(genre.to_string()));
+                }
                 resolved.push(entry);
             }
         }
@@ -320,9 +322,10 @@ pub(crate) fn resolve_folder_catalog_sources(
             let mut entry =
                 json!({ "transportUrl": t_url, "catalogId": catalog_id, "type": "movie" });
             if let Some(g) = folder.get("genre").and_then(Value::as_str)
-                && let Some(fields) = entry.as_object_mut() {
-                    fields.insert("genre".to_string(), Value::String(g.to_string()));
-                }
+                && let Some(fields) = entry.as_object_mut()
+            {
+                fields.insert("genre".to_string(), Value::String(g.to_string()));
+            }
             resolved.push(entry);
         }
     }
@@ -344,9 +347,10 @@ fn hidden_folder_category(
         "canLoadMore": false,
     });
     if let Some(g) = folder.get("genre").and_then(Value::as_str)
-        && let Some(fields) = hcat.as_object_mut() {
-            fields.insert("addonGenre".to_string(), Value::String(g.to_string()));
-        }
+        && let Some(fields) = hcat.as_object_mut()
+    {
+        fields.insert("addonGenre".to_string(), Value::String(g.to_string()));
+    }
     hcat
 }
 
@@ -373,16 +377,19 @@ fn folder_tile(folder_id: &str, folder_title: &str, folder: &Map<String, Value>)
             .unwrap_or("poster"),
     });
     if let Some(logo) = folder.get("titleLogoUrl").and_then(Value::as_str)
-        && let Some(fields) = tile.as_object_mut() {
-            fields.insert("logo".to_string(), Value::String(logo.to_string()));
-        }
+        && let Some(fields) = tile.as_object_mut()
+    {
+        fields.insert("logo".to_string(), Value::String(logo.to_string()));
+    }
     if let Some(info) = folder.get("catalogTitle").and_then(Value::as_str)
-        && let Some(fields) = tile.as_object_mut() {
-            fields.insert("releaseInfo".to_string(), Value::String(info.to_string()));
-        }
+        && let Some(fields) = tile.as_object_mut()
+    {
+        fields.insert("releaseInfo".to_string(), Value::String(info.to_string()));
+    }
     if let Some(gif) = folder.get("focusGifUrl").and_then(Value::as_str)
-        && let Some(fields) = tile.as_object_mut() {
-            fields.insert("focusGifUrl".to_string(), Value::String(gif.to_string()));
-        }
+        && let Some(fields) = tile.as_object_mut()
+    {
+        fields.insert("focusGifUrl".to_string(), Value::String(gif.to_string()));
+    }
     tile
 }

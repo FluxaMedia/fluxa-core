@@ -5,9 +5,11 @@ use axum::http::{HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use serde::Deserialize;
+use std::collections::HashMap;
 use std::io;
 use std::pin::Pin;
 use std::process::Stdio;
+use std::sync::{Mutex, OnceLock};
 use std::task::{Context, Poll};
 use tokio::io::{AsyncRead, ReadBuf};
 use tokio::process::{Child, ChildStdout, Command};
@@ -55,6 +57,10 @@ pub struct TranscodeQuery {
     /// seekable (it's a live ffmpeg pipe), so the player seeks by re-opening
     /// this endpoint with a new `start` instead.
     start: Option<f64>,
+    #[serde(rename = "hwEncoder")]
+    hw_encoder: Option<String>,
+    #[serde(rename = "streamBufferBytes")]
+    stream_buffer_bytes: Option<usize>,
 }
 
 /// Blocks ffmpeg url schemes like `file:` and SSRF to non-loopback hosts.
@@ -71,7 +77,7 @@ fn is_allowed_stream_url(raw: &str) -> bool {
     )
 }
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 struct ProbedCodecs {
     video: Option<String>,
     audio: Option<String>,
@@ -79,6 +85,12 @@ struct ProbedCodecs {
 }
 
 async fn probe(url: &str) -> ProbedCodecs {
+    static CACHE: OnceLock<Mutex<HashMap<String, ProbedCodecs>>> = OnceLock::new();
+    let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+    if let Some(codecs) = cache.lock().ok().and_then(|cache| cache.get(url).cloned()) {
+        return codecs;
+    }
+
     let ffprobe = ffmpeg_locator::resolve("ffprobe");
     let output = Command::new(ffprobe)
         .args([
@@ -120,6 +132,12 @@ async fn probe(url: &str) -> ProbedCodecs {
         .and_then(|f| f.get("duration"))
         .and_then(|d| d.as_str())
         .and_then(|d| d.parse::<f64>().ok());
+    if let Ok(mut cache) = cache.lock() {
+        if cache.len() >= 64 {
+            cache.clear();
+        }
+        cache.insert(url.to_string(), codecs.clone());
+    }
     codecs
 }
 
@@ -158,10 +176,13 @@ pub async fn handle_transcode(Query(q): Query<TranscodeQuery>) -> Response {
             .into_response();
     }
     let codecs = probe(&q.url).await;
+    let hw_encoder = resolve_hw_encoder(q.hw_encoder.as_deref()).await;
 
-    let video_args: &[&str] = match codecs.video.as_deref() {
-        Some("h264") => &["-c:v", "copy"],
-        _ => &["-c:v", "libx264", "-preset", "veryfast", "-crf", "20"],
+    let video_args = if codecs.video.as_deref() == Some("h264") {
+        vec!["-c:v", "copy"]
+    } else {
+        hardware_video_args(hw_encoder)
+            .unwrap_or_else(|| vec!["-c:v", "libx264", "-preset", "veryfast", "-crf", "20"])
     };
     let audio_args: &[&str] = match codecs.audio.as_deref() {
         Some("aac") => &["-c:a", "copy"],
@@ -214,7 +235,8 @@ pub async fn handle_transcode(Query(q): Query<TranscodeQuery>) -> Response {
         stdout,
         _guard: KillOnDrop(Some(child)),
     };
-    let body = Body::from_stream(ReaderStream::with_capacity(guarded, 65536));
+    let buffer_size = stream_buffer_size(q.stream_buffer_bytes);
+    let body = Body::from_stream(ReaderStream::with_capacity(guarded, buffer_size));
     let mut response = (StatusCode::OK, body).into_response();
     response.headers_mut().insert(
         axum::http::header::CONTENT_TYPE,
@@ -223,8 +245,137 @@ pub async fn handle_transcode(Query(q): Query<TranscodeQuery>) -> Response {
     response
 }
 
+fn stream_buffer_size(requested: Option<usize>) -> usize {
+    requested.unwrap_or(64 * 1024).clamp(64 * 1024, 256 * 1024)
+}
+
+fn hardware_video_args(encoder: Option<&str>) -> Option<Vec<&'static str>> {
+    match encoder {
+        Some("nvenc") => Some(vec!["-c:v", "h264_nvenc", "-preset", "p4", "-cq", "20"]),
+        Some("qsv") => Some(vec!["-c:v", "h264_qsv", "-global_quality", "23"]),
+        Some("videotoolbox") => Some(vec!["-c:v", "h264_videotoolbox", "-q:v", "65"]),
+        Some("vaapi") => Some(vec![
+            "-vf",
+            "format=nv12,hwupload",
+            "-c:v",
+            "h264_vaapi",
+            "-qp",
+            "20",
+        ]),
+        _ => None,
+    }
+}
+
+async fn resolve_hw_encoder(requested: Option<&str>) -> Option<&str> {
+    if requested != Some("auto") {
+        let encoder = requested?;
+        return probe_hardware_encoder(encoder).await.then_some(encoder);
+    }
+    static ENCODER: OnceLock<tokio::sync::OnceCell<Option<&'static str>>> = OnceLock::new();
+    let cell = ENCODER.get_or_init(tokio::sync::OnceCell::new);
+    cell.get_or_init(|| async {
+        let output = Command::new(ffmpeg_locator::resolve("ffmpeg"))
+            .args(["-hide_banner", "-encoders"])
+            .stdin(Stdio::null())
+            .output()
+            .await
+            .ok()?;
+        let encoders = output.stdout;
+        let candidates: &[(&str, &str)] = if cfg!(target_os = "macos") {
+            &[("videotoolbox", "h264_videotoolbox"), ("qsv", "h264_qsv")]
+        } else if cfg!(target_os = "windows") {
+            &[("nvenc", "h264_nvenc"), ("qsv", "h264_qsv")]
+        } else {
+            &[
+                ("nvenc", "h264_nvenc"),
+                ("qsv", "h264_qsv"),
+                ("vaapi", "h264_vaapi"),
+            ]
+        };
+        for (name, encoder) in candidates {
+            if !encoders
+                .windows(encoder.len())
+                .any(|window| window == encoder.as_bytes())
+            {
+                continue;
+            }
+            if probe_hardware_encoder(name).await {
+                return Some(*name);
+            }
+        }
+        None
+    })
+    .await
+    .as_deref()
+}
+
+async fn probe_hardware_encoder(encoder: &str) -> bool {
+    let Some(args) = hardware_video_args(Some(encoder)) else {
+        return false;
+    };
+    Command::new(ffmpeg_locator::resolve("ffmpeg"))
+        .args([
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-f",
+            "lavfi",
+            "-i",
+            "color=size=16x16:rate=1",
+            "-frames:v",
+            "1",
+        ])
+        .args(args)
+        .args(["-an", "-f", "null", "-"])
+        .stdin(Stdio::null())
+        .output()
+        .await
+        .is_ok_and(|output| output.status.success())
+}
+
 pub fn router() -> Router {
     Router::new()
         .route("/transcode", get(handle_transcode))
         .route("/probe", get(handle_probe))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{hardware_video_args, is_allowed_stream_url, stream_buffer_size};
+
+    #[test]
+    fn hardware_encoder_args_are_complete() {
+        assert_eq!(
+            hardware_video_args(Some("nvenc")),
+            Some(vec!["-c:v", "h264_nvenc", "-preset", "p4", "-cq", "20"])
+        );
+        assert_eq!(
+            hardware_video_args(Some("vaapi")),
+            Some(vec![
+                "-vf",
+                "format=nv12,hwupload",
+                "-c:v",
+                "h264_vaapi",
+                "-qp",
+                "20"
+            ])
+        );
+        assert!(hardware_video_args(Some("unknown")).is_none());
+    }
+
+    #[test]
+    fn transcode_accepts_only_loopback_http_urls() {
+        assert!(is_allowed_stream_url("http://127.0.0.1:8080/stream/x"));
+        assert!(is_allowed_stream_url("https://localhost/stream/x"));
+        assert!(!is_allowed_stream_url("file:///tmp/video.mkv"));
+        assert!(!is_allowed_stream_url("https://example.com/video.mkv"));
+    }
+
+    #[test]
+    fn stream_buffer_size_stays_within_device_budget() {
+        assert_eq!(stream_buffer_size(None), 64 * 1024);
+        assert_eq!(stream_buffer_size(Some(16 * 1024)), 64 * 1024);
+        assert_eq!(stream_buffer_size(Some(512 * 1024)), 256 * 1024);
+        assert_eq!(stream_buffer_size(Some(128 * 1024)), 128 * 1024);
+    }
 }

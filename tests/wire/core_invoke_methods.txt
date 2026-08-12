@@ -14,6 +14,7 @@ anilistSearchBestMatch
 app.create
 app.destroy
 app.dispatch
+app.dispatchDelta
 applyPreferenceUpdate
 app.state
 baseUrl
@@ -67,6 +68,7 @@ contentImdbId
 contentTraktKeysBatch
 contentWatchedKeysBatch
 continueWatchingCardFields
+libraryDocumentViews
 coreCapabilities
 core.drainErrorLog
 curateHomeItems

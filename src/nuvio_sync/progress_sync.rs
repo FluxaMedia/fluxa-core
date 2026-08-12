@@ -165,7 +165,11 @@ fn progress_entry(entry: &Value, lib_item: Option<&Value>, addon_meta: Option<&V
         _ => None,
     };
     let next_ep_meta = if is_resolved_up_next {
-        match (season.and_then(Value::as_i64), episode.and_then(Value::as_i64), videos) {
+        match (
+            season.and_then(Value::as_i64),
+            episode.and_then(Value::as_i64),
+            videos,
+        ) {
             (Some(current_season), Some(current_episode), Some(videos)) => {
                 find_next_episode(current_season, current_episode, videos)
             }

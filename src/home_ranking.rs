@@ -206,21 +206,23 @@ mod tests {
 
     #[test]
     fn hero_plan_requests_logo_for_catalog_item_missing_one() {
-        let plan: Value = serde_json::from_str(&home_hero_plan_json(
-            &json!({
-                "categories": [{
-                    "type": "movie",
-                    "items": [{
-                        "id": "tmdb:1",
+        let plan: Value = serde_json::from_str(
+            &home_hero_plan_json(
+                &json!({
+                    "categories": [{
                         "type": "movie",
-                        "background": "https://image.example/bg.jpg",
+                        "items": [{
+                            "id": "tmdb:1",
+                            "type": "movie",
+                            "background": "https://image.example/bg.jpg",
+                        }],
                     }],
-                }],
-                "prefs": {},
-            })
-            .to_string(),
+                    "prefs": {},
+                })
+                .to_string(),
+            )
+            .unwrap(),
         )
-        .unwrap())
         .unwrap();
 
         assert_eq!(plan["logoTargets"][0]["id"], "tmdb:1");
@@ -229,22 +231,24 @@ mod tests {
 
     #[test]
     fn hero_plan_merges_fetched_logo_and_skips_target_once_resolved() {
-        let plan: Value = serde_json::from_str(&home_hero_plan_json(
-            &json!({
-                "categories": [{
-                    "type": "movie",
-                    "items": [{
-                        "id": "tmdb:1",
+        let plan: Value = serde_json::from_str(
+            &home_hero_plan_json(
+                &json!({
+                    "categories": [{
                         "type": "movie",
-                        "background": "https://image.example/bg.jpg",
+                        "items": [{
+                            "id": "tmdb:1",
+                            "type": "movie",
+                            "background": "https://image.example/bg.jpg",
+                        }],
                     }],
-                }],
-                "prefs": { "tmdbApiKey": "KEY" },
-                "fetchedLogos": { "tmdb:1": "https://image.example/logo.png" },
-            })
-            .to_string(),
+                    "prefs": { "tmdbApiKey": "KEY" },
+                    "fetchedLogos": { "tmdb:1": "https://image.example/logo.png" },
+                })
+                .to_string(),
+            )
+            .unwrap(),
         )
-        .unwrap())
         .unwrap();
 
         assert_eq!(plan["billboard"]["logo"], "https://image.example/logo.png");
@@ -253,21 +257,23 @@ mod tests {
 
     #[test]
     fn hero_plan_requests_logo_for_addon_item_without_tmdb_api_key() {
-        let plan: Value = serde_json::from_str(&home_hero_plan_json(
-            &json!({
-                "categories": [{
-                    "type": "movie",
-                    "items": [{
-                        "id": "tt1",
+        let plan: Value = serde_json::from_str(
+            &home_hero_plan_json(
+                &json!({
+                    "categories": [{
                         "type": "movie",
-                        "background": "https://image.example/bg.jpg",
+                        "items": [{
+                            "id": "tt1",
+                            "type": "movie",
+                            "background": "https://image.example/bg.jpg",
+                        }],
                     }],
-                }],
-                "prefs": {},
-            })
-            .to_string(),
+                    "prefs": {},
+                })
+                .to_string(),
+            )
+            .unwrap(),
         )
-        .unwrap())
         .unwrap();
 
         assert_eq!(plan["logoTargets"][0]["id"], "tt1");

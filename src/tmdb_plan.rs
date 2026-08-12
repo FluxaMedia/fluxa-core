@@ -44,8 +44,16 @@ mod tests {
         let images = json!({"logos": []}).to_string();
         let external_ids = json!({"imdb_id": "tt0137523"}).to_string();
         let result: Value = serde_json::from_str(
-            &tmdb_full_meta_to_meta_json(&details, &credits, &images, &external_ids, "{}", "movie", "en")
-                .unwrap(),
+            &tmdb_full_meta_to_meta_json(
+                &details,
+                &credits,
+                &images,
+                &external_ids,
+                "{}",
+                "movie",
+                "en",
+            )
+            .unwrap(),
         )
         .unwrap();
         assert_eq!(result["id"], "tt0137523");
@@ -86,8 +94,16 @@ mod tests {
         .to_string();
         let external_ids = json!({}).to_string();
         let result: Value = serde_json::from_str(
-            &tmdb_full_meta_to_meta_json(&details, &credits, &images, &external_ids, "{}", "movie", "tr")
-                .unwrap(),
+            &tmdb_full_meta_to_meta_json(
+                &details,
+                &credits,
+                &images,
+                &external_ids,
+                "{}",
+                "movie",
+                "tr",
+            )
+            .unwrap(),
         )
         .unwrap();
         assert_eq!(result["logo"], "https://image.tmdb.org/t/p/w500/tr.png");
@@ -132,18 +148,23 @@ mod tests {
         let tmdb = json!({"logo": "tmdb-logo", "description": "tmdb-desc"}).to_string();
         let flags = json!({"artwork": true, "description": false}).to_string();
         let result: Value =
-            serde_json::from_str(&merge_tmdb_enrichment_json(&base, &tmdb, &flags).unwrap()).unwrap();
+            serde_json::from_str(&merge_tmdb_enrichment_json(&base, &tmdb, &flags).unwrap())
+                .unwrap();
         assert_eq!(result["logo"], "tmdb-logo");
         assert_eq!(result["description"], "addon-desc");
     }
 
     #[test]
     fn enrichment_group_flag_overrides_all_its_fields_at_once() {
-        let base = json!({"logo": "addon-logo", "poster": "addon-poster", "background": "addon-bg"}).to_string();
-        let tmdb = json!({"logo": "tmdb-logo", "poster": "tmdb-poster", "background": "tmdb-bg"}).to_string();
+        let base =
+            json!({"logo": "addon-logo", "poster": "addon-poster", "background": "addon-bg"})
+                .to_string();
+        let tmdb = json!({"logo": "tmdb-logo", "poster": "tmdb-poster", "background": "tmdb-bg"})
+            .to_string();
         let flags = json!({"artwork": true}).to_string();
         let result: Value =
-            serde_json::from_str(&merge_tmdb_enrichment_json(&base, &tmdb, &flags).unwrap()).unwrap();
+            serde_json::from_str(&merge_tmdb_enrichment_json(&base, &tmdb, &flags).unwrap())
+                .unwrap();
         assert_eq!(result["logo"], "tmdb-logo");
         assert_eq!(result["poster"], "tmdb-poster");
         assert_eq!(result["background"], "tmdb-bg");
@@ -155,7 +176,8 @@ mod tests {
         let tmdb = json!({"network": null}).to_string();
         let flags = json!({"network": true}).to_string();
         let result: Value =
-            serde_json::from_str(&merge_tmdb_enrichment_json(&base, &tmdb, &flags).unwrap()).unwrap();
+            serde_json::from_str(&merge_tmdb_enrichment_json(&base, &tmdb, &flags).unwrap())
+                .unwrap();
         assert_eq!(result["network"], "Addon Network");
     }
 
@@ -167,8 +189,16 @@ mod tests {
         let external_ids = json!({}).to_string();
         let extras = json!({"keywords": {"keywords": [{"name": "heist"}]}}).to_string();
         let result: Value = serde_json::from_str(
-            &tmdb_full_meta_to_meta_json(&details, &credits, &images, &external_ids, &extras, "movie", "en")
-                .unwrap(),
+            &tmdb_full_meta_to_meta_json(
+                &details,
+                &credits,
+                &images,
+                &external_ids,
+                &extras,
+                "movie",
+                "en",
+            )
+            .unwrap(),
         )
         .unwrap();
         assert_eq!(result["keywords"][0], "heist");
@@ -176,8 +206,16 @@ mod tests {
         let details = json!({"id": 2, "name": "Y", "first_air_date": "2020-01-01"}).to_string();
         let extras = json!({"keywords": {"results": [{"name": "anime"}]}}).to_string();
         let result: Value = serde_json::from_str(
-            &tmdb_full_meta_to_meta_json(&details, &credits, &images, &external_ids, &extras, "series", "en")
-                .unwrap(),
+            &tmdb_full_meta_to_meta_json(
+                &details,
+                &credits,
+                &images,
+                &external_ids,
+                &extras,
+                "series",
+                "en",
+            )
+            .unwrap(),
         )
         .unwrap();
         assert_eq!(result["keywords"][0], "anime");
@@ -195,8 +233,16 @@ mod tests {
         ]}})
         .to_string();
         let result: Value = serde_json::from_str(
-            &tmdb_full_meta_to_meta_json(&details, &credits, &images, &external_ids, &extras, "movie", "en")
-                .unwrap(),
+            &tmdb_full_meta_to_meta_json(
+                &details,
+                &credits,
+                &images,
+                &external_ids,
+                &extras,
+                "movie",
+                "en",
+            )
+            .unwrap(),
         )
         .unwrap();
         assert_eq!(result["certification"], "R");
@@ -207,8 +253,16 @@ mod tests {
         ]}})
         .to_string();
         let result: Value = serde_json::from_str(
-            &tmdb_full_meta_to_meta_json(&details, &credits, &images, &external_ids, &extras, "series", "en")
-                .unwrap(),
+            &tmdb_full_meta_to_meta_json(
+                &details,
+                &credits,
+                &images,
+                &external_ids,
+                &extras,
+                "series",
+                "en",
+            )
+            .unwrap(),
         )
         .unwrap();
         assert_eq!(result["certification"], "TV-MA");
@@ -225,13 +279,24 @@ mod tests {
         }}})
         .to_string();
         let result: Value = serde_json::from_str(
-            &tmdb_full_meta_to_meta_json(&details, &credits, &images, &external_ids, &extras, "movie", "tr")
-                .unwrap(),
+            &tmdb_full_meta_to_meta_json(
+                &details,
+                &credits,
+                &images,
+                &external_ids,
+                &extras,
+                "movie",
+                "tr",
+            )
+            .unwrap(),
         )
         .unwrap();
         assert_eq!(result["watchProviders"]["region"], "US");
         assert_eq!(result["watchProviders"]["flatrate"][0]["name"], "Netflix");
-        assert_eq!(result["watchProviders"]["flatrate"][0]["logo"], "https://image.tmdb.org/t/p/w92/nf.jpg");
+        assert_eq!(
+            result["watchProviders"]["flatrate"][0]["logo"],
+            "https://image.tmdb.org/t/p/w92/nf.jpg"
+        );
     }
 
     #[test]
@@ -247,7 +312,8 @@ mod tests {
         .to_string();
         let flags = json!({"episodeStills": true}).to_string();
         let result: Value =
-            serde_json::from_str(&merge_tmdb_enrichment_json(&base, &tmdb, &flags).unwrap()).unwrap();
+            serde_json::from_str(&merge_tmdb_enrichment_json(&base, &tmdb, &flags).unwrap())
+                .unwrap();
         assert_eq!(result["videos"][0]["thumbnail"], "tmdb-thumb-1");
         assert_eq!(result["videos"][0]["title"], "Ep 1");
         assert_eq!(result["videos"][1]["thumbnail"], Value::Null);

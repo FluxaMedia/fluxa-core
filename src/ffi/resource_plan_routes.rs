@@ -85,9 +85,6 @@ pub(super) fn route_resource_plan(method: &str, args_json: &str) -> Outcome {
             ))
         }
 
-        _ => Err(fail(
-            ErrorKind::UnknownMethod,
-            format!("no such method `{method}`"),
-        )),
+        _ => Err(unknown_method()),
     }
 }

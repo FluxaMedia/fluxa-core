@@ -222,10 +222,7 @@ pub(super) fn route_external_sync_trakt(method: &str, args_json: &str) -> Outcom
         "traktCommentsRequest" => opt_json(external_sync::trakt_comments_request_json(args_json)),
         "traktActivityDiff" => opt_json(external_sync::trakt_activity_diff_json(args_json)),
 
-        _ => Err(fail(
-            ErrorKind::UnknownMethod,
-            format!("no such method `{method}`"),
-        )),
+        _ => Err(unknown_method()),
     }
 }
 
@@ -340,10 +337,7 @@ pub(super) fn route_external_sync_simkl(method: &str, args_json: &str) -> Outcom
             ))
         }
 
-        _ => Err(fail(
-            ErrorKind::UnknownMethod,
-            format!("no such method `{method}`"),
-        )),
+        _ => Err(unknown_method()),
     }
 }
 
@@ -411,9 +405,6 @@ pub(super) fn route_external_sync_anilist(method: &str, args_json: &str) -> Outc
             )))
         }
 
-        _ => Err(fail(
-            ErrorKind::UnknownMethod,
-            format!("no such method `{method}`"),
-        )),
+        _ => Err(unknown_method()),
     }
 }

@@ -13,7 +13,7 @@ use axum::{Json, Router};
 use fluxa_core::FluxaCore;
 use serde::Deserialize;
 use serde_json::{Value, json};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use tokio::net::TcpListener;
 use tokio::sync::Mutex;
 use tower_http::cors::CorsLayer;
@@ -184,19 +184,21 @@ fn apply_torrent_preferences(base_url: &str, preferences: Option<&Value>) {
         "ultra_fast" => 64,
         _ => 16,
     };
+    let device_budget = preferences.and_then(|p| p.get("deviceBudget")).cloned();
     let url = format!("{}/settings", base_url.trim_end_matches('/'));
     tokio::spawn(async move {
-        let Ok(client) = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(5))
-            .build()
-        else {
-            return;
-        };
-        let _ = client
-            .post(&url)
-            .json(&json!({ "PreloadSize": preload_size }))
-            .send()
-            .await;
+        static CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
+        let client = CLIENT.get_or_init(|| {
+            reqwest::Client::builder()
+                .timeout(std::time::Duration::from_secs(5))
+                .build()
+                .expect("torrent settings client build")
+        });
+        let mut settings = json!({ "PreloadSize": preload_size });
+        if let Some(device_budget) = device_budget {
+            settings["deviceBudget"] = device_budget;
+        }
+        let _ = client.post(&url).json(&settings).send().await;
     });
 }
 

@@ -10,13 +10,57 @@ use serde::{Deserialize, Serialize};
 use settings_layout::run_settings_layout;
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::sync::OnceLock;
 use std::time::Duration;
+use tokio::sync::Semaphore;
 use url::{Host, Url};
 
 pub(super) const PLUGIN_TIMEOUT_SECS: u64 = 60;
 pub(super) const PLUGIN_MEMORY_LIMIT: usize = 256 * 1024 * 1024;
 pub const PLUGIN_MAX_REQUEST_BODY_BYTES: usize = 1_048_576;
 pub const PLUGIN_MAX_RESPONSE_BODY_BYTES: usize = 8 * 1_048_576;
+
+pub(super) fn plugin_memory_limit() -> usize {
+    static LIMIT: OnceLock<usize> = OnceLock::new();
+    *LIMIT.get_or_init(|| {
+        std::env::var("FLUXA_PLUGIN_MEMORY_LIMIT_MB")
+            .ok()
+            .and_then(|value| value.parse::<usize>().ok())
+            .map(|mb| mb.clamp(32, 512) * 1024 * 1024)
+            .unwrap_or(PLUGIN_MEMORY_LIMIT)
+    })
+}
+
+fn plugin_runtime() -> Result<&'static tokio::runtime::Runtime, String> {
+    static RUNTIME: OnceLock<Result<tokio::runtime::Runtime, String>> = OnceLock::new();
+    RUNTIME
+        .get_or_init(|| {
+            tokio::runtime::Builder::new_multi_thread()
+                .worker_threads(2)
+                .enable_all()
+                .build()
+                .map_err(|error| error.to_string())
+        })
+        .as_ref()
+        .map_err(Clone::clone)
+}
+
+fn plugin_slots() -> Arc<Semaphore> {
+    static SLOTS: OnceLock<Arc<Semaphore>> = OnceLock::new();
+    SLOTS
+        .get_or_init(|| {
+            let default = std::thread::available_parallelism()
+                .map(|cores| cores.get().clamp(1, 4))
+                .unwrap_or(2);
+            let count = std::env::var("FLUXA_PLUGIN_WORKERS")
+                .ok()
+                .and_then(|value| value.parse::<usize>().ok())
+                .filter(|value| (1..=8).contains(value))
+                .unwrap_or(default);
+            Arc::new(Semaphore::new(count))
+        })
+        .clone()
+}
 
 pub fn plugin_http_request_error(request: &PluginHttpRequest) -> Option<&'static str> {
     if !matches!(
@@ -133,12 +177,14 @@ pub fn execute_scraper(
     season: Option<i32>,
     episode: Option<i32>,
 ) -> Result<String, String> {
-    let rt = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .map_err(|e| e.to_string())?;
+    let rt = plugin_runtime()?;
+    let slots = plugin_slots();
     let local = tokio::task::LocalSet::new();
-    local.block_on(&rt, async move {
+    local.block_on(rt, async move {
+        let _slot = slots
+            .acquire_owned()
+            .await
+            .map_err(|_| "plugin worker pool closed".to_string())?;
         tokio::time::timeout(
             Duration::from_secs(PLUGIN_TIMEOUT_SECS),
             run(
@@ -158,15 +204,11 @@ pub fn execute_scraper(
 }
 
 pub fn get_settings_layout(code: String, scraper_id: String) -> String {
-    let rt = match tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-    {
-        Ok(rt) => rt,
-        Err(_) => return "[]".to_string(),
+    let Ok(rt) = plugin_runtime() else {
+        return "[]".to_string();
     };
     let local = tokio::task::LocalSet::new();
-    local.block_on(&rt, async move {
+    local.block_on(rt, async move {
         tokio::time::timeout(
             Duration::from_secs(PLUGIN_TIMEOUT_SECS),
             run_settings_layout(code, scraper_id),

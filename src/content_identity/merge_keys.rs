@@ -126,4 +126,3 @@ pub(crate) fn trakt_identity_key(meta: &Value) -> String {
         meta_text(meta, "releaseInfo")
     )
 }
-

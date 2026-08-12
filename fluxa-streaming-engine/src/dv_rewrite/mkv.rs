@@ -1,4 +1,5 @@
 use super::*;
+use std::borrow::Cow;
 
 pub(crate) fn ebml_id_width(first_byte: u8) -> usize {
     match first_byte {
@@ -104,43 +105,50 @@ pub(crate) fn try_parse_ebml_header(buf: &[u8]) -> Option<(u64, u64, usize)> {
 }
 
 /// Encode a value as a minimum-width EBML variable-length integer.
+#[cfg(test)]
 pub(crate) fn encode_ebml_vint(value: u64) -> Vec<u8> {
+    let mut out = Vec::with_capacity(8);
+    write_ebml_vint(&mut out, value);
+    out
+}
+
+pub(crate) fn write_ebml_vint(out: &mut Vec<u8>, value: u64) {
     if value < 0x7F {
-        vec![0x80 | value as u8]
+        out.push(0x80 | value as u8)
     } else if value < 0x3FFF {
-        vec![0x40 | (value >> 8) as u8, (value & 0xFF) as u8]
+        out.extend_from_slice(&[0x40 | (value >> 8) as u8, (value & 0xFF) as u8])
     } else if value < 0x1F_FFFF {
-        vec![
+        out.extend_from_slice(&[
             0x20 | (value >> 16) as u8,
             (value >> 8) as u8,
             (value & 0xFF) as u8,
-        ]
+        ])
     } else if value < 0x0FFF_FFFF {
-        vec![
+        out.extend_from_slice(&[
             0x10 | (value >> 24) as u8,
             (value >> 16) as u8,
             (value >> 8) as u8,
             (value & 0xFF) as u8,
-        ]
+        ])
     } else if value < 0x07_FFFF_FFFF {
-        vec![
+        out.extend_from_slice(&[
             0x08 | (value >> 32) as u8,
             (value >> 24) as u8,
             (value >> 16) as u8,
             (value >> 8) as u8,
             (value & 0xFF) as u8,
-        ]
+        ])
     } else if value < 0x03FF_FFFF_FFFF {
-        vec![
+        out.extend_from_slice(&[
             0x04 | (value >> 40) as u8,
             (value >> 32) as u8,
             (value >> 24) as u8,
             (value >> 16) as u8,
             (value >> 8) as u8,
             (value & 0xFF) as u8,
-        ]
+        ])
     } else if value < 0x01_FFFF_FFFF_FFFF {
-        vec![
+        out.extend_from_slice(&[
             0x02 | (value >> 48) as u8,
             (value >> 40) as u8,
             (value >> 32) as u8,
@@ -148,9 +156,9 @@ pub(crate) fn encode_ebml_vint(value: u64) -> Vec<u8> {
             (value >> 16) as u8,
             (value >> 8) as u8,
             (value & 0xFF) as u8,
-        ]
+        ])
     } else {
-        vec![
+        out.extend_from_slice(&[
             0x01,
             (value >> 48) as u8,
             (value >> 40) as u8,
@@ -159,37 +167,38 @@ pub(crate) fn encode_ebml_vint(value: u64) -> Vec<u8> {
             (value >> 16) as u8,
             (value >> 8) as u8,
             (value & 0xFF) as u8,
-        ]
+        ])
     }
 }
 
-/// Encode an EBML element: ID bytes (big-endian raw) + encoded vint size + data.
-pub(crate) fn encode_ebml_element(id: u64, data: &[u8]) -> Vec<u8> {
-    // Encode ID as minimum big-endian bytes.
-    let id_bytes = id_to_bytes(id);
-    let size_bytes = encode_ebml_vint(data.len() as u64);
-    let mut out = Vec::with_capacity(id_bytes.len() + size_bytes.len() + data.len());
-    out.extend_from_slice(&id_bytes);
-    out.extend_from_slice(&size_bytes);
+fn write_ebml_element(out: &mut Vec<u8>, id: u64, data: &[u8]) {
+    write_id(out, id);
+    write_ebml_vint(out, data.len() as u64);
     out.extend_from_slice(data);
+}
+
+#[cfg(test)]
+pub(crate) fn encode_ebml_element(id: u64, data: &[u8]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(12 + data.len());
+    write_ebml_element(&mut out, id, data);
     out
 }
 
 /// Encode an EBML element ID as minimum big-endian bytes.
-fn id_to_bytes(id: u64) -> Vec<u8> {
+fn write_id(out: &mut Vec<u8>, id: u64) {
     if id <= 0xFF {
-        vec![id as u8]
+        out.push(id as u8)
     } else if id <= 0xFFFF {
-        vec![(id >> 8) as u8, (id & 0xFF) as u8]
+        out.extend_from_slice(&[(id >> 8) as u8, (id & 0xFF) as u8])
     } else if id <= 0xFF_FFFF {
-        vec![(id >> 16) as u8, (id >> 8) as u8, (id & 0xFF) as u8]
+        out.extend_from_slice(&[(id >> 16) as u8, (id >> 8) as u8, (id & 0xFF) as u8])
     } else {
-        vec![
+        out.extend_from_slice(&[
             (id >> 24) as u8,
             (id >> 16) as u8,
             (id >> 8) as u8,
             (id & 0xFF) as u8,
-        ]
+        ])
     }
 }
 
@@ -203,7 +212,7 @@ pub(crate) fn process_block_group_data(
     data: &[u8],
     rpu_mode: u8,
     zero_level5: bool,
-) -> (Vec<u8>, u32) {
+) -> (Cow<'_, [u8]>, u32) {
     // Parse all child elements of this BlockGroup.
     let mut block_offset: Option<usize> = None;
     let mut block_end: Option<usize> = None;
@@ -216,7 +225,7 @@ pub(crate) fn process_block_group_data(
         };
         if data_size == EBML_UNKNOWN_SIZE {
             // Can't safely walk past unknown-size children; return original.
-            return (data.to_vec(), 0);
+            return (Cow::Borrowed(data), 0);
         }
         let child_start = pos + hlen;
         let child_end = child_start + data_size as usize;
@@ -236,24 +245,24 @@ pub(crate) fn process_block_group_data(
     // Without a Block element, return original.
     let (block_start, block_data_end) = match (block_offset, block_end) {
         (Some(s), Some(e)) => (s, e),
-        _ => return (data.to_vec(), 0),
+        _ => return (Cow::Borrowed(data), 0),
     };
 
     // Parse Block header to find its ID/vint extent so we can replace the element.
     let (_, block_data_size, block_hlen) = match try_parse_ebml_header(&data[block_start..]) {
         Some(h) => h,
-        None => return (data.to_vec(), 0),
+        None => return (Cow::Borrowed(data), 0),
     };
     let block_payload_start = block_start + block_hlen;
     let block_payload = &data[block_payload_start..block_data_end];
 
     // Try to extract an RPU from BlockAdditions.
-    let rpu_raw: Option<Vec<u8>> = block_additions.and_then(extract_dv_rpu_from_block_additions);
+    let rpu_raw = block_additions.and_then(extract_dv_rpu_from_block_additions);
 
     // If no RPU or conversion fails, build output without BlockAdditions but
     // with original Block intact.
     let rpu_injected;
-    let new_block_payload = match rpu_raw {
+    let new_block_payload: Cow<'_, [u8]> = match rpu_raw {
         Some(rpu_nal) => match convert_rpu_nal(&rpu_nal, rpu_mode, zero_level5) {
             Some(converted_rpu) => {
                 rpu_injected = 1u32;
@@ -261,12 +270,12 @@ pub(crate) fn process_block_group_data(
             }
             None => {
                 rpu_injected = 0;
-                block_payload.to_vec()
+                Cow::Borrowed(block_payload)
             }
         },
         None => {
             // No RPU found — return data unchanged (BlockAdditions kept if present).
-            return (data.to_vec(), 0);
+            return (Cow::Borrowed(data), 0);
         }
     };
 
@@ -278,9 +287,9 @@ pub(crate) fn process_block_group_data(
     out.extend_from_slice(&data[..block_start]);
 
     // New Block element with (possibly updated) payload.
-    out.extend_from_slice(&id_to_bytes(EBML_BLOCK));
-    out.extend_from_slice(&encode_ebml_vint(new_block_payload.len() as u64));
-    out.extend_from_slice(&new_block_payload);
+    write_id(&mut out, EBML_BLOCK);
+    write_ebml_vint(&mut out, new_block_payload.len() as u64);
+    out.extend_from_slice(new_block_payload.as_ref());
 
     // Elements after Block, skipping BlockAdditions.
     let mut pos = block_data_end;
@@ -305,11 +314,11 @@ pub(crate) fn process_block_group_data(
     // (We already wrote the correct vint above.)
     let _ = block_data_size; // used for reference only
 
-    (out, rpu_injected)
+    (Cow::Owned(out), rpu_injected)
 }
 
 /// Walk BlockAdditions → BlockMore → BlockAddID == 1 → BlockAdditional.
-fn extract_dv_rpu_from_block_additions(ba: &[u8]) -> Option<Vec<u8>> {
+fn extract_dv_rpu_from_block_additions(ba: &[u8]) -> Option<&[u8]> {
     let mut pos = 0;
     while pos < ba.len() {
         let (id, ds, hlen) = try_parse_ebml_header(&ba[pos..])?;
@@ -331,10 +340,10 @@ fn extract_dv_rpu_from_block_additions(ba: &[u8]) -> Option<Vec<u8>> {
     None
 }
 
-fn extract_rpu_from_block_more(bm: &[u8]) -> Option<Vec<u8>> {
+fn extract_rpu_from_block_more(bm: &[u8]) -> Option<&[u8]> {
     let mut pos = 0;
     let mut add_id: Option<u64> = None;
-    let mut additional: Option<Vec<u8>> = None;
+    let mut additional: Option<&[u8]> = None;
     while pos < bm.len() {
         let (id, ds, hlen) = try_parse_ebml_header(&bm[pos..])?;
         if ds == EBML_UNKNOWN_SIZE {
@@ -354,7 +363,7 @@ fn extract_rpu_from_block_more(bm: &[u8]) -> Option<Vec<u8>> {
             }
             add_id = Some(v);
         } else if id == EBML_BLOCK_ADDITIONAL {
-            additional = Some(bm[child_start..child_end].to_vec());
+            additional = Some(&bm[child_start..child_end]);
         }
         pos = child_end;
     }
@@ -371,31 +380,31 @@ fn extract_rpu_from_block_more(bm: &[u8]) -> Option<Vec<u8>> {
 ///
 /// If lacing flags (bits 5-4 of flags byte) are non-zero, the block is laced
 /// and we cannot safely append — return the block unchanged.
-pub(crate) fn inject_rpu_into_mkv_block(block: &[u8], rpu: &[u8]) -> Vec<u8> {
+pub(crate) fn inject_rpu_into_mkv_block<'a>(block: &'a [u8], rpu: &[u8]) -> Cow<'a, [u8]> {
     if block.is_empty() {
-        return block.to_vec();
+        return Cow::Borrowed(block);
     }
 
     // Parse track number vint.
     let Some((_, track_vint_len)) = parse_ebml_vint(block) else {
-        return block.to_vec();
+        return Cow::Borrowed(block);
     };
     // Timecode: 2 bytes, Flags: 1 byte.
     let flags_offset = track_vint_len + 2;
     if flags_offset >= block.len() {
-        return block.to_vec();
+        return Cow::Borrowed(block);
     }
     let flags = block[flags_offset];
     // Lacing bits: 5-4.
     let lacing = (flags >> 1) & 0x03;
     if lacing != 0 {
         // Laced block — cannot safely inject RPU.
-        return block.to_vec();
+        return Cow::Borrowed(block);
     }
 
     let frame_start = flags_offset + 1;
     if frame_start > block.len() {
-        return block.to_vec();
+        return Cow::Borrowed(block);
     }
     let frame = &block[frame_start..];
 
@@ -415,7 +424,7 @@ pub(crate) fn inject_rpu_into_mkv_block(block: &[u8], rpu: &[u8]) -> Vec<u8> {
         out.extend_from_slice(&len.to_be_bytes());
         out.extend_from_slice(rpu);
     }
-    out
+    Cow::Owned(out)
 }
 
 // MKV RPU rewriter streaming state machine
@@ -537,10 +546,7 @@ impl MkvRpuRewriter {
                                 }
                                 if data_size == 0 {
                                     // Empty BlockGroup: re-encode and emit immediately.
-                                    out.extend_from_slice(&encode_ebml_element(
-                                        EBML_BLOCK_GROUP,
-                                        &[],
-                                    ));
+                                    write_ebml_element(&mut out, EBML_BLOCK_GROUP, &[]);
                                     self.state = MkvState::Header;
                                 } else {
                                     self.state = MkvState::BlockGroup {
@@ -624,13 +630,9 @@ impl MkvRpuRewriter {
                     remaining -= take as u64;
 
                     if remaining == 0 {
-                        let (processed, rpu_count) =
+                        let (processed, _rpu_count) =
                             process_block_group_data(&buf, self.rpu_mode, self.zero_level5);
-                        eprintln!(
-                            "[fluxa/rpu_convert_mkv] block_group size={} rpu_injected={rpu_count}",
-                            processed.len()
-                        );
-                        out.extend_from_slice(&encode_ebml_element(EBML_BLOCK_GROUP, &processed));
+                        write_ebml_element(&mut out, EBML_BLOCK_GROUP, &processed);
                         self.state = MkvState::Header;
                     } else {
                         self.state = MkvState::BlockGroup { buf, remaining };
@@ -652,7 +654,7 @@ impl MkvRpuRewriter {
             MkvState::Forward { .. } => {}
             MkvState::BlockGroup { buf, .. } => {
                 // Incomplete BlockGroup at EOF — emit as-is.
-                out.extend_from_slice(&encode_ebml_element(EBML_BLOCK_GROUP, &buf));
+                write_ebml_element(&mut out, EBML_BLOCK_GROUP, &buf);
             }
             MkvState::Header => {}
         }
@@ -667,7 +669,6 @@ pub(crate) fn stream_rpu_convert_mkv(
     rpu_mode: u8,
     zero_level5: bool,
 ) {
-    eprintln!("[fluxa/rpu_convert] mkv detected — EBML RPU rewriter");
     let mut rewriter = MkvRpuRewriter::new(rpu_mode, zero_level5);
     let init = rewriter.process(probe);
     if !init.is_empty() && downstream.write_all(&init).is_err() {

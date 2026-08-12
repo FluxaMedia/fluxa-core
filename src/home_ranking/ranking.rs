@@ -140,35 +140,44 @@ fn curated_items(category: &NativeHomeCategory) -> Vec<Value> {
     let mut values = category
         .items
         .iter()
-        .map(|item| (item.clone(), semantic_score(category, item)))
+        .enumerate()
+        .map(|(index, item)| {
+            let is_adult = meta_string_array(item, "genres")
+                .iter()
+                .any(|genre| normalize_home_key(genre) == "adult");
+            (
+                index,
+                semantic_score(category, item),
+                meta_i64(item, "rank").unwrap_or(i64::MAX),
+                meta_text(item, "imdbRating").parse::<f32>().unwrap_or(0.0),
+                is_adult,
+            )
+        })
         .collect::<Vec<_>>();
-    values.sort_by(|(left, left_score), (right, right_score)| {
-        right_score
-            .cmp(left_score)
+    values.sort_by(|left, right| {
+        right
+            .1
+            .cmp(&left.1)
+            .then_with(|| left.2.cmp(&right.2))
             .then_with(|| {
-                meta_i64(left, "rank")
-                    .unwrap_or(i64::MAX)
-                    .cmp(&meta_i64(right, "rank").unwrap_or(i64::MAX))
-            })
-            .then_with(|| {
-                meta_text(right, "imdbRating")
-                    .parse::<f32>()
-                    .unwrap_or(0.0)
-                    .partial_cmp(&meta_text(left, "imdbRating").parse::<f32>().unwrap_or(0.0))
+                right
+                    .3
+                    .partial_cmp(&left.3)
                     .unwrap_or(std::cmp::Ordering::Equal)
             })
     });
     let mut seen = HashSet::new();
     values
         .into_iter()
-        .filter(|(item, _)| {
-            !meta_string_array(item, "genres")
-                .iter()
-                .any(|genre| normalize_home_key(genre) == "adult")
-        })
-        .filter_map(|(item, _)| {
-            let id = meta_text(&item, "id").to_string();
-            if seen.insert(id) { Some(item) } else { None }
+        .filter(|(_, _, _, _, is_adult)| !is_adult)
+        .filter_map(|(index, _, _, _, _)| {
+            let item = &category.items[index];
+            let id = meta_text(item, "id");
+            if seen.insert(id) {
+                Some(item.clone())
+            } else {
+                None
+            }
         })
         .take(24)
         .collect()
@@ -349,7 +358,7 @@ pub(crate) fn home_prioritize_rows_json(
     preferred_types_json: &str,
     priority_labels_json: &str,
 ) -> Option<String> {
-    let mut categories = serde_json::from_str::<Vec<NativeHomeCategory>>(categories_json).ok()?;
+    let categories = serde_json::from_str::<Vec<NativeHomeCategory>>(categories_json).ok()?;
     let preferred_order_labels =
         serde_json::from_str::<Vec<String>>(preferred_order_labels_json).ok()?;
     let preferred_genres =
@@ -361,21 +370,32 @@ pub(crate) fn home_prioritize_rows_json(
         .iter()
         .map(|value| normalize_home_key(value))
         .collect::<Vec<_>>();
-    categories.sort_by(|left, right| {
-        let left_index = preferred_order
+    let preferred_indexes =
+        preferred_order
             .iter()
-            .position(|key| key == &normalize_home_key(category_semantic_name(left)))
-            .unwrap_or(usize::MAX);
-        let right_index = preferred_order
-            .iter()
-            .position(|key| key == &normalize_home_key(category_semantic_name(right)))
-            .unwrap_or(usize::MAX);
-        left_index.cmp(&right_index).then_with(|| {
-            personalization_score(right, &preferred_genres, &preferred_types, &labels).cmp(
-                &personalization_score(left, &preferred_genres, &preferred_types, &labels),
-            )
+            .enumerate()
+            .fold(HashMap::new(), |mut indexes, (index, key)| {
+                indexes.entry(key.as_str()).or_insert(index);
+                indexes
+            });
+    let mut ranked = categories
+        .into_iter()
+        .map(|category| {
+            let normalized = normalize_home_key(category_semantic_name(&category));
+            let preferred_index = preferred_indexes
+                .get(normalized.as_str())
+                .copied()
+                .unwrap_or(usize::MAX);
+            let score =
+                personalization_score(&category, &preferred_genres, &preferred_types, &labels);
+            (preferred_index, score, category)
         })
-    });
+        .collect::<Vec<_>>();
+    ranked.sort_by(|left, right| left.0.cmp(&right.0).then_with(|| right.1.cmp(&left.1)));
+    let categories = ranked
+        .into_iter()
+        .map(|(_, _, category)| category)
+        .collect::<Vec<_>>();
     serde_json::to_string(&categories).ok()
 }
 
@@ -409,7 +429,7 @@ pub(crate) fn optimize_home_rows_json(request_json: &str) -> Option<String> {
 // Unpinned categories, curated down to their top items and sorted by the
 // caller's preferred order first, personalization score second.
 fn sorted_unpinned_candidates(request: &HomeOptimizeRequest) -> Vec<NativeHomeCategory> {
-    let mut candidates = distinct_categories(
+    let candidates = distinct_categories(
         request
             .categories
             .iter()
@@ -428,31 +448,36 @@ fn sorted_unpinned_candidates(request: &HomeOptimizeRequest) -> Vec<NativeHomeCa
         .iter()
         .map(|value| normalize_home_key(value))
         .collect::<Vec<_>>();
-    candidates.sort_by(|left, right| {
-        let left_index = preferred_order
+    let preferred_indexes =
+        preferred_order
             .iter()
-            .position(|key| key == &normalize_home_key(category_semantic_name(left)))
-            .unwrap_or(usize::MAX);
-        let right_index = preferred_order
-            .iter()
-            .position(|key| key == &normalize_home_key(category_semantic_name(right)))
-            .unwrap_or(usize::MAX);
-        left_index.cmp(&right_index).then_with(|| {
-            personalization_score(
-                right,
+            .enumerate()
+            .fold(HashMap::new(), |mut indexes, (index, key)| {
+                indexes.entry(key.as_str()).or_insert(index);
+                indexes
+            });
+    let mut ranked = candidates
+        .into_iter()
+        .map(|category| {
+            let normalized = normalize_home_key(category_semantic_name(&category));
+            let preferred_index = preferred_indexes
+                .get(normalized.as_str())
+                .copied()
+                .unwrap_or(usize::MAX);
+            let score = personalization_score(
+                &category,
                 &request.preferred_genres,
                 &request.preferred_types,
                 &request.priority_labels,
-            )
-            .cmp(&personalization_score(
-                left,
-                &request.preferred_genres,
-                &request.preferred_types,
-                &request.priority_labels,
-            ))
+            );
+            (preferred_index, score, category)
         })
-    });
-    candidates
+        .collect::<Vec<_>>();
+    ranked.sort_by(|left, right| left.0.cmp(&right.0).then_with(|| right.1.cmp(&left.1)));
+    ranked
+        .into_iter()
+        .map(|(_, _, category)| category)
+        .collect()
 }
 
 // Greedily keep candidates that are either a core genre shelf or don't overlap

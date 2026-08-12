@@ -57,6 +57,18 @@ struct TorrSettings {
     /// inactive torrents only; active playback is never an eviction target.
     #[serde(rename = "CacheLimitMb")]
     cache_limit_mb: Option<u64>,
+    #[serde(rename = "StreamBufferBytes")]
+    stream_buffer_bytes: Option<u64>,
+    #[serde(alias = "deviceBudget", alias = "DeviceBudget")]
+    device_budget: Option<DeviceBudgetSettings>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct DeviceBudgetSettings {
+    torrent_preload_mb: Option<u64>,
+    torrent_cache_mb: Option<u64>,
+    stream_reader_buffer_bytes: Option<u64>,
 }
 
 #[derive(Deserialize)]
@@ -179,24 +191,28 @@ struct TorrentLifecycle {
     estimated_cache_bytes: u64,
 }
 
+#[derive(Default)]
+struct TorrentRuntimeState {
+    known_links: HashMap<String, usize>,
+    prioritized_files: HashMap<usize, TorrentFileFocus>,
+    playback_windows: HashMap<(usize, usize), PlaybackWindow>,
+    playback_sessions: HashMap<(usize, usize), PlaybackSession>,
+    torrent_cancellations: HashMap<usize, CancellationToken>,
+    lifecycle: HashMap<usize, TorrentLifecycle>,
+    active_torrent: Option<usize>,
+}
+
 #[derive(Clone)]
 struct EngineState {
     api: Api,
     output_dir: PathBuf,
     preload_size: Arc<Mutex<u64>>,
-    known_links: Arc<Mutex<HashMap<String, usize>>>,
-    prioritized_files: Arc<Mutex<HashMap<usize, TorrentFileFocus>>>,
-    playback_windows: Arc<Mutex<HashMap<(usize, usize), PlaybackWindow>>>,
-    playback_sessions: Arc<Mutex<HashMap<(usize, usize), PlaybackSession>>>,
+    stream_buffer_bytes: Arc<Mutex<usize>>,
+    runtime: Arc<Mutex<TorrentRuntimeState>>,
     // Session ownership and its measurements must be changed atomically. Keeping
     // them together also prevents lock-order inversions between telemetry writes
     // and torrent teardown.
     telemetry: Arc<Mutex<TelemetryState>>,
-    /// Root cancellation per torrent. Probe readers use child tokens too, so
-    /// they cannot outlive playback deactivation or cache eviction.
-    torrent_cancellations: Arc<Mutex<HashMap<usize, CancellationToken>>>,
-    lifecycle: Arc<Mutex<HashMap<usize, TorrentLifecycle>>>,
-    active_torrent: Arc<Mutex<Option<usize>>>,
     cache_limit_bytes: Arc<Mutex<Option<u64>>>,
     // A per-link lock serializes retries for one magnet while allowing
     // unrelated metadata lookups to progress independently.
@@ -350,14 +366,9 @@ pub fn start_torrent_server(
                 api: Api::new(session, None),
                 output_dir: thread_cache_dir,
                 preload_size: Arc::new(Mutex::new(10 * 1024 * 1024)),
-                known_links: Arc::new(Mutex::new(HashMap::new())),
-                prioritized_files: Arc::new(Mutex::new(HashMap::new())),
-                playback_windows: Arc::new(Mutex::new(HashMap::new())),
-                playback_sessions: Arc::new(Mutex::new(HashMap::new())),
+                stream_buffer_bytes: Arc::new(Mutex::new(64 * 1024)),
+                runtime: Arc::new(Mutex::new(TorrentRuntimeState::default())),
                 telemetry: Arc::new(Mutex::new(TelemetryState::default())),
-                torrent_cancellations: Arc::new(Mutex::new(HashMap::new())),
-                lifecycle: Arc::new(Mutex::new(HashMap::new())),
-                active_torrent: Arc::new(Mutex::new(None)),
                 cache_limit_bytes: Arc::new(Mutex::new(None)),
                 in_flight_adds: Arc::new(AsyncMutex::new(HashMap::new())),
                 pending_adds: Arc::new(Mutex::new(HashSet::new())),
@@ -465,9 +476,9 @@ async fn peer_stats_logger(state: EngineState) {
     loop {
         tokio::time::sleep(Duration::from_secs(2)).await;
         let ids: HashSet<usize> = state
-            .known_links
+            .runtime
             .lock()
-            .map(|links| links.values().copied().collect())
+            .map(|runtime| runtime.known_links.values().copied().collect())
             .unwrap_or_default();
         for id in ids {
             let Ok(stats) = state.api.api_stats_v1(TorrentIdOrHash::Id(id)) else {
@@ -512,17 +523,39 @@ async fn update_settings(
     if !request_authorized(&state, remote_addr, None) {
         return error_response(StatusCode::UNAUTHORIZED, "unauthorized");
     }
-    if let Some(preload_mb) = settings.preload_size
+    let preload_mb = settings
+        .preload_size
+        .or_else(|| settings.device_budget.as_ref()?.torrent_preload_mb);
+    if let Some(preload_mb) = preload_mb
         && let Ok(mut preload_size) = state.preload_size.lock()
     {
         *preload_size = preload_mb.saturating_mul(1024 * 1024);
     }
-    if let Some(limit_mb) = settings.cache_limit_mb
+    let cache_limit_mb = settings
+        .cache_limit_mb
+        .or_else(|| settings.device_budget.as_ref()?.torrent_cache_mb);
+    if let Some(limit_mb) = cache_limit_mb
         && let Ok(mut cache_limit) = state.cache_limit_bytes.lock()
     {
         *cache_limit = (limit_mb > 0).then(|| limit_mb.saturating_mul(1024 * 1024));
     }
+    let buffer_bytes = settings
+        .stream_buffer_bytes
+        .or_else(|| settings.device_budget.as_ref()?.stream_reader_buffer_bytes);
+    if let Some(buffer_bytes) = buffer_bytes
+        && let Ok(mut buffer) = state.stream_buffer_bytes.lock()
+    {
+        *buffer = buffer_bytes.clamp(32 * 1024, 1024 * 1024) as usize;
+    }
     (StatusCode::OK, Json(json!({}))).into_response()
+}
+
+fn stream_buffer_size(state: &EngineState) -> usize {
+    state
+        .stream_buffer_bytes
+        .lock()
+        .map(|buffer| *buffer)
+        .unwrap_or(64 * 1024)
 }
 
 async fn torrents(
@@ -560,9 +593,9 @@ async fn torrents(
                             // transfer work. A later play request resumes this torrent.
                             tokio::time::sleep(Duration::from_secs(10)).await;
                             let should_deactivate = delayed_state
-                                .lifecycle
+                                .runtime
                                 .lock()
-                                .map(|lifecycle| should_deactivate_prewarm(&lifecycle, id))
+                                .map(|runtime| should_deactivate_prewarm(&runtime.lifecycle, id))
                                 .unwrap_or(false);
                             if should_deactivate {
                                 deactivate_torrent(&delayed_state, id).await;
@@ -606,33 +639,26 @@ async fn torrents(
                     .api
                     .api_torrent_action_delete(TorrentIdOrHash::Id(id))
                     .await;
-                if let Ok(mut links) = state.known_links.lock() {
-                    links.retain(|_, known_id| *known_id != id);
-                }
-                if let Ok(mut files) = state.prioritized_files.lock() {
-                    files.remove(&id);
-                }
-                if let Ok(mut windows) = state.playback_windows.lock() {
-                    windows.retain(|(torrent_id, _), _| *torrent_id != id);
-                }
-                if let Ok(mut sessions) = state.playback_sessions.lock() {
-                    for session in sessions
+                if let Ok(mut runtime) = state.runtime.lock() {
+                    runtime.known_links.retain(|_, known_id| *known_id != id);
+                    runtime.prioritized_files.remove(&id);
+                    runtime
+                        .playback_windows
+                        .retain(|(torrent_id, _), _| *torrent_id != id);
+                    for session in runtime
+                        .playback_sessions
                         .extract_if(|(torrent_id, _), _| *torrent_id == id)
                         .map(|(_, session)| session)
                     {
                         session.cancel.cancel();
                     }
+                    runtime.lifecycle.remove(&id);
+                    if runtime.active_torrent == Some(id) {
+                        runtime.active_torrent = None;
+                    }
                 }
                 cancel_torrent_root(&state, id);
                 clear_playback_telemetry(&state, id);
-                if let Ok(mut lifecycle) = state.lifecycle.lock() {
-                    lifecycle.remove(&id);
-                }
-                if let Ok(mut active) = state.active_torrent.lock()
-                    && *active == Some(id)
-                {
-                    *active = None;
-                }
             }
             Json(json!({})).into_response()
         }
@@ -869,7 +895,7 @@ async fn stream_fname(
                     );
                     let body = Body::from_stream(ReaderStream::with_capacity(
                         CancellableReader::new(stream.take(length), cancellation),
-                        65536,
+                        stream_buffer_size(&state),
                     ));
                     (status, output_headers, body).into_response()
                 }
@@ -880,7 +906,7 @@ async fn stream_fname(
                     insert_header(&mut output_headers, "Content-Length", total_len.to_string());
                     let body = Body::from_stream(ReaderStream::with_capacity(
                         CancellableReader::new(stream, cancellation),
-                        65536,
+                        stream_buffer_size(&state),
                     ));
                     (status, output_headers, body).into_response()
                 }
@@ -1063,8 +1089,8 @@ async fn status_response(
             }
         })
         .unwrap_or(0.0);
-    if let (Some(stats), Ok(mut lifecycle)) = (stats.as_ref(), state.lifecycle.lock())
-        && let Some(entry) = lifecycle.get_mut(&id)
+    if let (Some(stats), Ok(mut runtime)) = (stats.as_ref(), state.runtime.lock())
+        && let Some(entry) = runtime.lifecycle.get_mut(&id)
     {
         entry.estimated_cache_bytes = stats.progress_bytes;
     }
@@ -1222,7 +1248,8 @@ fn remember_playback_window(
     duration_ms: Option<u64>,
 ) {
     let (bitrate, urgent, warm) = playback_buffer_targets(file_len, duration_ms);
-    if let Ok(mut windows) = state.playback_windows.lock() {
+    if let Ok(mut runtime) = state.runtime.lock() {
+        let windows = &mut runtime.playback_windows;
         let key = (torrent_id, file_id);
         let previous = windows.get(&key).copied();
         let seek = previous
@@ -1269,13 +1296,16 @@ fn playback_buffer_targets(file_len: u64, duration_ms: Option<u64>) -> (u64, u64
 }
 
 fn touch_torrent_lifecycle(state: &EngineState, torrent_id: usize, active: bool) {
-    if let Ok(mut lifecycle) = state.lifecycle.lock() {
-        let entry = lifecycle.entry(torrent_id).or_insert(TorrentLifecycle {
-            last_accessed: Instant::now(),
-            prewarmed: !active,
-            active,
-            estimated_cache_bytes: 0,
-        });
+    if let Ok(mut runtime) = state.runtime.lock() {
+        let entry = runtime
+            .lifecycle
+            .entry(torrent_id)
+            .or_insert(TorrentLifecycle {
+                last_accessed: Instant::now(),
+                prewarmed: !active,
+                active,
+                estimated_cache_bytes: 0,
+            });
         entry.last_accessed = Instant::now();
         entry.active |= active;
         if active {
@@ -1295,21 +1325,24 @@ fn should_deactivate_prewarm(
 
 async fn activate_torrent(state: &EngineState, torrent_id: usize) {
     let previous = state
-        .active_torrent
+        .runtime
         .lock()
-        .map(|mut active| active.replace(torrent_id))
+        .map(|mut runtime| runtime.active_torrent.replace(torrent_id))
         .ok()
         .flatten();
     if let Some(previous) = previous.filter(|previous| *previous != torrent_id) {
         deactivate_torrent(state, previous).await;
     }
-    if let Ok(mut lifecycle) = state.lifecycle.lock() {
-        let entry = lifecycle.entry(torrent_id).or_insert(TorrentLifecycle {
-            last_accessed: Instant::now(),
-            prewarmed: false,
-            active: true,
-            estimated_cache_bytes: 0,
-        });
+    if let Ok(mut runtime) = state.runtime.lock() {
+        let entry = runtime
+            .lifecycle
+            .entry(torrent_id)
+            .or_insert(TorrentLifecycle {
+                last_accessed: Instant::now(),
+                prewarmed: false,
+                active: true,
+                estimated_cache_bytes: 0,
+            });
         entry.active = true;
         entry.prewarmed = false;
         entry.last_accessed = Instant::now();
@@ -1320,9 +1353,10 @@ async fn deactivate_torrent(state: &EngineState, torrent_id: usize) {
     cancel_torrent_root(state, torrent_id);
     clear_playback_telemetry(state, torrent_id);
     let files = state
-        .playback_windows
+        .runtime
         .lock()
-        .map(|mut windows| {
+        .map(|mut runtime| {
+            let windows = &mut runtime.playback_windows;
             let files = windows
                 .keys()
                 .filter(|(id, _)| *id == torrent_id)
@@ -1337,24 +1371,25 @@ async fn deactivate_torrent(state: &EngineState, torrent_id: usize) {
             .api
             .api_clear_streaming_window(TorrentIdOrHash::Id(torrent_id), file_id);
     }
-    if let Ok(mut sessions) = state.playback_sessions.lock() {
-        for session in sessions
+    if let Ok(mut runtime) = state.runtime.lock() {
+        for session in runtime
+            .playback_sessions
             .extract_if(|(id, _), _| *id == torrent_id)
             .map(|(_, session)| session)
         {
             session.cancel.cancel();
         }
     }
-    if let Ok(mut lifecycle) = state.lifecycle.lock()
-        && let Some(entry) = lifecycle.get_mut(&torrent_id)
+    if let Ok(mut runtime) = state.runtime.lock()
+        && let Some(entry) = runtime.lifecycle.get_mut(&torrent_id)
     {
         entry.active = false;
         entry.last_accessed = Instant::now();
     }
-    if let Ok(mut active) = state.active_torrent.lock()
-        && *active == Some(torrent_id)
+    if let Ok(mut runtime) = state.runtime.lock()
+        && runtime.active_torrent == Some(torrent_id)
     {
-        *active = None;
+        runtime.active_torrent = None;
     }
     let _ = state
         .api
@@ -1398,10 +1433,11 @@ async fn prewarm_reaper(state: EngineState) {
     loop {
         interval.tick().await;
         let expired = state
-            .lifecycle
+            .runtime
             .lock()
-            .map(|mut lifecycle| {
-                lifecycle
+            .map(|mut runtime| {
+                runtime
+                    .lifecycle
                     .iter_mut()
                     .filter_map(|(&torrent_id, entry)| {
                         if entry.prewarmed
@@ -1438,15 +1474,15 @@ async fn enforce_cache_limit(state: &EngineState) {
         .api
         .api_torrent_list_ext(ApiTorrentListOpts { with_stats: true });
     let mut entries = state
-        .lifecycle
+        .runtime
         .lock()
-        .map(|lifecycle| {
+        .map(|runtime| {
             snapshots
                 .torrents
                 .iter()
                 .filter_map(|torrent| {
                     let id = torrent.id?;
-                    let lifecycle = lifecycle.get(&id)?;
+                    let lifecycle = runtime.lifecycle.get(&id)?;
                     Some((
                         id,
                         lifecycle.active,
@@ -1477,20 +1513,17 @@ async fn enforce_cache_limit(state: &EngineState) {
             .is_ok()
         {
             used = used.saturating_sub(bytes);
-            if let Ok(mut links) = state.known_links.lock() {
-                links.retain(|_, known_id| *known_id != torrent_id);
-            }
-            if let Ok(mut lifecycle) = state.lifecycle.lock() {
-                lifecycle.remove(&torrent_id);
-            }
-            if let Ok(mut focus) = state.prioritized_files.lock() {
-                focus.remove(&torrent_id);
-            }
-            if let Ok(mut windows) = state.playback_windows.lock() {
-                windows.retain(|(id, _), _| *id != torrent_id);
-            }
-            if let Ok(mut sessions) = state.playback_sessions.lock() {
-                for session in sessions
+            if let Ok(mut runtime) = state.runtime.lock() {
+                runtime
+                    .known_links
+                    .retain(|_, known_id| *known_id != torrent_id);
+                runtime.lifecycle.remove(&torrent_id);
+                runtime.prioritized_files.remove(&torrent_id);
+                runtime
+                    .playback_windows
+                    .retain(|(id, _), _| *id != torrent_id);
+                for session in runtime
+                    .playback_sessions
                     .extract_if(|(id, _), _| *id == torrent_id)
                     .map(|(_, session)| session)
                 {
@@ -1512,9 +1545,10 @@ fn playback_window_for(
     file_id: usize,
 ) -> Option<PlaybackWindow> {
     state
-        .playback_windows
+        .runtime
         .lock()
         .ok()?
+        .playback_windows
         .get(&(torrent_id, file_id))
         .copied()
 }
@@ -1529,12 +1563,14 @@ fn playback_session_for(
     let seek_threshold = playback_window_for(state, torrent_id, file_id)
         .map(|window| (window.warm_ahead_bytes / 4).max(1))
         .unwrap_or(1);
-    let previous_offset = state
-        .playback_windows
-        .lock()
-        .ok()
-        .and_then(|windows| windows.get(&key).map(|window| window.playback_offset));
-    if let Ok(mut sessions) = state.playback_sessions.lock() {
+    let previous_offset = state.runtime.lock().ok().and_then(|runtime| {
+        runtime
+            .playback_windows
+            .get(&key)
+            .map(|window| window.playback_offset)
+    });
+    if let Ok(mut runtime) = state.runtime.lock() {
+        let sessions = &mut runtime.playback_sessions;
         let seek =
             previous_offset.is_some_and(|previous| offset.abs_diff(previous) > seek_threshold);
         if seek && let Some(previous) = sessions.get(&key) {
@@ -1562,10 +1598,11 @@ fn playback_session_for(
 
 fn torrent_cancellation_token(state: &EngineState, torrent_id: usize) -> CancellationToken {
     state
-        .torrent_cancellations
+        .runtime
         .lock()
-        .map(|mut cancellations| {
-            cancellations
+        .map(|mut runtime| {
+            runtime
+                .torrent_cancellations
                 .entry(torrent_id)
                 .or_insert_with(CancellationToken::new)
                 .clone()
@@ -1576,8 +1613,8 @@ fn torrent_cancellation_token(state: &EngineState, torrent_id: usize) -> Cancell
 }
 
 fn cancel_torrent_root(state: &EngineState, torrent_id: usize) {
-    if let Ok(mut cancellations) = state.torrent_cancellations.lock()
-        && let Some(token) = cancellations.remove(&torrent_id)
+    if let Ok(mut runtime) = state.runtime.lock()
+        && let Some(token) = runtime.torrent_cancellations.remove(&torrent_id)
     {
         token.cancel();
     }
@@ -1611,8 +1648,10 @@ fn is_probe_for_window(
 }
 
 fn store_playback_window(state: &EngineState, window: PlaybackWindow) {
-    if let Ok(mut windows) = state.playback_windows.lock() {
-        windows.insert((window.torrent_id, window.file_id), window);
+    if let Ok(mut runtime) = state.runtime.lock() {
+        runtime
+            .playback_windows
+            .insert((window.torrent_id, window.file_id), window);
     }
 }
 

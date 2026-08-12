@@ -25,7 +25,9 @@ pub(crate) fn replace_external_continue_watching_json(
                 .get("resumeProgressPercent")
                 .and_then(Value::as_f64)
                 .is_some_and(|percent| percent > 0.0);
-            let has_watch_next_badge = item.get("continueWatchingBadge").is_some_and(|value| !value.is_null());
+            let has_watch_next_badge = item
+                .get("continueWatchingBadge")
+                .is_some_and(|value| !value.is_null());
             let within_window =
                 continue_watching_days
                     .filter(|days| *days > 0)
@@ -33,7 +35,9 @@ pub(crate) fn replace_external_continue_watching_json(
                         saved_at_ms(item)
                             >= chrono::Utc::now().timestamp_millis() - days * 86_400_000
                     });
-            !id.is_empty() && (offset > 0.0 && duration > 0.0 || has_progress_percent || has_watch_next_badge) && within_window
+            !id.is_empty()
+                && (offset > 0.0 && duration > 0.0 || has_progress_percent || has_watch_next_badge)
+                && within_window
         })
         .collect();
 

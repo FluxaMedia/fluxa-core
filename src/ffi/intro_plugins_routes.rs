@@ -61,10 +61,7 @@ pub(super) fn route_intro_segments(method: &str, args_json: &str) -> Outcome {
             )
         }
 
-        _ => Err(fail(
-            ErrorKind::UnknownMethod,
-            format!("no such method `{method}`"),
-        )),
+        _ => Err(unknown_method()),
     }
 }
 
@@ -83,9 +80,6 @@ pub(super) fn route_plugins(method: &str, args_json: &str) -> Outcome {
             into_json(plugins::plugin_stream_results_to_streams_json(args_json))
         }
 
-        _ => Err(fail(
-            ErrorKind::UnknownMethod,
-            format!("no such method `{method}`"),
-        )),
+        _ => Err(unknown_method()),
     }
 }

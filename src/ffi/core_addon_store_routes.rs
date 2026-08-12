@@ -10,10 +10,7 @@ pub(super) fn route_core_contract(method: &str, args_json: &str) -> Outcome {
         )),
         "coreContractManifest" => into_json(core_contract::core_contract_manifest_json()),
 
-        _ => Err(fail(
-            ErrorKind::UnknownMethod,
-            format!("no such method `{method}`"),
-        )),
+        _ => Err(unknown_method()),
     }
 }
 
@@ -69,10 +66,7 @@ pub(super) fn route_addon_store(method: &str, args_json: &str) -> Outcome {
         }
         "pluginStorageFallback" => opt_json(addon_store::plugin_storage_fallback_json(args_json)),
 
-        _ => Err(fail(
-            ErrorKind::UnknownMethod,
-            format!("no such method `{method}`"),
-        )),
+        _ => Err(unknown_method()),
     }
 }
 
@@ -96,9 +90,6 @@ pub(super) fn route_profile_avatar_pack(method: &str, args_json: &str) -> Outcom
         "profileAvatarPackParse" => {
             opt_json(profile_avatar_pack::profile_avatar_pack_json(args_json))
         }
-        _ => Err(fail(
-            ErrorKind::UnknownMethod,
-            format!("no such method `{method}`"),
-        )),
+        _ => Err(unknown_method()),
     }
 }

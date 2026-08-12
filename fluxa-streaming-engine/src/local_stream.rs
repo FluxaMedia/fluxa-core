@@ -8,19 +8,59 @@ use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::thread;
 use std::time::Duration;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener as TokioTcpListener;
+use tokio::net::TcpStream as TokioTcpStream;
 
 const PROXY_USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
 const MAX_LOCAL_STREAM_CONNECTIONS: usize = 32;
 
-pub(crate) fn build_proxy_client() -> reqwest::blocking::Client {
-    reqwest::blocking::Client::builder()
-        .redirect(reqwest::redirect::Policy::limited(10))
-        .connect_timeout(Duration::from_secs(15))
-        .timeout(Duration::from_secs(90))
-        .user_agent(PROXY_USER_AGENT)
-        .build()
-        .expect("proxy client build")
+pub(crate) fn build_proxy_client() -> Arc<reqwest::blocking::Client> {
+    static CLIENT: OnceLock<Arc<reqwest::blocking::Client>> = OnceLock::new();
+    CLIENT
+        .get_or_init(|| {
+            Arc::new(
+                reqwest::blocking::Client::builder()
+                    .redirect(reqwest::redirect::Policy::limited(10))
+                    .connect_timeout(Duration::from_secs(15))
+                    .timeout(Duration::from_secs(90))
+                    .user_agent(PROXY_USER_AGENT)
+                    .build()
+                    .expect("proxy client build"),
+            )
+        })
+        .clone()
+}
+
+pub(crate) fn build_async_proxy_client() -> Arc<reqwest::Client> {
+    static CLIENT: OnceLock<Arc<reqwest::Client>> = OnceLock::new();
+    CLIENT
+        .get_or_init(|| {
+            Arc::new(
+                reqwest::Client::builder()
+                    .redirect(reqwest::redirect::Policy::limited(10))
+                    .connect_timeout(Duration::from_secs(15))
+                    .timeout(Duration::from_secs(90))
+                    .user_agent(PROXY_USER_AGENT)
+                    .build()
+                    .expect("proxy client build"),
+            )
+        })
+        .clone()
+}
+
+pub(crate) fn local_stream_runtime() -> Result<&'static tokio::runtime::Runtime, String> {
+    static RUNTIME: OnceLock<Result<tokio::runtime::Runtime, String>> = OnceLock::new();
+    RUNTIME
+        .get_or_init(|| {
+            tokio::runtime::Builder::new_multi_thread()
+                .worker_threads(2)
+                .enable_all()
+                .build()
+                .map_err(|error| error.to_string())
+        })
+        .as_ref()
+        .map_err(Clone::clone)
 }
 
 #[derive(Clone)]
@@ -29,6 +69,7 @@ pub(crate) struct LocalStreamConfig {
     pub(crate) target_url: String,
     pub(crate) headers: HashMap<String, String>,
     pub(crate) client: Arc<reqwest::blocking::Client>,
+    pub(crate) async_client: Arc<reqwest::Client>,
     pub(crate) active_connections: Arc<AtomicUsize>,
     pub(crate) port: u16,
 }
@@ -46,10 +87,16 @@ pub(crate) struct ParsedLocalRequest {
 
 pub(crate) static LOCAL_STREAM_SERVERS: OnceLock<Mutex<HashMap<String, LocalStreamHandle>>> =
     OnceLock::new();
+static SHARED_LOCAL_CONFIGS: OnceLock<Mutex<HashMap<String, LocalStreamConfig>>> = OnceLock::new();
+static SHARED_LOCAL_SERVER: OnceLock<Result<u16, String>> = OnceLock::new();
 pub(crate) static LOCAL_STREAM_ID: AtomicU64 = AtomicU64::new(1);
 
 pub(crate) fn local_stream_servers() -> &'static Mutex<HashMap<String, LocalStreamHandle>> {
     LOCAL_STREAM_SERVERS.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn shared_local_configs() -> &'static Mutex<HashMap<String, LocalStreamConfig>> {
+    SHARED_LOCAL_CONFIGS.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
 pub(crate) fn next_local_stream_id() -> String {
@@ -164,39 +211,118 @@ pub(crate) fn send_upstream_request(
     Err(last_error.expect("retry loop should keep the last error"))
 }
 
-pub(crate) fn handle_local_stream(mut stream: TcpStream, config: LocalStreamConfig) {
+pub(crate) async fn parse_async_request(stream: &mut TokioTcpStream) -> Option<ParsedLocalRequest> {
+    let mut data = Vec::with_capacity(1024);
+    let mut chunk = [0u8; 512];
+    loop {
+        let count = stream.read(&mut chunk).await.ok()?;
+        if count == 0 {
+            return None;
+        }
+        data.extend_from_slice(&chunk[..count]);
+        if data.windows(4).any(|window| window == b"\r\n\r\n") {
+            break;
+        }
+        if data.len() > 16 * 1024 {
+            return None;
+        }
+    }
+    let text = std::str::from_utf8(&data).ok()?;
+    let mut lines = text.split("\r\n");
+    let mut request_parts = lines.next()?.split_whitespace();
+    let method = request_parts.next()?.to_ascii_uppercase();
+    let path = request_parts.next()?.to_string();
+    let mut headers = HashMap::new();
+    for line in lines {
+        if line.is_empty() {
+            break;
+        }
+        if let Some((key, value)) = line.split_once(':') {
+            headers.insert(key.trim().to_ascii_lowercase(), value.trim().to_string());
+        }
+    }
+    Some(ParsedLocalRequest {
+        method,
+        path,
+        headers,
+    })
+}
+
+async fn send_async_upstream_request(
+    client: &reqwest::Client,
+    config: &LocalStreamConfig,
+    method: &str,
+    request_headers: &HashMap<String, String>,
+) -> Result<reqwest::Response, reqwest::Error> {
+    let mut last_error = None;
+    for attempt in 0..3 {
+        let mut request = if method == "HEAD" {
+            client.head(&config.target_url)
+        } else {
+            client.get(&config.target_url)
+        };
+        for (key, value) in &config.headers {
+            request = request.header(key, value);
+        }
+        if let Some(range) = request_headers.get("range") {
+            request = request.header("Range", range);
+        }
+        match request.send().await {
+            Ok(response) if retryable_status(response.status()) && attempt < 2 => {
+                tokio::time::sleep(Duration::from_millis(80 * (attempt + 1) as u64)).await;
+            }
+            Ok(response) => return Ok(response),
+            Err(error) if attempt < 2 => {
+                last_error = Some(error);
+                tokio::time::sleep(Duration::from_millis(80 * (attempt + 1) as u64)).await;
+            }
+            Err(error) => return Err(error),
+        }
+    }
+    Err(last_error.expect("retry loop should keep the last error"))
+}
+
+async fn handle_async_local_stream(
+    mut stream: TokioTcpStream,
+    config: LocalStreamConfig,
+    request: ParsedLocalRequest,
+) {
+    if !request.path.starts_with(&format!("/stream/{}", config.id)) {
+        let _ = stream
+            .write_all(b"HTTP/1.1 404 Not Found\r\nConnection: close\r\n\r\n")
+            .await;
+        return;
+    };
     let Some(_connection_guard) =
         ActiveConnectionGuard::try_acquire(config.active_connections.clone())
     else {
-        write_simple_response(&mut stream, "503 Service Unavailable");
+        let _ = stream
+            .write_all(b"HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\n\r\n")
+            .await;
         return;
     };
-
-    let Some(request) = parse_request(&mut stream) else {
-        write_simple_response(&mut stream, "400 Bad Request");
-        return;
-    };
-    if !request.path.starts_with(&format!("/stream/{}", config.id)) {
-        write_simple_response(&mut stream, "404 Not Found");
-        return;
-    }
     if request.method != "GET" && request.method != "HEAD" {
-        write_simple_response(&mut stream, "405 Method Not Allowed");
+        let _ = stream
+            .write_all(b"HTTP/1.1 405 Method Not Allowed\r\nConnection: close\r\n\r\n")
+            .await;
         return;
     }
-
-    let mut response =
-        match send_upstream_request(&config.client, &config, &request.method, &request.headers) {
-            Ok(response) => response,
-            Err(_) => {
-                write_simple_response(&mut stream, "502 Bad Gateway");
-                return;
-            }
-        };
-
+    let Ok(mut response) = send_async_upstream_request(
+        &config.async_client,
+        &config,
+        &request.method,
+        &request.headers,
+    )
+    .await
+    else {
+        let _ = stream
+            .write_all(b"HTTP/1.1 502 Bad Gateway\r\nConnection: close\r\n\r\n")
+            .await;
+        return;
+    };
     let status = response.status();
     let reason = status.canonical_reason().unwrap_or("OK");
-    let _ = write!(stream, "HTTP/1.1 {} {}\r\n", status.as_u16(), reason);
+    let mut header = format!("HTTP/1.1 {} {}\r\n", status.as_u16(), reason);
     for name in [
         "content-type",
         "content-length",
@@ -210,13 +336,83 @@ pub(crate) fn handle_local_stream(mut stream: TcpStream, config: LocalStreamConf
             .get(name)
             .and_then(|value| value.to_str().ok())
         {
-            let _ = write!(stream, "{}: {}\r\n", name, value);
+            header.push_str(name);
+            header.push_str(": ");
+            header.push_str(value);
+            header.push_str("\r\n");
         }
     }
-    let _ = write!(stream, "Connection: close\r\n\r\n");
-    if request.method != "HEAD" {
-        let _ = std::io::copy(&mut response, &mut stream);
+    header.push_str("Connection: close\r\n\r\n");
+    if stream.write_all(header.as_bytes()).await.is_err() || request.method == "HEAD" {
+        return;
     }
+    while let Ok(Some(chunk)) = response.chunk().await {
+        if stream.write_all(&chunk).await.is_err() {
+            break;
+        }
+    }
+}
+
+async fn handle_shared_async_stream(stream: TokioTcpStream) {
+    let mut stream = stream;
+    let Some(request) = parse_async_request(&mut stream).await else {
+        return;
+    };
+    let Some(id) = request
+        .path
+        .strip_prefix("/stream/")
+        .and_then(|path| path.split('/').next())
+    else {
+        return;
+    };
+    let Some(config) = shared_local_configs()
+        .lock()
+        .ok()
+        .and_then(|configs| configs.get(id).cloned())
+    else {
+        return;
+    };
+    handle_async_local_stream(stream, config, request).await;
+}
+
+fn shared_local_port(preferred_port: u16) -> Result<u16, String> {
+    SHARED_LOCAL_SERVER
+        .get_or_init(|| {
+            let listener = TcpListener::bind(("127.0.0.1", preferred_port))
+                .map_err(|error| error.to_string())?;
+            let port = listener
+                .local_addr()
+                .map_err(|error| error.to_string())?
+                .port();
+            listener
+                .set_nonblocking(true)
+                .map_err(|error| error.to_string())?;
+            thread::spawn(move || {
+                let Ok(runtime) = local_stream_runtime() else {
+                    return;
+                };
+                runtime.block_on(async move {
+                    let Ok(listener) = TokioTcpListener::from_std(listener) else {
+                        return;
+                    };
+                    loop {
+                        tokio::select! {
+                            accepted = listener.accept() => match accepted {
+                                Ok((stream, _)) => {
+                            tokio::spawn(async move {
+                                handle_shared_async_stream(stream).await;
+                            });
+                                }
+                                Err(_) => break,
+                            },
+                            _ = tokio::time::sleep(Duration::from_millis(100)) => {}
+                        }
+                    }
+                });
+            });
+            Ok(port)
+        })
+        .clone()
 }
 
 pub(crate) fn start_local_stream_server(
@@ -227,60 +423,20 @@ pub(crate) fn start_local_stream_server(
     let headers = serde_json::from_str::<HashMap<String, String>>(headers_json).unwrap_or_default();
     let id = next_local_stream_id();
     let bind_port = preferred_port.clamp(0, u16::MAX as i32) as u16;
-    // These proxies are for the local player. Binding loopback avoids making
-    // a header-bearing upstream URL reachable from the LAN without an auth
-    // token (casting uses the token-protected companion server instead).
-    let listener = TcpListener::bind(("127.0.0.1", bind_port)).ok()?;
-    let port = listener.local_addr().ok()?.port();
-    listener.set_nonblocking(true).ok()?;
-
-    let stop = Arc::new(AtomicBool::new(false));
-    let thread_stop = stop.clone();
+    let port = shared_local_port(bind_port).ok()?;
     let config = LocalStreamConfig {
         id: id.clone(),
         target_url: target_url.to_string(),
         headers,
-        client: Arc::new(build_proxy_client()),
+        client: build_proxy_client(),
+        async_client: build_async_proxy_client(),
         active_connections: Arc::new(AtomicUsize::new(0)),
         port,
     };
-    let thread = thread::spawn(move || {
-        let Ok(runtime) = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-        else {
-            return;
-        };
-        runtime.block_on(async move {
-            let Ok(listener) = TokioTcpListener::from_std(listener) else {
-                return;
-            };
-            while !thread_stop.load(Ordering::Relaxed) {
-                tokio::select! {
-                    accepted = listener.accept() => match accepted {
-                        Ok((stream, _)) => {
-                            let request_config = config.clone();
-                            tokio::task::spawn_blocking(move || {
-                                if let Ok(stream) = stream.into_std()
-                                    && stream.set_nonblocking(false).is_ok() {
-                                        handle_local_stream(stream, request_config);
-                                    }
-                            });
-                        }
-                        Err(_) => break,
-                    },
-                    _ = tokio::time::sleep(Duration::from_millis(100)) => {}
-                }
-            }
-        });
-    });
-    local_stream_servers().lock().ok()?.insert(
-        id.clone(),
-        LocalStreamHandle {
-            stop,
-            thread: Some(thread),
-        },
-    );
+    shared_local_configs()
+        .lock()
+        .ok()?
+        .insert(id.clone(), config);
     serde_json::to_string(&json!({
         "id": id.clone(),
         "url": format!("http://127.0.0.1:{port}/stream/{id}"),
@@ -290,6 +446,17 @@ pub(crate) fn start_local_stream_server(
 }
 
 pub(crate) fn stop_local_stream_server(id: &str) -> bool {
+    if crate::dv_rewrite::remove_shared_dv_config(id) {
+        return true;
+    }
+    if shared_local_configs()
+        .lock()
+        .ok()
+        .and_then(|mut configs| configs.remove(id))
+        .is_some()
+    {
+        return true;
+    }
     let Some(mut handle) = local_stream_servers()
         .lock()
         .ok()

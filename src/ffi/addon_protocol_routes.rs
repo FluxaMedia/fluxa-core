@@ -100,9 +100,6 @@ pub(super) fn route_addon_protocol(method: &str, args_json: &str) -> Outcome {
         // args_json IS the links array
         "classifyMetaLinks" => opt_json(addon_protocol::classify_meta_links_json(args_json)),
 
-        _ => Err(fail(
-            ErrorKind::UnknownMethod,
-            format!("no such method `{method}`"),
-        )),
+        _ => Err(unknown_method()),
     }
 }

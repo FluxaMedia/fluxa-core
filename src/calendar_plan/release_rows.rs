@@ -94,7 +94,9 @@ pub(crate) fn calendar_release_rows_json(request_json: &str) -> Option<String> {
                 .get("thumbnail")
                 .and_then(Value::as_str)
                 .and_then(|url| usable_artwork(Some(url)));
-            let episode_poster = episode_thumbnail.clone().or_else(|| fallback_artwork.clone());
+            let episode_poster = episode_thumbnail
+                .clone()
+                .or_else(|| fallback_artwork.clone());
             Some(json!({
                 "dateIso": date_iso,
                 "meta": meta,

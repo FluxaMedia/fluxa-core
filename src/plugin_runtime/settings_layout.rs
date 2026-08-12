@@ -3,8 +3,8 @@ use super::host_functions::{
     register_host_functions,
 };
 use super::{
-    PLUGIN_MEMORY_LIMIT, PLUGIN_TIMEOUT_SECS, PluginHttpClient, PluginHttpRequest,
-    PluginHttpResponse,
+    PLUGIN_TIMEOUT_SECS, PluginHttpClient, PluginHttpRequest, PluginHttpResponse,
+    plugin_memory_limit,
 };
 use crate::plugin_runtime::dom_bridge::DomBridge;
 use rquickjs::{AsyncContext, AsyncRuntime, CatchResultExt, Function};
@@ -17,7 +17,7 @@ pub(super) async fn run_settings_layout(code: String, scraper_id: String) -> Str
         Ok(rt) => rt,
         Err(_) => return "[]".to_string(),
     };
-    qjs_rt.set_memory_limit(PLUGIN_MEMORY_LIMIT).await;
+    qjs_rt.set_memory_limit(plugin_memory_limit()).await;
     let deadline = std::time::Instant::now() + Duration::from_secs(PLUGIN_TIMEOUT_SECS);
     qjs_rt
         .set_interrupt_handler(Some(Box::new(move || std::time::Instant::now() > deadline)))

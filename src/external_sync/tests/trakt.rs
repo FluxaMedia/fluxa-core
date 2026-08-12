@@ -79,10 +79,9 @@ fn trakt_up_next_items_use_the_source_next_episode() {
             "next_episode": {"season": 1, "number": 3, "title": "Episode Three"}
         }
     }]);
-    let items: Value = serde_json::from_str(
-        &trakt_up_next_to_items_json(&response.to_string()).expect("items"),
-    )
-    .unwrap();
+    let items: Value =
+        serde_json::from_str(&trakt_up_next_to_items_json(&response.to_string()).expect("items"))
+            .unwrap();
     assert_eq!(items[0]["lastVideoId"], "tt42:1:3");
     assert_eq!(items[0]["lastEpisodeName"], "Episode Three");
     assert_eq!(items[0]["continueWatchingBadge"], "upNext");

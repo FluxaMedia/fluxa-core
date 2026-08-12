@@ -3,6 +3,7 @@ use crate::runtime::EffectEnvelope;
 use crate::types::Profile;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::sync::Arc;
 
 #[derive(Clone, Debug, Deserialize)]
 #[serde(
@@ -368,37 +369,37 @@ pub(super) struct DispatchResult {
 #[serde(rename_all = "camelCase")]
 pub(super) struct StatePatch {
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub navigation: Option<super::navigation::NavigationState>,
+    pub navigation: Option<Arc<super::navigation::NavigationState>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub home: Option<super::home::HomeState>,
+    pub home: Option<Arc<super::home::HomeState>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub search: Option<super::search::SearchState>,
+    pub search: Option<Arc<super::search::SearchState>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub discover: Option<super::discover::DiscoverState>,
+    pub discover: Option<Arc<super::discover::DiscoverState>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub detail: Option<super::detail::DetailState>,
+    pub detail: Option<Arc<super::detail::DetailState>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub player: Option<super::player::PlayerState>,
+    pub player: Option<Arc<super::player::PlayerState>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub library: Option<super::library::LibraryState>,
+    pub library: Option<Arc<super::library::LibraryState>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub profile: Option<super::profile::ProfileState>,
+    pub profile: Option<Arc<super::profile::ProfileState>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub settings: Option<super::settings::SettingsState>,
+    pub settings: Option<Arc<super::settings::SettingsState>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub calendar: Option<super::calendar::CalendarState>,
+    pub calendar: Option<Arc<super::calendar::CalendarState>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub addons: Option<super::addons::AddonsState>,
+    pub addons: Option<Arc<super::addons::AddonsState>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub auth: Option<super::auth::AuthState>,
+    pub auth: Option<Arc<super::auth::AuthState>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub sync: Option<super::sync::SyncState>,
+    pub sync: Option<Arc<super::sync::SyncState>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub lookup: Option<super::detail::LookupState>,
+    pub lookup: Option<Arc<super::detail::LookupState>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub offline: Option<super::offline::OfflineState>,
+    pub offline: Option<Arc<super::offline::OfflineState>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub trailer: Option<super::trailer::TrailerState>,
+    pub trailer: Option<Arc<super::trailer::TrailerState>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub plugins: Option<super::plugins::PluginsState>,
+    pub plugins: Option<Arc<super::plugins::PluginsState>>,
 }

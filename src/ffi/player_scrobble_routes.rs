@@ -122,9 +122,6 @@ pub(super) fn route_player_scrobble(method: &str, args_json: &str) -> Outcome {
             Ok(json!(player_scrobble::should_save_on_dispose(position_ms)))
         }
 
-        _ => Err(fail(
-            ErrorKind::UnknownMethod,
-            format!("no such method `{method}`"),
-        )),
+        _ => Err(unknown_method()),
     }
 }

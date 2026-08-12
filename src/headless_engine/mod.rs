@@ -127,6 +127,31 @@ pub fn headless_engine_dispatch_json(handle: u64, action_json: &str) -> Option<S
     result_patch_json(revision, patch, visible_effects)
 }
 
+pub fn headless_engine_set_player_buffering(handle: u64, buffering: bool) -> bool {
+    update_player(handle, |engine| player::set_buffering(engine, buffering))
+}
+
+pub fn headless_engine_set_player_stream_index(handle: u64, stream_index: i64) -> bool {
+    update_player(handle, |engine| {
+        player::set_stream_index(engine, stream_index)
+    })
+}
+
+pub fn headless_engine_set_player_position(handle: u64, position_ms: i64) -> bool {
+    update_player(handle, |engine| player::set_position(engine, position_ms))
+}
+
+fn update_player(handle: u64, update: impl FnOnce(&mut HeadlessEngine)) -> bool {
+    let Some(engine) = lock_engines().get(&handle).cloned() else {
+        return false;
+    };
+    let Some(mut engine) = lock_engine(&engine) else {
+        return false;
+    };
+    update(&mut engine);
+    true
+}
+
 pub fn headless_engine_complete_effect_json(handle: u64, result_json: &str) -> Option<String> {
     let result: EffectResultInput = serde_json::from_str(result_json)
         .map_err(|e| CoreError::BadInput {

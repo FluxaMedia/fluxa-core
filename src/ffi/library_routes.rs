@@ -57,6 +57,9 @@ pub(super) fn route_library_state(method: &str, args_json: &str) -> Outcome {
                 field_str(&args, "imdbId")?,
             ))
         }
+        "libraryDocumentViews" => opt_json(Some(library_persistence::document_views_json(
+            &arg_str(args_json, "documentJson")?,
+        ))),
         "isEpisodeReleased" => {
             let args = object(args_json)?;
             let video: Value =
@@ -259,9 +262,6 @@ pub(super) fn route_library_state(method: &str, args_json: &str) -> Outcome {
             ))
         }
 
-        _ => Err(fail(
-            ErrorKind::UnknownMethod,
-            format!("no such method `{method}`"),
-        )),
+        _ => Err(unknown_method()),
     }
 }

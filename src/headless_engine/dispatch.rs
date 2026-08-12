@@ -219,9 +219,7 @@ impl HeadlessEngine {
                 profile,
                 language,
                 source,
-            } => {
-                home::dispatch_refresh_continue_watching(self, profile, language, source)
-            }
+            } => home::dispatch_refresh_continue_watching(self, profile, language, source),
             AppAction::LibraryHydrateRequested { profile_id } => {
                 library::dispatch_hydrate(self, profile_id)
             }

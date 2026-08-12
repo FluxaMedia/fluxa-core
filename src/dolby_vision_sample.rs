@@ -1,7 +1,7 @@
+use crate::dolby_vision_plan::{DvPlaybackPlan, SampleExecutionPlan};
 use ::dolby_vision::rpu::dovi_rpu::DoviRpu;
 use ::dolby_vision::rpu::rpu_data_nlq::DoviELType;
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
-use crate::dolby_vision_plan::{DvPlaybackPlan, SampleExecutionPlan};
 use serde::{Deserialize, Serialize};
 
 const RPU_NAL_TYPE: u8 = 62;
@@ -526,10 +526,7 @@ mod tests {
     #[test]
     fn hdr10plus_message_stripped_other_sei_messages_preserved() {
         let vcl = vec![0x26, 0x01, 0x00, 0x11];
-        let sei = sei_nal(&[
-            (4, hdr10plus_message()),
-            (137, vec![1, 2, 3]),
-        ]);
+        let sei = sei_nal(&[(4, hdr10plus_message()), (137, vec![1, 2, 3])]);
         let sample = annex_b_sample(&[vcl, sei]);
         let request = format!(
             r#"{{"sampleBase64":"{}","framing":"annex_b","stripHdr10Plus":true}}"#,
@@ -587,7 +584,10 @@ mod tests {
         let out = BASE64
             .decode(result["outputBase64"].as_str().unwrap())
             .unwrap();
-        assert!(out.windows(sei.len()).any(|window| window == sei.as_slice()));
+        assert!(
+            out.windows(sei.len())
+                .any(|window| window == sei.as_slice())
+        );
     }
 
     #[test]
@@ -666,7 +666,9 @@ mod tests {
 
     #[test]
     fn process_dv_sample_executes_a_convert_to_dv81_plan() {
-        use crate::dolby_vision_plan::{DvContainer, DvFallbackMode, DvProfile, build_dv_playback_plan};
+        use crate::dolby_vision_plan::{
+            DvContainer, DvFallbackMode, DvProfile, build_dv_playback_plan,
+        };
 
         let (plan, _) = build_dv_playback_plan(
             DvProfile::P7,
@@ -688,15 +690,15 @@ mod tests {
 
         let result = process_dv_sample(&sample, Framing::AnnexB, 4, &plan);
         assert_eq!(result.el_nals_dropped, 1);
-        let out = BASE64
-            .decode(result.output_base64.unwrap())
-            .unwrap();
+        let out = BASE64.decode(result.output_base64.unwrap()).unwrap();
         assert_eq!(out, annex_b_sample(&[bl]));
     }
 
     #[test]
     fn process_dv_sample_executes_a_strip_to_hdr10_plan_by_dropping_the_rpu() {
-        use crate::dolby_vision_plan::{DvContainer, DvFallbackMode, DvProfile, build_dv_playback_plan};
+        use crate::dolby_vision_plan::{
+            DvContainer, DvFallbackMode, DvProfile, build_dv_playback_plan,
+        };
 
         let (plan, _) = build_dv_playback_plan(
             DvProfile::P8Hdr10,
@@ -719,9 +721,7 @@ mod tests {
         let result = process_dv_sample(&sample, Framing::AnnexB, 4, &plan);
         assert_eq!(result.rpu_found, 1);
         assert_eq!(result.rpu_converted, 0);
-        let out = BASE64
-            .decode(result.output_base64.unwrap())
-            .unwrap();
+        let out = BASE64.decode(result.output_base64.unwrap()).unwrap();
         assert_eq!(out, annex_b_sample(&[bl]));
     }
 
@@ -842,11 +842,8 @@ mod tests {
         let bl = vec![0x26, 0x01, 0x00, 0x11];
         let el = el_nal(1);
         let trailer = vec![0x24, 0x01, 0x99];
-        let sample = annex_b_sample_with_start_codes(&[
-            (4, bl.clone()),
-            (3, el),
-            (3, trailer.clone()),
-        ]);
+        let sample =
+            annex_b_sample_with_start_codes(&[(4, bl.clone()), (3, el), (3, trailer.clone())]);
         let expected = annex_b_sample_with_start_codes(&[(4, bl), (4, trailer)]);
 
         let request = format!(

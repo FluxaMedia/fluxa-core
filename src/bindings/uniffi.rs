@@ -152,6 +152,40 @@ pub fn app_core_dispatch_json(handle: i64, action_json: String) -> String {
     })
 }
 
+#[uniffi::export]
+pub fn app_core_dispatch_delta_json(handle: i64, action_json: String) -> String {
+    if handle <= 0 {
+        return String::new();
+    }
+    guard(String::new(), || {
+        app_state::app_core_dispatch_delta_json(handle as u64, &action_json).unwrap_or_default()
+    })
+}
+
+#[uniffi::export]
+pub fn app_core_update_player(
+    handle: i64,
+    position_ms: i64,
+    stream_index: i64,
+    buffering: bool,
+    playback_ended: bool,
+    started: bool,
+    rendered: bool,
+) -> bool {
+    handle > 0
+        && guard(false, || {
+            app_state::app_core_update_player(
+                handle as u64,
+                position_ms,
+                stream_index,
+                buffering,
+                playback_ended,
+                started,
+                rendered,
+            )
+        })
+}
+
 #[cfg(feature = "plugin-js-engine")]
 #[uniffi::export]
 #[expect(

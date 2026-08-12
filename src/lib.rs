@@ -55,6 +55,8 @@ mod desktop_playback;
 mod device_resource;
 #[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
 mod discovery_plan;
+#[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
+mod dolby_vision_plan;
 #[cfg(feature = "dv-codec")]
 mod dolby_vision_rpu;
 #[cfg(feature = "dv-codec")]
@@ -88,8 +90,6 @@ mod offline_download;
 mod platform_plan;
 #[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
 mod player_flow;
-#[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
-mod dolby_vision_plan;
 #[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
 mod player_policy;
 #[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
@@ -148,12 +148,12 @@ pub mod fuzz_targets {
         contains_compact_episode, contains_spaced_episode, parse_episode_locator,
         percent_decode_component,
     };
+    #[cfg(feature = "dv-codec")]
+    pub use crate::dolby_vision_sample::{fuzz_process_sample, process_dv_sample_json};
     pub use crate::headless_engine::{
         create_headless_engine, destroy_headless_engine, headless_engine_complete_effect_json,
         headless_engine_dispatch_json,
     };
-    #[cfg(feature = "dv-codec")]
-    pub use crate::dolby_vision_sample::{fuzz_process_sample, process_dv_sample_json};
 }
 
 #[cfg(all(test, any(feature = "full-api", not(feature = "streaming-shared"))))]

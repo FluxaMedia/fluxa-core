@@ -16,36 +16,28 @@ use super::sync::SyncState;
 use super::trailer::TrailerState;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::ops::{Deref, DerefMut};
+use std::sync::Arc;
 
-// Wraps a domain's state so any mutable access (a direct field write, a whole-value
-// replacement via DerefMut, a method call taking &mut) flips `dirty` automatically —
-// StatePatch::from_dirty then clones only domains actually touched by a dispatch
-// instead of cloning the whole EngineState before and after every action to diff it
-// via PartialEq. Serializes/deserializes exactly like the wrapped value: the wire
-// format is unaffected.
 #[derive(Clone, Debug)]
 pub(super) struct Tracked<T> {
-    value: T,
+    value: Arc<T>,
     dirty: bool,
 }
 
 impl<T: Default> Default for Tracked<T> {
     fn default() -> Self {
         Tracked {
-            value: T::default(),
+            value: Arc::new(T::default()),
             dirty: false,
         }
     }
 }
 
 impl<T> Tracked<T> {
-    pub(super) fn take_if_dirty(&mut self) -> Option<T>
-    where
-        T: Clone,
-    {
+    pub(super) fn take_if_dirty(&mut self) -> Option<Arc<T>> {
         if self.dirty {
             self.dirty = false;
-            Some(self.value.clone())
+            Some(Arc::clone(&self.value))
         } else {
             None
         }
@@ -59,10 +51,10 @@ impl<T> Deref for Tracked<T> {
     }
 }
 
-impl<T> DerefMut for Tracked<T> {
+impl<T: Clone> DerefMut for Tracked<T> {
     fn deref_mut(&mut self) -> &mut T {
         self.dirty = true;
-        &mut self.value
+        Arc::make_mut(&mut self.value)
     }
 }
 
@@ -75,7 +67,7 @@ impl<T: Serialize> Serialize for Tracked<T> {
 impl<'de, T: Deserialize<'de>> Deserialize<'de> for Tracked<T> {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         Ok(Tracked {
-            value: T::deserialize(deserializer)?,
+            value: Arc::new(T::deserialize(deserializer)?),
             dirty: false,
         })
     }

@@ -309,8 +309,12 @@ pub(crate) fn tmdb_full_meta_to_meta_json(
     let keywords: Vec<String> = extras
         .get("keywords")
         .and_then(|k| {
-            k.get(if content_type == "movie" { "keywords" } else { "results" })
-                .and_then(Value::as_array)
+            k.get(if content_type == "movie" {
+                "keywords"
+            } else {
+                "results"
+            })
+            .and_then(Value::as_array)
         })
         .map(|arr| {
             arr.iter()
@@ -322,8 +326,12 @@ pub(crate) fn tmdb_full_meta_to_meta_json(
     let alternative_titles: Vec<String> = extras
         .get("alternativeTitles")
         .and_then(|t| {
-            t.get(if content_type == "movie" { "titles" } else { "results" })
-                .and_then(Value::as_array)
+            t.get(if content_type == "movie" {
+                "titles"
+            } else {
+                "results"
+            })
+            .and_then(Value::as_array)
         })
         .map(|arr| {
             let mut titles: Vec<String> = arr
@@ -341,7 +349,9 @@ pub(crate) fn tmdb_full_meta_to_meta_json(
             r.get("results")
                 .and_then(Value::as_array)?
                 .iter()
-                .find(|entry| entry.get("iso_3166_1").and_then(Value::as_str) == Some(region.as_str()))
+                .find(|entry| {
+                    entry.get("iso_3166_1").and_then(Value::as_str) == Some(region.as_str())
+                })
                 .and_then(|entry| entry.get("release_dates").and_then(Value::as_array))
                 .and_then(|dates| {
                     dates
@@ -353,7 +363,9 @@ pub(crate) fn tmdb_full_meta_to_meta_json(
             r.get("results")
                 .and_then(Value::as_array)?
                 .iter()
-                .find(|entry| entry.get("iso_3166_1").and_then(Value::as_str) == Some(region.as_str()))
+                .find(|entry| {
+                    entry.get("iso_3166_1").and_then(Value::as_str) == Some(region.as_str())
+                })
                 .and_then(|entry| entry.get("rating").and_then(Value::as_str))
                 .filter(|c| !c.is_empty())
         }
@@ -451,8 +463,18 @@ const ENRICHMENT_FIELD_GROUPS: &[(&str, &[&str])] = &[
     ("network", &["network"]),
     ("ratings", &["imdbRating", "certification"]),
     ("collection", &["collection"]),
-    ("statusSchedule", &["status", "nextEpisodeToAir", "lastEpisodeToAir"]),
-    ("originTitles", &["originalLanguage", "productionCountries", "alternativeTitles"]),
+    (
+        "statusSchedule",
+        &["status", "nextEpisodeToAir", "lastEpisodeToAir"],
+    ),
+    (
+        "originTitles",
+        &[
+            "originalLanguage",
+            "productionCountries",
+            "alternativeTitles",
+        ],
+    ),
     ("watchProviders", &["watchProviders"]),
 ];
 

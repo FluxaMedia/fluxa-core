@@ -183,37 +183,44 @@ pub(crate) fn build_billboard_pool_json(
         })
         .collect();
 
-    let mut editorial = editorial_raw;
-    editorial.sort_by_key(|item| std::cmp::Reverse(score_candidate(item, None)));
-    let editorial: Vec<Value> = distinct_by_title_key(editorial)
+    let mut editorial = editorial_raw
         .into_iter()
-        .take(3)
-        .collect();
+        .map(|item| {
+            let score = score_candidate(&item, None);
+            (score, item)
+        })
+        .collect::<Vec<_>>();
+    editorial.sort_by_key(|(score, _)| std::cmp::Reverse(*score));
+    let editorial: Vec<Value> =
+        distinct_by_title_key(editorial.into_iter().map(|(_, item)| item).collect())
+            .into_iter()
+            .take(3)
+            .collect();
 
     // Ranked pool: merge enriched + candidates, deduplicate, filter, sort by score+visual.
     let combined: Vec<Value> = enriched.into_iter().chain(candidates).collect();
     let combined = distinct_by_title_key(distinct_by_billboard_key(combined));
-    let mut ranked: Vec<Value> = combined
+    let mut ranked: Vec<(i32, Value)> = combined
         .into_iter()
         .filter(|m| has_backdrop_candidate(m) || !meta_text(m, "poster").is_empty())
+        .map(|item| {
+            let score = score_candidate(&item, None) + billboard_visual_score(&item);
+            (score, item)
+        })
         .collect();
-    ranked.sort_by(|a, b| {
-        let sb = score_candidate(b, None) + billboard_visual_score(b);
-        let sa = score_candidate(a, None) + billboard_visual_score(a);
-        sb.cmp(&sa)
-    });
+    ranked.sort_by(|a, b| b.0.cmp(&a.0));
 
     let series: Vec<Value> = ranked
         .iter()
-        .filter(|m| meta_text(m, "type") == "series")
+        .filter(|(_, m)| meta_text(m, "type") == "series")
         .take(8)
-        .cloned()
+        .map(|(_, m)| m.clone())
         .collect();
     let movies: Vec<Value> = ranked
         .iter()
-        .filter(|m| meta_text(m, "type") == "movie")
+        .filter(|(_, m)| meta_text(m, "type") == "movie")
         .take(3)
-        .cloned()
+        .map(|(_, m)| m.clone())
         .collect();
 
     let preferred: Vec<Value> = distinct_by_title_key(distinct_by_billboard_key(
@@ -225,7 +232,7 @@ pub(crate) fn build_billboard_pool_json(
     } else {
         let preferred_keys: HashSet<String> = preferred.iter().map(billboard_key_value).collect();
         let preferred_titles: HashSet<String> = preferred.iter().map(title_key_value).collect();
-        let extras = ranked.into_iter().filter(|m| {
+        let extras = ranked.into_iter().map(|(_, m)| m).filter(|m| {
             !preferred_keys.contains(&billboard_key_value(m))
                 && !preferred_titles.contains(&title_key_value(m))
         });

@@ -53,10 +53,7 @@ pub(super) fn route_watchlist(method: &str, args_json: &str) -> Outcome {
             opt_json(watchlist_plan::library_offline_grouping_json(args_json))
         }
 
-        _ => Err(fail(
-            ErrorKind::UnknownMethod,
-            format!("no such method `{method}`"),
-        )),
+        _ => Err(unknown_method()),
     }
 }
 
@@ -65,9 +62,6 @@ pub(super) fn route_offline(method: &str, args_json: &str) -> Outcome {
         // args_json IS the request object
         "offlineDownloadPlan" => opt_json(offline_download::offline_download_plan_json(args_json)),
 
-        _ => Err(fail(
-            ErrorKind::UnknownMethod,
-            format!("no such method `{method}`"),
-        )),
+        _ => Err(unknown_method()),
     }
 }

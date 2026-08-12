@@ -12,6 +12,8 @@ struct DeviceResourceBudgetRequest {
     is_low_ram_device: bool,
     #[serde(default)]
     is_television: bool,
+    #[serde(default)]
+    logical_cores: i64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -45,7 +47,15 @@ impl DeviceTier {
     }
 }
 
-fn lerp_mb(total_ram_mb: i64, lo_ram: f64, lo_val: f64, hi_ram: f64, hi_val: f64, floor: f64, ceil: f64) -> i64 {
+fn lerp_mb(
+    total_ram_mb: i64,
+    lo_ram: f64,
+    lo_val: f64,
+    hi_ram: f64,
+    hi_val: f64,
+    floor: f64,
+    ceil: f64,
+) -> i64 {
     let t = ((total_ram_mb as f64 - lo_ram) / (hi_ram - lo_ram)).clamp(0.0, 1.0);
     (lo_val + t * (hi_val - lo_val)).clamp(floor, ceil) as i64
 }
@@ -94,6 +104,29 @@ pub(crate) fn device_resource_budget_json(request_json: &str) -> Option<String> 
     };
     let player_target_buffer_bytes = player_buffer_cache_mb.min(heap_bound_mb) * 1_000_000;
     let ui_reserve_mb = ((heap_max_mb as f64) * 0.3).clamp(64.0, 300.0) as i64;
+    let cores = request.logical_cores.max(1);
+    let torrent_worker_threads = if tier == DeviceTier::Low {
+        cores.clamp(2, 3)
+    } else {
+        cores.clamp(2, 8)
+    };
+    let stream_reader_buffer_bytes = match tier {
+        DeviceTier::Low => 64 * 1024,
+        DeviceTier::Mid => 128 * 1024,
+        DeviceTier::High | DeviceTier::Ultra => 256 * 1024,
+    };
+    let torrent_preload_mb = match tier {
+        DeviceTier::Low => 4,
+        DeviceTier::Mid => 8,
+        DeviceTier::High => 16,
+        DeviceTier::Ultra => 24,
+    };
+    let plugin_memory_limit_mb = match tier {
+        DeviceTier::Low => 64,
+        DeviceTier::Mid => 128,
+        DeviceTier::High => 256,
+        DeviceTier::Ultra => 384,
+    };
 
     serde_json::to_string(&json!({
         "tier": tier.as_str(),
@@ -105,7 +138,11 @@ pub(crate) fn device_resource_budget_json(request_json: &str) -> Option<String> 
         "playerTargetBufferBytes": player_target_buffer_bytes,
         "torrentCacheMb": torrent_cache_mb,
         "subtitleGlyphCacheBytes": subtitle_glyph_cache_mb * 1_000_000,
-        "uiReserveMb": ui_reserve_mb
+        "uiReserveMb": ui_reserve_mb,
+        "torrentWorkerThreads": torrent_worker_threads,
+        "streamReaderBufferBytes": stream_reader_buffer_bytes,
+        "torrentPreloadMb": torrent_preload_mb,
+        "pluginMemoryLimitMb": plugin_memory_limit_mb
     }))
     .ok()
 }
@@ -121,27 +158,40 @@ mod tests {
 
     #[test]
     fn low_ram_tv_gets_conservative_image_and_decode_settings() {
-        let b = budget(r#"{"totalRamMb":1536,"heapMaxMb":256,"isLowRamDevice":true,"isTelevision":true}"#);
+        let b = budget(
+            r#"{"totalRamMb":1536,"heapMaxMb":256,"isLowRamDevice":true,"isTelevision":true}"#,
+        );
         assert_eq!(b["tier"], "low");
         assert_eq!(b["imageCacheMemoryPercent"], 0.10);
         assert_eq!(b["imageCrossfadeEnabled"], false);
         assert_eq!(b["imagePrecisionInexact"], true);
         assert_eq!(b["imageDecodeConcurrency"], 2);
+        assert_eq!(b["streamReaderBufferBytes"], 65_536);
+        assert_eq!(b["torrentPreloadMb"], 4);
+        assert_eq!(b["pluginMemoryLimitMb"], 64);
     }
 
     #[test]
     fn high_ram_phone_gets_larger_percent_and_crossfade_on() {
-        let b = budget(r#"{"totalRamMb":6144,"heapMaxMb":512,"isLowRamDevice":false,"isTelevision":false}"#);
+        let b = budget(
+            r#"{"totalRamMb":6144,"heapMaxMb":512,"isLowRamDevice":false,"isTelevision":false}"#,
+        );
         assert_eq!(b["tier"], "high");
         assert_eq!(b["imageCacheMemoryPercent"], 0.25);
         assert_eq!(b["imageCrossfadeEnabled"], true);
         assert_eq!(b["imagePrecisionInexact"], false);
+        assert_eq!(b["streamReaderBufferBytes"], 262_144);
+        assert_eq!(b["torrentWorkerThreads"], 2);
     }
 
     #[test]
     fn budgets_scale_between_2gb_and_8gb_anchors() {
-        let low = budget(r#"{"totalRamMb":2048,"heapMaxMb":256,"isLowRamDevice":false,"isTelevision":false}"#);
-        let high = budget(r#"{"totalRamMb":8192,"heapMaxMb":512,"isLowRamDevice":false,"isTelevision":false}"#);
+        let low = budget(
+            r#"{"totalRamMb":2048,"heapMaxMb":256,"isLowRamDevice":false,"isTelevision":false}"#,
+        );
+        let high = budget(
+            r#"{"totalRamMb":8192,"heapMaxMb":512,"isLowRamDevice":false,"isTelevision":false}"#,
+        );
         assert_eq!(low["playerBufferCacheMb"], 100);
         assert_eq!(low["torrentCacheMb"], 64);
         assert_eq!(low["subtitleGlyphCacheBytes"], 12_000_000);
@@ -152,7 +202,9 @@ mod tests {
 
     #[test]
     fn player_target_buffer_bytes_is_bounded_by_heap() {
-        let b = budget(r#"{"totalRamMb":8192,"heapMaxMb":64,"isLowRamDevice":true,"isTelevision":true}"#);
+        let b = budget(
+            r#"{"totalRamMb":8192,"heapMaxMb":64,"isLowRamDevice":true,"isTelevision":true}"#,
+        );
         // heap_bound_mb = (64/8).clamp(16,48) = 16 -> wins over the 300mb tier target
         assert_eq!(b["playerTargetBufferBytes"], 16_000_000);
     }

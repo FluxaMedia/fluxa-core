@@ -161,28 +161,48 @@ fn simkl_playback_progress_entries(playback_json: &str) -> Vec<SimklPlaybackEntr
                 .and_then(Value::as_str)
                 .filter(|title| !title.trim().is_empty())
                 .map(str::to_string);
-            Some(SimklPlaybackEntry { id, episode, progress: progress.clamp(0.0, 100.0), episode_title, simkl_id: simkl_numeric_id(source), is_anime })
+            Some(SimklPlaybackEntry {
+                id,
+                episode,
+                progress: progress.clamp(0.0, 100.0),
+                episode_title,
+                simkl_id: simkl_numeric_id(source),
+                is_anime,
+            })
         })
         .collect()
 }
 
-pub(crate) fn simkl_merge_playback_progress_json(items_json: &str, playback_json: &str) -> Option<String> {
+pub(crate) fn simkl_merge_playback_progress_json(
+    items_json: &str,
+    playback_json: &str,
+) -> Option<String> {
     let mut items: Vec<Value> = serde_json::from_str(items_json).ok()?;
     let playback = simkl_playback_progress_entries(playback_json);
     for entry in &playback {
-        let SimklPlaybackEntry { id, episode, progress, episode_title, simkl_id, is_anime } = entry;
+        let SimklPlaybackEntry {
+            id,
+            episode,
+            progress,
+            episode_title,
+            simkl_id,
+            is_anime,
+        } = entry;
         for item in items.iter_mut() {
             if item.get("id").and_then(Value::as_str) != Some(id.as_str()) {
                 continue;
             }
             if let Some((season, number)) = episode {
-                let matches_episode = item.get("lastEpisodeSeason").and_then(Value::as_i64) == Some(*season)
+                let matches_episode = item.get("lastEpisodeSeason").and_then(Value::as_i64)
+                    == Some(*season)
                     && item.get("lastEpisodeNumber").and_then(Value::as_i64) == Some(*number);
                 if !matches_episode {
                     continue;
                 }
             }
-            let Some(obj) = item.as_object_mut() else { continue };
+            let Some(obj) = item.as_object_mut() else {
+                continue;
+            };
             if let Some(simkl_id) = simkl_id {
                 obj.insert("simklId".to_string(), json!(simkl_id));
             }
@@ -286,11 +306,32 @@ pub(crate) fn trakt_up_next_to_items_json(items_json: &str) -> Option<String> {
     let entries: Vec<Value> = serde_json::from_str(items_json).ok()?;
     let mut items = Vec::new();
     for entry in entries {
-        let Some(show) = entry.get("show") else { continue; };
-        let Some(id) = trakt_id_from_source(show) else { continue; };
-        let Some(next_episode) = entry.get("progress").and_then(|progress| progress.get("next_episode")) else { continue; };
-        let Some(season) = next_episode.get("season").and_then(Value::as_i64).filter(|value| *value > 0) else { continue; };
-        let Some(number) = next_episode.get("number").and_then(Value::as_i64).filter(|value| *value > 0) else { continue; };
+        let Some(show) = entry.get("show") else {
+            continue;
+        };
+        let Some(id) = trakt_id_from_source(show) else {
+            continue;
+        };
+        let Some(next_episode) = entry
+            .get("progress")
+            .and_then(|progress| progress.get("next_episode"))
+        else {
+            continue;
+        };
+        let Some(season) = next_episode
+            .get("season")
+            .and_then(Value::as_i64)
+            .filter(|value| *value > 0)
+        else {
+            continue;
+        };
+        let Some(number) = next_episode
+            .get("number")
+            .and_then(Value::as_i64)
+            .filter(|value| *value > 0)
+        else {
+            continue;
+        };
         let saved_at = entry
             .get("progress")
             .and_then(|progress| progress.get("last_watched_at"))

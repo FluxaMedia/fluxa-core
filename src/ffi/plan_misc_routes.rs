@@ -14,10 +14,7 @@ pub(super) fn route_headless_adapter_plan(method: &str, args_json: &str) -> Outc
         ),
         "directPlaybackPolicy" => into_json(headless_adapter_plan::direct_playback_policy_json()),
 
-        _ => Err(fail(
-            ErrorKind::UnknownMethod,
-            format!("no such method `{method}`"),
-        )),
+        _ => Err(unknown_method()),
     }
 }
 
@@ -39,10 +36,7 @@ pub(super) fn route_discovery_plan(method: &str, args_json: &str) -> Outcome {
             ))
         }
 
-        _ => Err(fail(
-            ErrorKind::UnknownMethod,
-            format!("no such method `{method}`"),
-        )),
+        _ => Err(unknown_method()),
     }
 }
 
@@ -53,10 +47,7 @@ pub(super) fn route_data_policy(method: &str, args_json: &str) -> Outcome {
         "cacheTrimPolicy" => opt_json(data_policy::cache_trim_policy_json(args_json)),
         "dataFailurePolicy" => opt_json(data_policy::data_failure_policy_json(args_json)),
 
-        _ => Err(fail(
-            ErrorKind::UnknownMethod,
-            format!("no such method `{method}`"),
-        )),
+        _ => Err(unknown_method()),
     }
 }
 
@@ -72,24 +63,16 @@ pub(super) fn route_dolby_vision_rpu(method: &str, args_json: &str) -> Outcome {
             opt_json(dolby_vision_sample::process_dv_sample_json(args_json))
         }
 
-        _ => Err(fail(
-            ErrorKind::UnknownMethod,
-            format!("no such method `{method}`"),
-        )),
+        _ => Err(unknown_method()),
     }
 }
 
 pub(super) fn route_device_resource(method: &str, args_json: &str) -> Outcome {
     match method {
         // args_json IS the request object
-        "deviceResourceBudget" => {
-            opt_json(device_resource::device_resource_budget_json(args_json))
-        }
+        "deviceResourceBudget" => opt_json(device_resource::device_resource_budget_json(args_json)),
 
-        _ => Err(fail(
-            ErrorKind::UnknownMethod,
-            format!("no such method `{method}`"),
-        )),
+        _ => Err(unknown_method()),
     }
 }
 
@@ -103,9 +86,6 @@ pub(super) fn route_player_flow(method: &str, args_json: &str) -> Outcome {
             ))
         }
 
-        _ => Err(fail(
-            ErrorKind::UnknownMethod,
-            format!("no such method `{method}`"),
-        )),
+        _ => Err(unknown_method()),
     }
 }

@@ -1278,6 +1278,7 @@ dependencies = [
  "fluxa_core",
  "jni 0.21.1",
  "librqbit",
+ "memchr",
  "reqwest 0.13.4",
  "serde",
  "serde_json",

@@ -112,6 +112,130 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_appCo
 }
 
 #[unsafe(no_mangle)]
+pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_appCoreDispatchDeltaJsonNative(
+    mut env: JNIEnv<'_>,
+    _class: JObject<'_>,
+    handle: JLong,
+    action_json: JString<'_>,
+) -> JStringReturn {
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let output = if handle > 0 {
+            read_jstring(&mut env, &action_json)
+                .and_then(|action_json| app_core_dispatch_delta_json(handle as u64, &action_json))
+        } else {
+            None
+        };
+        write_jstring(&mut env, output)
+    }))
+    .unwrap_or(ptr::null_mut())
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_appCoreSetPlayerPositionNative(
+    _env: JNIEnv<'_>,
+    _class: JObject<'_>,
+    handle: JLong,
+    position_ms: JLong,
+) -> JBoolean {
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        (handle > 0 && app_core_set_player_position(handle as u64, position_ms)) as JBoolean
+    }))
+    .unwrap_or(0)
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_appCoreSetPlayerBufferingNative(
+    _env: JNIEnv<'_>,
+    _class: JObject<'_>,
+    handle: JLong,
+    buffering: JBoolean,
+) -> JBoolean {
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        (handle > 0 && app_core_set_player_buffering(handle as u64, buffering != 0)) as JBoolean
+    }))
+    .unwrap_or(0)
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_appCoreSetPlayerStreamIndexNative(
+    _env: JNIEnv<'_>,
+    _class: JObject<'_>,
+    handle: JLong,
+    stream_index: JLong,
+) -> JBoolean {
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        (handle > 0 && app_core_set_player_stream_index(handle as u64, stream_index)) as JBoolean
+    }))
+    .unwrap_or(0)
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_appCoreSetPlayerPlaybackEndedNative(
+    _env: JNIEnv<'_>,
+    _class: JObject<'_>,
+    handle: JLong,
+    ended: JBoolean,
+) -> JBoolean {
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        (handle > 0 && app_core_set_player_playback_ended(handle as u64, ended != 0)) as JBoolean
+    }))
+    .unwrap_or(0)
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_appCoreSetPlayerVideoRenderedNative(
+    _env: JNIEnv<'_>,
+    _class: JObject<'_>,
+    handle: JLong,
+    rendered: JBoolean,
+) -> JBoolean {
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        (handle > 0 && app_core_set_player_video_rendered(handle as u64, rendered != 0)) as JBoolean
+    }))
+    .unwrap_or(0)
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_appCoreSetPlayerStartedNative(
+    _env: JNIEnv<'_>,
+    _class: JObject<'_>,
+    handle: JLong,
+    started: JBoolean,
+) -> JBoolean {
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        (handle > 0 && app_core_set_player_started(handle as u64, started != 0)) as JBoolean
+    }))
+    .unwrap_or(0)
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_appCoreUpdatePlayerNative(
+    _env: JNIEnv<'_>,
+    _class: JObject<'_>,
+    handle: JLong,
+    position_ms: JLong,
+    stream_index: JLong,
+    buffering: JBoolean,
+    playback_ended: JBoolean,
+    started: JBoolean,
+    rendered: JBoolean,
+) -> JBoolean {
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        (handle > 0
+            && app_core_update_player(
+                handle as u64,
+                position_ms,
+                stream_index,
+                buffering != 0,
+                playback_ended != 0,
+                started != 0,
+                rendered != 0,
+            )) as JBoolean
+    }))
+    .unwrap_or(0)
+}
+
+#[unsafe(no_mangle)]
 pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_createHeadlessEngineNative(
     mut env: JNIEnv<'_>,
     _class: JObject<'_>,
@@ -175,6 +299,47 @@ pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_headl
         write_jstring(&mut env, output)
     }))
     .unwrap_or(ptr::null_mut())
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_headlessEngineSetPlayerBufferingNative(
+    _env: JNIEnv<'_>,
+    _class: JObject<'_>,
+    handle: JLong,
+    buffering: JBoolean,
+) -> JBoolean {
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        (handle > 0 && headless_engine_set_player_buffering(handle as u64, buffering != 0))
+            as JBoolean
+    }))
+    .unwrap_or(0)
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_headlessEngineSetPlayerStreamIndexNative(
+    _env: JNIEnv<'_>,
+    _class: JObject<'_>,
+    handle: JLong,
+    stream_index: JLong,
+) -> JBoolean {
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        (handle > 0 && headless_engine_set_player_stream_index(handle as u64, stream_index))
+            as JBoolean
+    }))
+    .unwrap_or(0)
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "system" fn Java_com_fluxa_app_core_rust_FluxaCoreNative_headlessEngineSetPlayerPositionNative(
+    _env: JNIEnv<'_>,
+    _class: JObject<'_>,
+    handle: JLong,
+    position_ms: JLong,
+) -> JBoolean {
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        (handle > 0 && headless_engine_set_player_position(handle as u64, position_ms)) as JBoolean
+    }))
+    .unwrap_or(0)
 }
 
 #[unsafe(no_mangle)]

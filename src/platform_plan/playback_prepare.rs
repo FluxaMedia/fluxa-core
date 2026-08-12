@@ -139,7 +139,10 @@ mod tests {
 
     #[test]
     fn external_preference_sends_a_playable_stream_to_the_platform_launcher() {
-        let result = playback_prepare_plan_json(r#"{"stream":{"url":"https://example.com/video.mp4"},"preferredPlayer":"external"}"#).unwrap();
+        let result = playback_prepare_plan_json(
+            r#"{"stream":{"url":"https://example.com/video.mp4"},"preferredPlayer":"external"}"#,
+        )
+        .unwrap();
         let result: Value = serde_json::from_str(&result).unwrap();
         assert_eq!(result["mode"], "external");
         assert_eq!(result["url"], "https://example.com/video.mp4");

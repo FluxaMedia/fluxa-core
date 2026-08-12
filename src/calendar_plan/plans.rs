@@ -224,15 +224,20 @@ pub(crate) fn desktop_calendar_read_plan_json(request_json: &str) -> Option<Stri
 }
 
 fn meta_artwork_score(item: &Value) -> usize {
-    ["continueWatchingPoster", "continueWatchingBackground", "poster", "background"]
-        .iter()
-        .filter(|key| {
-            item.get(**key)
-                .and_then(Value::as_str)
-                .and_then(|value| usable_artwork(Some(value)))
-                .is_some()
-        })
-        .count()
+    [
+        "continueWatchingPoster",
+        "continueWatchingBackground",
+        "poster",
+        "background",
+    ]
+    .iter()
+    .filter(|key| {
+        item.get(**key)
+            .and_then(Value::as_str)
+            .and_then(|value| usable_artwork(Some(value)))
+            .is_some()
+    })
+    .count()
 }
 
 pub(crate) fn calendar_candidate_plan_json(request_json: &str) -> Option<String> {
@@ -240,7 +245,12 @@ pub(crate) fn calendar_candidate_plan_json(request_json: &str) -> Option<String>
     let mut seen: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
     let mut candidates: Vec<Value> = Vec::new();
     for item in request.groups.into_iter().flatten() {
-        let id = item.get("id").and_then(Value::as_str).unwrap_or("").trim().to_string();
+        let id = item
+            .get("id")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .trim()
+            .to_string();
         let content_type = item
             .get("type")
             .and_then(Value::as_str)
