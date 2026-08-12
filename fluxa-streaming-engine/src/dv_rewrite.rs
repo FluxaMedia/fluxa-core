@@ -99,8 +99,8 @@ pub(crate) fn dv_rewrite_segment_bytes(
     }
 }
 
-fn synchronous_rewriters() -> &'static Mutex<HashMap<u64, FMp4NalRewriter>> {
-    static REWRITERS: OnceLock<Mutex<HashMap<u64, FMp4NalRewriter>>> = OnceLock::new();
+fn synchronous_rewriters() -> &'static Mutex<HashMap<u64, Arc<Mutex<FMp4NalRewriter>>>> {
+    static REWRITERS: OnceLock<Mutex<HashMap<u64, Arc<Mutex<FMp4NalRewriter>>>>> = OnceLock::new();
     REWRITERS.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
@@ -115,7 +115,12 @@ pub(crate) fn create_dv_segment_rewriter(
     if let Ok(mut rewriters) = synchronous_rewriters().lock() {
         rewriters.insert(
             id,
-            FMp4NalRewriter::with_spool_dir(rpu_mode, zero_level5, remove_hdr10plus, spool_dir),
+            Arc::new(Mutex::new(FMp4NalRewriter::with_spool_dir(
+                rpu_mode,
+                zero_level5,
+                remove_hdr10plus,
+                spool_dir,
+            ))),
         );
         id
     } else {
@@ -124,13 +129,17 @@ pub(crate) fn create_dv_segment_rewriter(
 }
 
 pub(crate) fn process_dv_segment_rewriter(id: u64, data: &[u8]) -> Option<Vec<u8>> {
-    let mut rewriters = synchronous_rewriters().lock().ok()?;
-    Some(rewriters.get_mut(&id)?.process(data))
+    let rewriter = synchronous_rewriters().lock().ok()?.get(&id)?.clone();
+    Some(rewriter.lock().ok()?.process(data))
 }
 
 pub(crate) fn finish_dv_segment_rewriter(id: u64) -> Option<Vec<u8>> {
     let rewriter = synchronous_rewriters().lock().ok()?.remove(&id)?;
-    Some(rewriter.flush())
+    Arc::try_unwrap(rewriter)
+        .ok()?
+        .into_inner()
+        .ok()
+        .map(FMp4NalRewriter::flush)
 }
 
 // Per-stream conversion stats
@@ -1013,26 +1022,25 @@ fn new_mdat_spool(spool_dir: Option<&std::path::Path>) -> std::io::Result<MdatSp
 fn cleanup_stale_mdat_spools(directory: &std::path::Path) {
     static CLEANED_DIRECTORIES: OnceLock<Mutex<HashSet<PathBuf>>> = OnceLock::new();
     let cleaned = CLEANED_DIRECTORIES.get_or_init(|| Mutex::new(HashSet::new()));
-    let should_scan = cleaned
-        .lock()
-        .map(|mut directories| directories.insert(directory.to_path_buf()))
-        .unwrap_or(false);
-    if !should_scan {
-        return;
-    }
-    let Ok(entries) = std::fs::read_dir(directory) else {
+    let Ok(mut directories) = cleaned.lock() else {
         return;
     };
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if path
-            .file_name()
-            .and_then(|name| name.to_str())
-            .is_some_and(|name| name.starts_with("fluxa-fmp4-") && name.ends_with(".mdat"))
-        {
-            let _ = std::fs::remove_file(path);
+    if directories.contains(directory) {
+        return;
+    }
+    if let Ok(entries) = std::fs::read_dir(directory) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| name.starts_with("fluxa-fmp4-") && name.ends_with(".mdat"))
+            {
+                let _ = std::fs::remove_file(path);
+            }
         }
     }
+    directories.insert(directory.to_path_buf());
 }
 
 struct LengthDelimitedRewriteState {

@@ -243,7 +243,7 @@ fn default_buffering() -> bool {
     true
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct AppCoreAction {
     #[serde(rename = "type")]
@@ -310,76 +310,89 @@ pub fn app_core_dispatch_json(handle: u64, action_json: &str) -> Option<String> 
 
 pub fn app_core_dispatch_delta_json(handle: u64, action_json: &str) -> Option<String> {
     let action: AppCoreAction = serde_json::from_str(action_json).ok()?;
+    let action_type = action.action_type.clone();
     let state = lock_store().get(&handle)?.clone();
     let mut state = lock_app_state(&state)?;
-    if !reduce(&mut state, action.clone()) {
+    if !reduce(&mut state, action) {
         return None;
     }
-    let patch = action_patch(&action, &state);
+    let patch = action_patch(&action_type, &state);
     Some(json!({ "patch": patch }).to_string())
 }
 
-fn action_patch(action: &AppCoreAction, state: &AppCoreState) -> Value {
-    let (domain, field) = match action.action_type.as_str() {
-        "setHomeCategories" => ("home", "categories"),
-        "setHomeLoading" => ("home", "isLoading"),
-        "setHomeCurrentFilter" => ("home", "currentFilter"),
-        "setHomeDirectLoading" => ("home", "isDirectLoading"),
-        "setTraktContinueWatchingLastUpdatedAt" => ("home", "traktContinueWatchingLastUpdatedAt"),
-        "setUserAddons" => ("home", "userAddons"),
-        "setWatchlist" => ("home", "watchlist"),
-        "setLikedItems" => ("home", "likedItems"),
-        "setActiveProfile" => ("home", "activeProfile"),
-        "setCurrentWatchlist" => ("home", "currentWatchlist"),
-        "setExternalContinueWatching" => ("home", "externalContinueWatching"),
-        "setTraktWatchedState" => ("home", "traktWatchedState"),
-        "setSearchResults" => ("homeSearch", "searchResults"),
-        "setSearchRows" => ("homeSearch", "searchRows"),
-        "setSearchHistory" => ("homeSearch", "searchHistory"),
-        "setFocusedMovie" => ("homeSearch", "focusedMovie"),
-        "setFocusedMovieTrailerUrl" => ("homeSearch", "focusedMovieTrailerUrl"),
-        "setPreviewUrl" => ("homeSearch", "previewUrl"),
-        "setBillboardError" => ("billboard", "error"),
-        "setBillboardPool" => ("billboard", "pool"),
-        "setBillboardIndex" => ("billboard", "index"),
-        "setBillboardMovie" => ("billboard", "movie"),
-        "setBillboardLogo" => ("billboard", "logo"),
-        "setBillboardWatchlist" => ("billboard", "watchlist"),
-        "setBillboardNextEpisode" => ("billboard", "nextEpisode"),
-        "setBillboardTrailerUrl" => ("billboard", "trailerUrl"),
-        "setDiscoverResults" => ("discover", "results"),
-        "setDiscoverLoading" => ("discover", "isLoading"),
-        "setDiscoverGenres" => ("discover", "genres"),
-        "setDiscoverCatalogs" => ("discover", "catalogs"),
-        "setCalendarItems" => ("calendar", "items"),
-        "setCalendarLoading" => ("calendar", "isLoading"),
-        "setLibraryUiState" => ("library", "uiState"),
+fn action_patch(action_type: &str, state: &AppCoreState) -> Value {
+    match action_type {
+        "setHomeCategories" => json!({"home": {"categories": state.home.categories}}),
+        "setHomeLoading" => json!({"home": {"isLoading": state.home.is_loading}}),
+        "setHomeCurrentFilter" => json!({"home": {"currentFilter": state.home.current_filter}}),
+        "setHomeDirectLoading" => {
+            json!({"home": {"isDirectLoading": state.home.is_direct_loading}})
+        }
+        "setTraktContinueWatchingLastUpdatedAt" => {
+            json!({"home": {"traktContinueWatchingLastUpdatedAt": state.home.trakt_continue_watching_last_updated_at}})
+        }
+        "setUserAddons" => json!({"home": {"userAddons": state.home.user_addons}}),
+        "setWatchlist" => json!({"home": {"watchlist": state.home.watchlist}}),
+        "setLikedItems" => json!({"home": {"likedItems": state.home.liked_items}}),
+        "setActiveProfile" => json!({"home": {"activeProfile": state.home.active_profile}}),
+        "setCurrentWatchlist" => {
+            json!({"home": {"currentWatchlist": state.home.current_watchlist}})
+        }
+        "setExternalContinueWatching" => {
+            json!({"home": {"externalContinueWatching": state.home.external_continue_watching}})
+        }
+        "setTraktWatchedState" => {
+            json!({"home": {"traktWatchedState": state.home.trakt_watched_state}})
+        }
+        "setSearchResults" => {
+            json!({"homeSearch": {"searchResults": state.home_search.search_results}})
+        }
+        "setSearchRows" => json!({"homeSearch": {"searchRows": state.home_search.search_rows}}),
+        "setSearchHistory" => {
+            json!({"homeSearch": {"searchHistory": state.home_search.search_history}})
+        }
+        "setFocusedMovie" => {
+            json!({"homeSearch": {"focusedMovie": state.home_search.focused_movie}})
+        }
+        "setFocusedMovieTrailerUrl" => {
+            json!({"homeSearch": {"focusedMovieTrailerUrl": state.home_search.focused_movie_trailer_url}})
+        }
+        "setPreviewUrl" => json!({"homeSearch": {"previewUrl": state.home_search.preview_url}}),
+        "setBillboardError" => json!({"billboard": {"error": state.billboard.error}}),
+        "setBillboardPool" => json!({"billboard": {"pool": state.billboard.pool}}),
+        "setBillboardIndex" => json!({"billboard": {"index": state.billboard.index}}),
+        "setBillboardMovie" => json!({"billboard": {"movie": state.billboard.movie}}),
+        "setBillboardLogo" => json!({"billboard": {"logo": state.billboard.logo}}),
+        "setBillboardWatchlist" => json!({"billboard": {"watchlist": state.billboard.watchlist}}),
+        "setBillboardNextEpisode" => {
+            json!({"billboard": {"nextEpisode": state.billboard.next_episode}})
+        }
+        "setBillboardTrailerUrl" => {
+            json!({"billboard": {"trailerUrl": state.billboard.trailer_url}})
+        }
+        "setDiscoverResults" => json!({"discover": {"results": state.discover.results}}),
+        "setDiscoverLoading" => json!({"discover": {"isLoading": state.discover.is_loading}}),
+        "setDiscoverGenres" => json!({"discover": {"genres": state.discover.genres}}),
+        "setDiscoverCatalogs" => json!({"discover": {"catalogs": state.discover.catalogs}}),
+        "setCalendarItems" => json!({"calendar": {"items": state.calendar.items}}),
+        "setCalendarLoading" => json!({"calendar": {"isLoading": state.calendar.is_loading}}),
+        "setLibraryUiState" => json!({"library": {"uiState": state.library.ui_state}}),
         "playerResetForEpisode" => {
             return json!({
                 "player": {
-                    "currentVideoId": action.video_id,
-                    "currentStreamIndex": 0,
-                    "lastSavedPosition": 0,
-                    "shouldApplyInitialProgress": false,
-                    "playbackEnded": false,
-                    "hasStartedPlaying": false,
-                    "isVideoRendered": false,
-                    "isBuffering": true
+                    "currentVideoId": state.player.current_video_id,
+                    "currentStreamIndex": state.player.current_stream_index,
+                    "lastSavedPosition": state.player.last_saved_position,
+                    "shouldApplyInitialProgress": state.player.should_apply_initial_progress,
+                    "playbackEnded": state.player.playback_ended,
+                    "hasStartedPlaying": state.player.has_started_playing,
+                    "isVideoRendered": state.player.is_video_rendered,
+                    "isBuffering": state.player.is_buffering
                 }
             });
         }
         _ => return json!({}),
-    };
-    let normalized_value = serde_json::to_value(state)
-        .ok()
-        .and_then(|state| {
-            state
-                .get(domain)
-                .and_then(|domain| domain.get(field))
-                .cloned()
-        })
-        .unwrap_or(Value::Null);
-    json!({ domain: { field: normalized_value } })
+    }
 }
 
 pub fn app_core_set_player_position(handle: u64, position_ms: i64) -> bool {

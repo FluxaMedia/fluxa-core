@@ -11,9 +11,9 @@ use settings_layout::run_settings_layout;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::OnceLock;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::mpsc::{self, Sender};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use url::{Host, Url};
 
 pub(super) const PLUGIN_TIMEOUT_SECS: u64 = 60;
@@ -57,10 +57,12 @@ struct ScraperJob {
     season: Option<i32>,
     episode: Option<i32>,
     result: Sender<Result<String, String>>,
+    deadline: Instant,
+    cancelled: Arc<AtomicBool>,
 }
 
 struct ScraperWorker {
-    jobs: tokio::sync::mpsc::UnboundedSender<ScraperJob>,
+    jobs: tokio::sync::mpsc::Sender<ScraperJob>,
 }
 
 fn plugin_worker_count() -> usize {
@@ -83,7 +85,7 @@ fn scraper_workers() -> &'static [ScraperWorker] {
     WORKERS.get_or_init(|| {
         (0..plugin_worker_count())
             .filter_map(|index| {
-                let (jobs, mut receiver) = tokio::sync::mpsc::unbounded_channel::<ScraperJob>();
+                let (jobs, mut receiver) = tokio::sync::mpsc::channel::<ScraperJob>(4);
                 let name = format!("fluxa-plugin-worker-{index}");
                 std::thread::Builder::new()
                     .name(name)
@@ -95,22 +97,36 @@ fn scraper_workers() -> &'static [ScraperWorker] {
                         let local = tokio::task::LocalSet::new();
                         local.block_on(&runtime, async move {
                             while let Some(job) = receiver.recv().await {
-                                let result = tokio::time::timeout(
-                                    Duration::from_secs(PLUGIN_TIMEOUT_SECS),
-                                    run(
-                                        job.client,
-                                        job.code,
-                                        format!("{}\u{1f}{}", job.repository_url, job.scraper_id),
-                                        job.scraper_id,
-                                        job.scraper_settings_json,
-                                        job.tmdb_id,
-                                        job.media_type,
-                                        job.season,
-                                        job.episode,
-                                    ),
-                                )
-                                .await
-                                .unwrap_or_else(|_| Err("plugin timed out".to_string()));
+                                if job.cancelled.load(Ordering::Acquire)
+                                    || Instant::now() >= job.deadline
+                                {
+                                    let _ = job.result.send(Err("plugin job expired".to_string()));
+                                    continue;
+                                }
+                                let remaining =
+                                    job.deadline.saturating_duration_since(Instant::now());
+                                let cancelled = job.cancelled.clone();
+                                let result = tokio::select! {
+                                    result = tokio::time::timeout(
+                                        remaining,
+                                        run(
+                                            job.client,
+                                            job.code,
+                                            format!("{}\u{1f}{}", job.repository_url, job.scraper_id),
+                                            job.scraper_id,
+                                            job.scraper_settings_json,
+                                            job.tmdb_id,
+                                            job.media_type,
+                                            job.season,
+                                            job.episode,
+                                        ),
+                                    ) => result.unwrap_or_else(|_| Err("plugin timed out".to_string())),
+                                    _ = async {
+                                        while !cancelled.load(Ordering::Acquire) {
+                                            tokio::time::sleep(Duration::from_millis(50)).await;
+                                        }
+                                    } => Err("plugin job cancelled".to_string()),
+                                };
                                 let _ = job.result.send(result);
                             }
                         });
@@ -248,9 +264,10 @@ pub fn execute_scraper(
         .get(NEXT_WORKER.fetch_add(1, Ordering::Relaxed) % workers.len())
         .ok_or_else(|| "plugin worker pool unavailable".to_string())?;
     let (result, receiver) = mpsc::channel();
+    let cancelled = Arc::new(AtomicBool::new(false));
     worker
         .jobs
-        .send(ScraperJob {
+        .try_send(ScraperJob {
             client,
             code,
             repository_url,
@@ -261,11 +278,25 @@ pub fn execute_scraper(
             season,
             episode,
             result,
+            deadline: Instant::now() + Duration::from_secs(PLUGIN_TIMEOUT_SECS + 5),
+            cancelled: cancelled.clone(),
         })
-        .map_err(|_| "plugin worker pool closed".to_string())?;
-    receiver
-        .recv_timeout(Duration::from_secs(PLUGIN_TIMEOUT_SECS + 5))
-        .map_err(|_| "plugin worker result timed out".to_string())?
+        .map_err(|error| match error {
+            tokio::sync::mpsc::error::TrySendError::Full(_) => {
+                "plugin worker queue is full".to_string()
+            }
+            tokio::sync::mpsc::error::TrySendError::Closed(_) => {
+                "plugin worker pool closed".to_string()
+            }
+        })?;
+    match receiver.recv_timeout(Duration::from_secs(PLUGIN_TIMEOUT_SECS + 5)) {
+        Ok(result) => result,
+        Err(mpsc::RecvTimeoutError::Timeout) => {
+            cancelled.store(true, Ordering::Release);
+            Err("plugin worker result timed out".to_string())
+        }
+        Err(mpsc::RecvTimeoutError::Disconnected) => Err("plugin worker pool closed".to_string()),
+    }
 }
 
 pub fn get_settings_layout(code: String, scraper_id: String) -> String {
