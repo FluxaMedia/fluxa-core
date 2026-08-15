@@ -1,6 +1,6 @@
 use super::folders::build_home_collection_shelves_json;
 use serde_json::{Value, json};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 pub(crate) fn home_hero_plan_json(request_json: &str) -> Option<String> {
     let request: Value = serde_json::from_str(request_json).ok()?;
@@ -23,7 +23,7 @@ pub(crate) fn home_hero_plan_json(request_json: &str) -> Option<String> {
             category
         })
         .collect::<Vec<_>>();
-    let content_categories = categories
+    let mut content_categories = categories
         .iter()
         .filter(|category| {
             !matches!(
@@ -33,16 +33,57 @@ pub(crate) fn home_hero_plan_json(request_json: &str) -> Option<String> {
         })
         .cloned()
         .collect::<Vec<_>>();
-    let billboard = request
-        .get("billboard")
-        .filter(|value| !value.is_null())
+    let hero_toggles = prefs
+        .get("heroFeedToggles")
+        .and_then(Value::as_array)
+        .map(|values| {
+            values
+                .iter()
+                .filter_map(Value::as_str)
+                .collect::<HashSet<_>>()
+        })
+        .unwrap_or_default();
+    if !hero_toggles.is_empty() {
+        content_categories.retain(|category| {
+            category
+                .get("id")
+                .and_then(Value::as_str)
+                .is_some_and(|id| hero_toggles.contains(id))
+        });
+    }
+    let hero_order = prefs
+        .get("heroFeedOrder")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .enumerate()
+        .map(|(index, key)| (key, index))
+        .collect::<HashMap<_, _>>();
+    if !hero_order.is_empty() {
+        content_categories.sort_by_key(|category| {
+            category
+                .get("id")
+                .and_then(Value::as_str)
+                .and_then(|id| hero_order.get(id).copied())
+                .unwrap_or(usize::MAX)
+        });
+    }
+    if hero_toggles.is_empty() {
+        content_categories.truncate(2);
+    } else if content_categories.len() > 2 {
+        content_categories.truncate(2);
+    }
+    let billboard = content_categories
+        .first()
+        .and_then(|category| category.get("items"))
+        .and_then(Value::as_array)
+        .and_then(|items| items.first())
         .cloned()
         .or_else(|| {
-            content_categories
-                .first()
-                .and_then(|category| category.get("items"))
-                .and_then(Value::as_array)
-                .and_then(|items| items.first())
+            request
+                .get("billboard")
+                .filter(|value| !value.is_null())
                 .cloned()
         });
     let mut seen = HashSet::new();
