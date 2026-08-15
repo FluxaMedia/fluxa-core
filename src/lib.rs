@@ -77,6 +77,8 @@ mod intro_segments;
 mod library_persistence;
 #[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
 mod library_state;
+#[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
+mod local_media;
 pub mod log_sink;
 #[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
 mod mdblist_plan;

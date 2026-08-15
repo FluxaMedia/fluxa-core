@@ -14,6 +14,7 @@ mod engine_routes;
 mod external_sync_routes;
 mod intro_plugins_routes;
 mod library_routes;
+mod local_media_routes;
 mod mdblist_routes;
 mod plan_misc_routes;
 mod player_policy_routes;
@@ -39,6 +40,7 @@ use external_sync_routes::{
 };
 use intro_plugins_routes::{route_intro_segments, route_plugins};
 use library_routes::route_library_state;
+use local_media_routes::route_local_media;
 use mdblist_routes::route_mdblist;
 #[cfg(feature = "dv-codec")]
 use plan_misc_routes::route_dolby_vision_rpu;
@@ -210,6 +212,7 @@ const ROUTERS: &[fn(&str, &str) -> Outcome] = &[
     route_publicmetadb,
     route_anime_detection,
     route_library_state,
+    route_local_media,
     route_nuvio_sync,
     route_tmdb,
     route_intro_segments,
