@@ -30,6 +30,19 @@ struct SubtitleCueRequest {
     window_seconds: f64,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SubtitleCueListRequest {
+    subtitle_text: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SubtitleSyncApplyRequest {
+    captured_time: f64,
+    cue_start: f64,
+}
+
 #[derive(Clone)]
 pub(crate) struct SubtitleCue {
     pub(crate) start: f64,
@@ -55,6 +68,40 @@ pub(crate) fn subtitle_cues_around_time_json(request_json: &str) -> Option<Strin
         .map(|cue| json!({ "start": cue.start, "end": cue.end, "text": cue.text }))
         .collect::<Vec<_>>();
     Some(json!({ "cues": cues }).to_string())
+}
+
+pub(crate) fn subtitle_cue_list_json(request_json: &str) -> Option<String> {
+    let request = serde_json::from_str::<SubtitleCueListRequest>(request_json).ok()?;
+    let cues = parse_subtitle_cues_with_text(&request.subtitle_text)
+        .into_iter()
+        .map(|cue| json!({ "start": cue.start, "end": cue.end, "text": cue.text }))
+        .collect::<Vec<_>>();
+    Some(json!({ "cues": cues }).to_string())
+}
+
+pub(crate) fn subtitle_sync_capture_json(request_json: &str) -> Option<String> {
+    let request = serde_json::from_str::<SubtitleCueRequest>(request_json).ok()?;
+    if !request.current_time.is_finite() {
+        return None;
+    }
+    let cues = parse_subtitle_cues_with_text(&request.subtitle_text)
+        .into_iter()
+        .map(|cue| json!({ "start": cue.start, "end": cue.end, "text": cue.text }))
+        .collect::<Vec<_>>();
+    Some(json!({ "capturedTime": request.current_time, "cues": cues }).to_string())
+}
+
+pub(crate) fn subtitle_sync_apply_json(request_json: &str) -> Option<String> {
+    let request = serde_json::from_str::<SubtitleSyncApplyRequest>(request_json).ok()?;
+    if !request.captured_time.is_finite() || !request.cue_start.is_finite() {
+        return None;
+    }
+    let delay = (request.captured_time - request.cue_start).clamp(-10_000.0, 10_000.0);
+    Some(json!({
+        "delaySeconds": (delay * 10.0).round() / 10.0,
+        "capturedTime": request.captured_time,
+        "cueStart": request.cue_start,
+    }).to_string())
 }
 
 pub(crate) fn estimate_subtitle_delay_json(request_json: &str) -> Option<String> {
@@ -323,7 +370,10 @@ fn overlap_score(subtitles: &[Interval], speech: &[Interval], delay: f64) -> f64
 
 #[cfg(test)]
 mod tests {
-    use super::{estimate_subtitle_delay_json, parse_subtitle_cues_with_text};
+    use super::{
+        estimate_subtitle_delay_json, parse_subtitle_cues_with_text, subtitle_cue_list_json,
+        subtitle_sync_apply_json, subtitle_sync_capture_json,
+    };
     use serde_json::Value;
 
     #[test]
@@ -356,5 +406,34 @@ mod tests {
         let timed =
             parse_subtitle_cues_with_text("<timedtext><p d='500' t='1000'>Hi</p></timedtext>");
         assert_eq!(timed[0].end, 1.5);
+    }
+
+    #[test]
+    fn exposes_all_cues_and_applies_clicked_cue_delay() {
+        let captured = subtitle_sync_capture_json(r#"{
+          "subtitleText":"1\n00:00:10,000 --> 00:00:11,000\nMerhaba\n\n2\n00:00:20,000 --> 00:00:21,000\nNasılsın?",
+          "currentTime":11.6
+        }"#).expect("capture");
+        let captured: Value = serde_json::from_str(&captured).expect("valid capture");
+        assert_eq!(captured["cues"].as_array().map(Vec::len), Some(2));
+        assert_eq!(captured["cues"][0]["text"], "Merhaba");
+
+        let applied = subtitle_sync_apply_json(&format!(
+            r#"{{"capturedTime":{},"cueStart":{}}}"#,
+            captured["capturedTime"], captured["cues"][0]["start"]
+        ))
+        .expect("apply");
+        let applied: Value = serde_json::from_str(&applied).expect("valid apply");
+        assert_eq!(applied["delaySeconds"], 1.6);
+    }
+
+    #[test]
+    fn cue_list_is_available_without_a_playback_time() {
+        let result = subtitle_cue_list_json(
+            r#"{"subtitleText":"00:00:01,000 --> 00:00:02,000\nHello"}"#,
+        )
+        .expect("cue list");
+        let value: Value = serde_json::from_str(&result).expect("valid cue list");
+        assert_eq!(value["cues"][0]["start"], 1.0);
     }
 }

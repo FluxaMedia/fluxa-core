@@ -20,6 +20,48 @@ pub fn core_invoke(method: String, args_json: String) -> String {
     crate::ffi::core_invoke(&method, &args_json)
 }
 
+/// Returns the parsed subtitle cues for the platform subtitle picker.
+///
+/// These explicit UniFFI functions keep Swift consumers independent from the
+/// generic `core_invoke` bridge while leaving the subtitle-sync policy in Rust.
+#[uniffi::export]
+pub fn subtitle_cue_list_json(subtitle_text: String) -> String {
+    guard(String::new(), || {
+        crate::subtitle_sync::subtitle_cue_list_json(
+            &json!({ "subtitleText": subtitle_text }).to_string(),
+        )
+        .unwrap_or_default()
+    })
+}
+
+#[uniffi::export]
+pub fn subtitle_sync_capture_json(subtitle_text: String, current_time: f64) -> String {
+    guard(String::new(), || {
+        crate::subtitle_sync::subtitle_sync_capture_json(
+            &json!({
+                "subtitleText": subtitle_text,
+                "currentTime": current_time,
+            })
+            .to_string(),
+        )
+        .unwrap_or_default()
+    })
+}
+
+#[uniffi::export]
+pub fn subtitle_sync_apply_json(captured_time: f64, cue_start: f64) -> String {
+    guard(String::new(), || {
+        crate::subtitle_sync::subtitle_sync_apply_json(
+            &json!({
+                "capturedTime": captured_time,
+                "cueStart": cue_start,
+            })
+            .to_string(),
+        )
+        .unwrap_or_default()
+    })
+}
+
 /// Structured alternatives to the legacy lifecycle calls below. They preserve
 /// the common `{ ok, value | error }` contract without changing existing FFI
 /// return types used by older Kotlin and Swift clients.

@@ -267,6 +267,9 @@ streamDiscoveryExecutionPolicy
 streamDiscoveryPlan
 streamMatchesEpisode
 streamPlaybackInfo
+subtitleCueList
+subtitleSyncApply
+subtitleSyncCapture
 streamRequestHeaders
 streamShellPlan
 streamRequestIds

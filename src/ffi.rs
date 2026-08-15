@@ -70,7 +70,7 @@ use crate::{
     library_state, mdblist_plan, nuvio_sync, offline_download, platform_plan, player_flow,
     player_policy, player_scrobble, plugins, profile_avatar_pack, profile_contract, profile_prefs,
     publicmetadb_plan, repository_flow, search_plan, stream_policy, tmdb_plan, trailer_subtitles,
-    watchlist_plan,
+    subtitle_sync, watchlist_plan,
 };
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -261,6 +261,18 @@ fn route(method: &str, args_json: &str) -> Outcome {
         _ => {}
     }
     let cache = ROUTE_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+    match method {
+        "subtitleCueList" => {
+            return opt_json(subtitle_sync::subtitle_cue_list_json(args_json));
+        }
+        "subtitleSyncCapture" => {
+            return opt_json(subtitle_sync::subtitle_sync_capture_json(args_json));
+        }
+        "subtitleSyncApply" => {
+            return opt_json(subtitle_sync::subtitle_sync_apply_json(args_json));
+        }
+        _ => {}
+    }
     if let Some(index) = cache
         .lock()
         .ok()

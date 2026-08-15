@@ -144,6 +144,21 @@ impl FluxaCore {
     }
 
     #[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
+    pub fn subtitle_sync_capture_json(request_json: &str) -> Option<String> {
+        guard(None, || subtitle_sync::subtitle_sync_capture_json(request_json))
+    }
+
+    #[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
+    pub fn subtitle_sync_apply_json(request_json: &str) -> Option<String> {
+        guard(None, || subtitle_sync::subtitle_sync_apply_json(request_json))
+    }
+
+    #[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
+    pub fn subtitle_cue_list_json(request_json: &str) -> Option<String> {
+        guard(None, || subtitle_sync::subtitle_cue_list_json(request_json))
+    }
+
+    #[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
     pub fn offline_download_plan_json(request_json: &str) -> Option<String> {
         guard(None, || {
             offline_download::offline_download_plan_json(request_json)
