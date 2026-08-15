@@ -231,6 +231,7 @@ pub fn router() -> Router {
         .route("/torrent/start", post(start_torrent))
         .route("/torrent/stop", post(stop_torrent))
         .with_state(state)
+        .merge(crate::http_proxy::router())
         .merge(crate::transcode::router())
         .merge(crate::oauth_proxy::router())
         .layer(middleware::from_fn(require_companion_token))

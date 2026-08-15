@@ -1,6 +1,8 @@
 mod chapters;
 mod dv_rewrite;
 mod local_stream;
+#[cfg(feature = "native")]
+pub mod http_proxy;
 mod torrent_engine;
 
 #[cfg(feature = "native")]
