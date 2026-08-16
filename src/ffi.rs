@@ -26,6 +26,7 @@ mod search_plan_routes;
 mod stream_policy_routes;
 mod tmdb_routes;
 mod watchlist_offline_routes;
+mod watch_together_routes;
 use addon_protocol_routes::route_addon_protocol;
 use addon_resource_routes::route_addon_resource;
 use addon_support_routes::{route_addon_uptime, route_trailer_subtitles};
@@ -57,6 +58,7 @@ use search_plan_routes::route_search_plan;
 use stream_policy_routes::route_stream_policy;
 use tmdb_routes::route_tmdb;
 use watchlist_offline_routes::{route_offline, route_watchlist};
+use watch_together_routes::route_watch_together;
 
 #[cfg(feature = "dv-codec")]
 use crate::dolby_vision_rpu;
@@ -231,6 +233,7 @@ const ROUTERS: &[fn(&str, &str) -> Outcome] = &[
     route_player_flow,
     route_player_scrobble,
     route_trailer_subtitles,
+    route_watch_together,
 ];
 
 static ROUTE_CACHE: OnceLock<Mutex<HashMap<String, Option<usize>>>> = OnceLock::new();

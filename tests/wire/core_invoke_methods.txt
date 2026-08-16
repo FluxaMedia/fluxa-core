@@ -319,4 +319,14 @@ traktWatchlistToItems
 uniqueIntroSegments
 watchedStateItems
 watchedVideoIds
+watchTogetherBuffering
+watchTogetherContent
+watchTogetherCreate
+watchTogetherDecode
+watchTogetherDriftCorrection
+watchTogetherJoin
+watchTogetherLeave
+watchTogetherPing
+watchTogetherPlaybackState
+watchTogetherRoomCodeSpec
 watchlistTogglePlan

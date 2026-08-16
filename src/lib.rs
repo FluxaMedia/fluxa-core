@@ -121,6 +121,8 @@ mod tmdb_plan;
 mod trailer_subtitles;
 #[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
 mod watchlist_plan;
+#[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
+pub mod watch_together;
 
 #[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
 pub mod env;
