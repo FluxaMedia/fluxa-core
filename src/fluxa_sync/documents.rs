@@ -110,11 +110,10 @@ pub(crate) fn documents_json(args_json: &str) -> Option<String> {
 
     if let Some(settings) = args.get("settings").filter(|value| !value.is_null()) {
         let defaults = args.get("settingsDefaults").cloned().unwrap_or(Value::Null);
-        documents.push(document(
-            "settings",
-            "app",
-            sparse_against(settings, &defaults),
-        ));
+        let sparse = sparse_against(settings, &defaults);
+        if sparse.as_object().is_none_or(|diff| !diff.is_empty()) {
+            documents.push(document("settings", "app", sparse));
+        }
     }
 
     serde_json::to_string(&json!({ "documents": documents })).ok()
@@ -153,6 +152,27 @@ mod tests {
         .expect("plan");
 
         assert_eq!(payload_for(&result, "settings", "app"), json!({ "volume": 40 }));
+    }
+
+    #[test]
+    fn settings_back_at_their_defaults_stop_being_a_document() {
+        let result = documents_json(
+            &json!({
+                "settings": { "autoplay": true, "volume": 100 },
+                "settingsDefaults": { "autoplay": true, "volume": 100 },
+            })
+            .to_string(),
+        )
+        .expect("plan");
+        let parsed: Value = serde_json::from_str(&result).expect("valid json");
+
+        assert!(
+            parsed
+                .get("documents")
+                .and_then(Value::as_array)
+                .expect("documents")
+                .is_empty()
+        );
     }
 
     #[test]
