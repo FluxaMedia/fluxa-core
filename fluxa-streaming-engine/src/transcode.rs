@@ -61,6 +61,11 @@ pub struct TranscodeQuery {
     hw_encoder: Option<String>,
     #[serde(rename = "streamBufferBytes")]
     stream_buffer_bytes: Option<usize>,
+    #[serde(rename = "videoCodec")]
+    video_codec: Option<String>,
+    #[serde(rename = "audioCodec")]
+    audio_codec: Option<String>,
+    container: Option<String>,
 }
 
 /// Blocks ffmpeg url schemes like `file:` and SSRF to non-loopback hosts.
@@ -81,6 +86,7 @@ fn is_allowed_stream_url(raw: &str) -> bool {
 struct ProbedCodecs {
     video: Option<String>,
     audio: Option<String>,
+    audio_channels: Option<u32>,
     duration: Option<f64>,
 }
 
@@ -99,7 +105,7 @@ async fn probe(url: &str) -> ProbedCodecs {
             "-print_format",
             "json",
             "-show_entries",
-            "stream=codec_type,codec_name:format=duration",
+            "stream=codec_type,codec_name,channels:format=duration",
         ])
         .arg(url)
         .stdin(Stdio::null())
@@ -115,16 +121,22 @@ async fn probe(url: &str) -> ProbedCodecs {
     let mut codecs = ProbedCodecs::default();
     if let Some(streams) = json.get("streams").and_then(|s| s.as_array()) {
         for stream in streams {
-            let kind = stream.get("codec_type").and_then(|v| v.as_str());
-            let name = stream
+        let kind = stream.get("codec_type").and_then(|v| v.as_str());
+        let name = stream
                 .get("codec_name")
                 .and_then(|v| v.as_str())
                 .map(str::to_string);
-            match kind {
-                Some("video") if codecs.video.is_none() => codecs.video = name,
-                Some("audio") if codecs.audio.is_none() => codecs.audio = name,
-                _ => {}
+        match kind {
+            Some("video") if codecs.video.is_none() => codecs.video = name,
+            Some("audio") if codecs.audio.is_none() => {
+                codecs.audio = name;
+                codecs.audio_channels = stream
+                    .get("channels")
+                    .and_then(|value| value.as_u64())
+                    .and_then(|value| u32::try_from(value).ok());
             }
+            _ => {}
+        }
         }
     }
     codecs.duration = json
@@ -178,15 +190,54 @@ pub async fn handle_transcode(Query(q): Query<TranscodeQuery>) -> Response {
     let codecs = probe(&q.url).await;
     let hw_encoder = resolve_hw_encoder(q.hw_encoder.as_deref()).await;
 
-    let video_args = if codecs.video.as_deref() == Some("h264") {
+    let requested_video = normalized_codec(q.video_codec.as_deref()).or_else(|| codecs.video.clone().filter(|codec| codec == "h264"));
+    let video_codec = requested_video.as_deref().unwrap_or("h264");
+    let video_args = if codecs.video.as_deref() == Some(video_codec) {
         vec!["-c:v", "copy"]
-    } else {
+    } else if video_codec == "h264" {
         hardware_video_args(hw_encoder)
-            .unwrap_or_else(|| vec!["-c:v", "libx264", "-preset", "veryfast", "-crf", "20"])
+            .unwrap_or_else(|| vec![
+                "-c:v",
+                "libx264",
+                "-preset",
+                "medium",
+                "-crf",
+                "18",
+                "-pix_fmt",
+                "yuv420p",
+            ])
+    } else if video_codec == "vp9" {
+        vec!["-c:v", "libvpx-vp9", "-crf", "30", "-b:v", "0"]
+    } else if video_codec == "vp8" {
+        vec!["-c:v", "libvpx", "-crf", "10", "-b:v", "0"]
+    } else if video_codec == "av1" {
+        vec!["-c:v", "libaom-av1", "-crf", "30", "-b:v", "0"]
+    } else {
+        vec!["-c:v", "libx264", "-preset", "medium", "-crf", "18", "-pix_fmt", "yuv420p"]
     };
-    let audio_args: &[&str] = match codecs.audio.as_deref() {
-        Some("aac") => &["-c:a", "copy"],
-        _ => &["-c:a", "aac", "-b:a", "192k"],
+    let audio_bitrate = match codecs.audio_channels.unwrap_or(2) {
+        1..=2 => "320k",
+        3..=6 => "448k",
+        _ => "512k",
+    };
+    let requested_audio = normalized_codec(q.audio_codec.as_deref()).or_else(|| codecs.audio.clone().filter(|codec| codec == "aac"));
+    let audio_codec = requested_audio.as_deref().unwrap_or("aac");
+    let audio_args: Vec<&str> = match codecs.audio.as_deref() {
+        None => vec!["-an"],
+        Some(source) if source == audio_codec => vec!["-c:a", "copy"],
+        Some(_) if audio_codec == "opus" => vec!["-c:a", "libopus", "-b:a", "256k"],
+        Some(_) if audio_codec == "vorbis" => vec!["-c:a", "libvorbis", "-q:a", "8"],
+        Some(_) if audio_codec == "mp3" => vec!["-c:a", "libmp3lame", "-b:a", audio_bitrate],
+        Some(_) => vec!["-c:a", "aac", "-b:a", audio_bitrate],
+    };
+    let container = match q.container.as_deref() {
+        Some("webm")
+            if (video_codec == "vp8" || video_codec == "vp9" || video_codec == "av1")
+                && (codecs.audio.is_none() || audio_codec == "opus" || audio_codec == "vorbis") =>
+        {
+            "webm"
+        }
+        _ => "mp4",
     };
 
     let ffmpeg = ffmpeg_locator::resolve("ffmpeg");
@@ -196,16 +247,13 @@ pub async fn handle_transcode(Query(q): Query<TranscodeQuery>) -> Response {
     }
     cmd.arg("-i")
         .arg(&q.url)
+        .args(["-map", "0:v:0"])
+        .args(["-map", "0:a:0?"])
         .args(video_args)
         .args(audio_args)
-        .args([
-            "-sn",
-            "-movflags",
-            "frag_keyframe+empty_moov+default_base_moof",
-            "-f",
-            "mp4",
-            "-",
-        ])
+        .args(["-map_metadata", "0", "-sn", "-avoid_negative_ts", "make_zero"])
+        .args(if container == "mp4" { vec!["-movflags", "frag_keyframe+empty_moov+default_base_moof"] } else { Vec::new() })
+        .args(["-f", container, "-"])
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::null());
@@ -240,9 +288,35 @@ pub async fn handle_transcode(Query(q): Query<TranscodeQuery>) -> Response {
     let mut response = (StatusCode::OK, body).into_response();
     response.headers_mut().insert(
         axum::http::header::CONTENT_TYPE,
-        HeaderValue::from_static("video/mp4"),
+        HeaderValue::from_static(if container == "webm" { "video/webm" } else { "video/mp4" }),
     );
     response
+}
+
+fn normalized_codec(codec: Option<&str>) -> Option<String> {
+    let codec = codec?.to_ascii_lowercase();
+    let normalized = if codec.contains("h264") || codec.contains("avc") {
+        "h264"
+    } else if codec.contains("hevc") || codec.contains("h265") {
+        "hevc"
+    } else if codec.contains("vp9") {
+        "vp9"
+    } else if codec.contains("vp8") {
+        "vp8"
+    } else if codec.contains("av1") {
+        "av1"
+    } else if codec.contains("aac") || codec.contains("mp4a") {
+        "aac"
+    } else if codec.contains("opus") {
+        "opus"
+    } else if codec.contains("vorbis") {
+        "vorbis"
+    } else if codec.contains("mp3") || codec.contains("mpeg") {
+        "mp3"
+    } else {
+        return None;
+    };
+    Some(normalized.to_string())
 }
 
 fn stream_buffer_size(requested: Option<usize>) -> usize {
@@ -341,7 +415,7 @@ pub fn router() -> Router {
 
 #[cfg(test)]
 mod tests {
-    use super::{hardware_video_args, is_allowed_stream_url, stream_buffer_size};
+    use super::{hardware_video_args, is_allowed_stream_url, normalized_codec, stream_buffer_size};
 
     #[test]
     fn hardware_encoder_args_are_complete() {
@@ -377,5 +451,23 @@ mod tests {
         assert_eq!(stream_buffer_size(Some(16 * 1024)), 64 * 1024);
         assert_eq!(stream_buffer_size(Some(512 * 1024)), 256 * 1024);
         assert_eq!(stream_buffer_size(Some(128 * 1024)), 128 * 1024);
+    }
+
+    #[test]
+    fn software_video_fallback_uses_quality_first_browser_safe_settings() {
+        let args = [
+            "-c:v", "libx264", "-preset", "medium", "-crf", "18", "-pix_fmt", "yuv420p",
+        ];
+        assert!(args.windows(2).any(|pair| pair == ["-preset", "medium"]));
+        assert!(args.windows(2).any(|pair| pair == ["-crf", "18"]));
+        assert!(args.windows(2).any(|pair| pair == ["-pix_fmt", "yuv420p"]));
+    }
+
+    #[test]
+    fn requested_codecs_are_normalized_to_safe_encoder_names() {
+        assert_eq!(normalized_codec(Some("avc1.640028")), Some("h264".to_string()));
+        assert_eq!(normalized_codec(Some("hevc")), Some("hevc".to_string()));
+        assert_eq!(normalized_codec(Some("opus")), Some("opus".to_string()));
+        assert_eq!(normalized_codec(Some("unsupported")), None);
     }
 }

@@ -12,6 +12,7 @@ mod content_warning_routes;
 mod core_addon_store_routes;
 mod engine_routes;
 mod external_sync_routes;
+mod fluxa_sync_routes;
 mod intro_plugins_routes;
 mod library_routes;
 mod local_media_routes;
@@ -36,6 +37,7 @@ use content_identity_routes::route_content_identity;
 use content_warning_routes::route_content_warnings;
 use core_addon_store_routes::{route_addon_store, route_core_contract, route_profile_avatar_pack};
 use engine_routes::route_engine_lifecycle;
+use fluxa_sync_routes::route_fluxa_sync;
 use external_sync_routes::{
     route_external_sync_anilist, route_external_sync_simkl, route_external_sync_trakt,
 };
@@ -67,7 +69,8 @@ use crate::dolby_vision_sample;
 use crate::{
     addon_protocol, addon_resource, addon_store, addon_uptime, anime_detection, app_state,
     calendar_plan, content_identity, content_warnings, core_contract, data_policy,
-    desktop_playback, device_resource, discovery_plan, external_sync, headless_adapter_plan,
+    desktop_playback, device_resource, discovery_plan, external_sync, fluxa_sync,
+    headless_adapter_plan,
     headless_engine, home_ranking, integration_settings, intro_segments, library_persistence,
     library_state, mdblist_plan, nuvio_sync, offline_download, platform_plan, player_flow,
     player_policy, player_scrobble, plugins, profile_avatar_pack, profile_contract, profile_prefs,
@@ -234,6 +237,7 @@ const ROUTERS: &[fn(&str, &str) -> Outcome] = &[
     route_player_scrobble,
     route_trailer_subtitles,
     route_watch_together,
+    route_fluxa_sync,
 ];
 
 static ROUTE_CACHE: OnceLock<Mutex<HashMap<String, Option<usize>>>> = OnceLock::new();

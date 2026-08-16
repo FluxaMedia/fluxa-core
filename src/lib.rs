@@ -63,6 +63,7 @@ mod dolby_vision_rpu;
 mod dolby_vision_sample;
 #[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
 mod external_sync;
+mod fluxa_sync;
 #[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
 mod headless_adapter_plan;
 #[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]

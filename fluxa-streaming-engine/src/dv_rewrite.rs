@@ -1223,6 +1223,7 @@ fn rewrite_mdat_spool_to_spool(
 }
 
 impl FMp4NalRewriter {
+    #[cfg(test)]
     fn new(rpu_mode: u8, zero_level5: bool, remove_hdr10plus: bool) -> Self {
         Self::with_spool_dir(rpu_mode, zero_level5, remove_hdr10plus, None)
     }

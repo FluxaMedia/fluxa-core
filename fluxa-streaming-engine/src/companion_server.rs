@@ -209,7 +209,7 @@ fn apply_torrent_preferences(base_url: &str, preferences: Option<&Value>) {
 // to the deployed URL, comma-separated if there's more than one.
 fn cors_layer() -> CorsLayer {
     let origins: Vec<HeaderValue> = std::env::var("FLUXA_WEB_ORIGIN")
-        .unwrap_or_else(|_| "http://localhost:1430,http://127.0.0.1:1430".to_string())
+        .unwrap_or_else(|_| "http://localhost:1430,http://127.0.0.1:1430,http://localhost:4173,http://127.0.0.1:4173,https://fluxamedia.github.io".to_string())
         .split(',')
         .filter_map(|s| HeaderValue::from_str(s.trim()).ok())
         .collect();
