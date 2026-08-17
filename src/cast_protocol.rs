@@ -144,6 +144,8 @@ pub(crate) fn guess_cast_content_type(media_url: &str) -> &'static str {
         .to_ascii_lowercase();
     if path.ends_with(".m3u8") {
         "application/x-mpegurl"
+    } else if path.ends_with(".mpd") {
+        "application/dash+xml"
     } else if path.ends_with(".mkv") {
         "video/x-matroska"
     } else if path.ends_with(".webm") {
@@ -303,6 +305,86 @@ pub(crate) fn airplay_play_body(media_url: &str) -> Option<String> {
     ))
 }
 
+pub(crate) const FCAST_OP_PLAY: u8 = 1;
+pub(crate) const FCAST_OP_PAUSE: u8 = 2;
+pub(crate) const FCAST_OP_RESUME: u8 = 3;
+pub(crate) const FCAST_OP_STOP: u8 = 4;
+pub(crate) const FCAST_OP_SEEK: u8 = 5;
+pub(crate) const FCAST_OP_PLAYBACK_UPDATE: u8 = 6;
+pub(crate) const FCAST_OP_VOLUME_UPDATE: u8 = 7;
+pub(crate) const FCAST_OP_SET_VOLUME: u8 = 8;
+pub(crate) const FCAST_OP_PLAYBACK_ERROR: u8 = 9;
+pub(crate) const FCAST_OP_SET_SPEED: u8 = 10;
+pub(crate) const FCAST_OP_VERSION: u8 = 11;
+pub(crate) const FCAST_OP_PING: u8 = 12;
+pub(crate) const FCAST_OP_PONG: u8 = 13;
+
+pub(crate) const FCAST_MAX_MESSAGE_BYTES: usize = 32 * 1024 - 4;
+
+pub(crate) fn fcast_encode_message(opcode: u8, body_json: &str) -> Option<Vec<u8>> {
+    if body_json.len() + 1 > FCAST_MAX_MESSAGE_BYTES {
+        return None;
+    }
+    let mut message = Vec::with_capacity(body_json.len() + 1);
+    message.push(opcode);
+    message.extend_from_slice(body_json.as_bytes());
+    Some(message)
+}
+
+pub(crate) fn fcast_decode_message(buf: &[u8]) -> Option<(u8, String)> {
+    let (opcode, body) = buf.split_first()?;
+    let body = if body.is_empty() {
+        String::new()
+    } else {
+        String::from_utf8(body.to_vec()).ok()?
+    };
+    Some((*opcode, body))
+}
+
+pub(crate) fn fcast_play_body(media_url: &str, resume_position_secs: f64) -> Option<String> {
+    if !validate_stream_url(media_url) {
+        return None;
+    }
+    let mut body = json!({
+        "container": guess_cast_content_type(media_url),
+        "url": media_url,
+    });
+    if resume_position_secs > 0.0 {
+        body["time"] = json!(resume_position_secs);
+    }
+    Some(body.to_string())
+}
+
+pub(crate) fn fcast_seek_body(position_secs: f64) -> String {
+    json!({ "time": position_secs.max(0.0) }).to_string()
+}
+
+pub(crate) fn fcast_set_volume_body(level: f64) -> String {
+    json!({ "volume": level.clamp(0.0, 1.0) }).to_string()
+}
+
+pub(crate) fn fcast_set_speed_body(speed: f64) -> String {
+    json!({ "speed": speed.clamp(0.1, 4.0) }).to_string()
+}
+
+pub(crate) fn fcast_version_body(version: u32) -> String {
+    json!({ "version": version }).to_string()
+}
+
+pub(crate) fn fcast_playback_update(body_json: &str) -> Option<(u8, f64, f64, f64)> {
+    let value: serde_json::Value = serde_json::from_str(body_json).ok()?;
+    let state = value.get("state")?.as_u64()? as u8;
+    let time = value.get("time").and_then(|v| v.as_f64()).unwrap_or(0.0);
+    let duration = value.get("duration").and_then(|v| v.as_f64()).unwrap_or(0.0);
+    let speed = value.get("speed").and_then(|v| v.as_f64()).unwrap_or(1.0);
+    Some((state, time, duration, speed))
+}
+
+pub(crate) fn fcast_error_message(body_json: &str) -> Option<String> {
+    let value: serde_json::Value = serde_json::from_str(body_json).ok()?;
+    Some(value.get("message")?.as_str()?.to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -333,4 +415,50 @@ mod tests {
         assert!(roku_launch_url("10.0.0.5", "file:///etc/passwd", None).is_none());
         assert!(airplay_play_body("file:///etc/passwd").is_none());
     }
+
+    #[test]
+    fn fcast_message_puts_the_opcode_before_the_body() {
+        let message = fcast_encode_message(FCAST_OP_SEEK, &fcast_seek_body(12.5)).unwrap();
+        assert_eq!(message[0], FCAST_OP_SEEK);
+        assert_eq!(&message[1..], br#"{"time":12.5}"#);
+        assert_eq!(
+            fcast_decode_message(&message).unwrap(),
+            (FCAST_OP_SEEK, r#"{"time":12.5}"#.to_string())
+        );
+    }
+
+    #[test]
+    fn fcast_bodyless_message_decodes_to_an_empty_body() {
+        let message = fcast_encode_message(FCAST_OP_PAUSE, "").unwrap();
+        assert_eq!(message, vec![FCAST_OP_PAUSE]);
+        assert_eq!(
+            fcast_decode_message(&message).unwrap(),
+            (FCAST_OP_PAUSE, String::new())
+        );
+    }
+
+    #[test]
+    fn fcast_play_body_carries_the_container_and_omits_a_zero_resume() {
+        let body = fcast_play_body("https://h/a.m3u8?t=1", 0.0).unwrap();
+        assert!(body.contains(r#""container":"application/x-mpegurl""#));
+        assert!(!body.contains("time"));
+        let resumed = fcast_play_body("https://h/a.mp4", 42.0).unwrap();
+        assert!(resumed.contains(r#""time":42.0"#));
+        assert!(fcast_play_body("file:///etc/passwd", 0.0).is_none());
+    }
+
+    #[test]
+    fn fcast_playback_update_needs_a_state() {
+        assert_eq!(
+            fcast_playback_update(r#"{"state":1,"time":10,"duration":100,"speed":1}"#),
+            Some((1, 10.0, 100.0, 1.0))
+        );
+        assert_eq!(fcast_playback_update(r#"{"time":10}"#), None);
+    }
+
+    #[test]
+    fn dash_urls_get_the_dash_container() {
+        assert_eq!(guess_cast_content_type("https://h/a.mpd"), "application/dash+xml");
+    }
+
 }

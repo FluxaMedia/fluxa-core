@@ -240,6 +240,68 @@ impl FluxaCore {
         })
     }
 
+    pub const FCAST_OP_PLAY: u8 = cast_protocol::FCAST_OP_PLAY;
+    pub const FCAST_OP_PAUSE: u8 = cast_protocol::FCAST_OP_PAUSE;
+    pub const FCAST_OP_RESUME: u8 = cast_protocol::FCAST_OP_RESUME;
+    pub const FCAST_OP_STOP: u8 = cast_protocol::FCAST_OP_STOP;
+    pub const FCAST_OP_SEEK: u8 = cast_protocol::FCAST_OP_SEEK;
+    pub const FCAST_OP_PLAYBACK_UPDATE: u8 = cast_protocol::FCAST_OP_PLAYBACK_UPDATE;
+    pub const FCAST_OP_VOLUME_UPDATE: u8 = cast_protocol::FCAST_OP_VOLUME_UPDATE;
+    pub const FCAST_OP_SET_VOLUME: u8 = cast_protocol::FCAST_OP_SET_VOLUME;
+    pub const FCAST_OP_PLAYBACK_ERROR: u8 = cast_protocol::FCAST_OP_PLAYBACK_ERROR;
+    pub const FCAST_OP_SET_SPEED: u8 = cast_protocol::FCAST_OP_SET_SPEED;
+    pub const FCAST_OP_VERSION: u8 = cast_protocol::FCAST_OP_VERSION;
+    pub const FCAST_OP_PING: u8 = cast_protocol::FCAST_OP_PING;
+    pub const FCAST_OP_PONG: u8 = cast_protocol::FCAST_OP_PONG;
+    pub const FCAST_MAX_MESSAGE_BYTES: usize = cast_protocol::FCAST_MAX_MESSAGE_BYTES;
+
+    #[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
+    pub fn fcast_encode_message(opcode: u8, body_json: &str) -> Option<Vec<u8>> {
+        guard(None, || cast_protocol::fcast_encode_message(opcode, body_json))
+    }
+
+    #[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
+    pub fn fcast_decode_message(buf: &[u8]) -> Option<(u8, String)> {
+        guard(None, || cast_protocol::fcast_decode_message(buf))
+    }
+
+    #[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
+    pub fn fcast_play_body(media_url: &str, resume_position_secs: f64) -> Option<String> {
+        guard(None, || {
+            cast_protocol::fcast_play_body(media_url, resume_position_secs)
+        })
+    }
+
+    #[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
+    pub fn fcast_seek_body(position_secs: f64) -> String {
+        guard(String::new(), || cast_protocol::fcast_seek_body(position_secs))
+    }
+
+    #[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
+    pub fn fcast_set_volume_body(level: f64) -> String {
+        guard(String::new(), || cast_protocol::fcast_set_volume_body(level))
+    }
+
+    #[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
+    pub fn fcast_set_speed_body(speed: f64) -> String {
+        guard(String::new(), || cast_protocol::fcast_set_speed_body(speed))
+    }
+
+    #[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
+    pub fn fcast_version_body(version: u32) -> String {
+        guard(String::new(), || cast_protocol::fcast_version_body(version))
+    }
+
+    #[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
+    pub fn fcast_playback_update(body_json: &str) -> Option<(u8, f64, f64, f64)> {
+        guard(None, || cast_protocol::fcast_playback_update(body_json))
+    }
+
+    #[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
+    pub fn fcast_error_message(body_json: &str) -> Option<String> {
+        guard(None, || cast_protocol::fcast_error_message(body_json))
+    }
+
     #[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
     pub fn roku_device_name(xml: &str) -> Option<String> {
         guard(None, || cast_protocol::roku_device_name(xml))
