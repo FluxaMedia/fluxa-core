@@ -17,12 +17,55 @@ fn remove_from_library(library: &mut Map<String, Value>, id: &str) {
     }
 }
 
+fn library_item_by_id(library: &Map<String, Value>, id: &str) -> Option<Value> {
+    library.values().find_map(|items| {
+        items.as_array()?.iter().find_map(|item| {
+            (item.get("id").and_then(Value::as_str) == Some(id)
+                || item.get("_id").and_then(Value::as_str) == Some(id))
+                .then(|| item.clone())
+        })
+    })
+}
+
+fn merge_library_item(local: Option<Value>, remote: Value) -> Value {
+    let mut merged = local.and_then(|value| value.as_object().cloned()).unwrap_or_default();
+    if let Some(remote) = remote.as_object() {
+        for (key, value) in remote {
+            merged.insert(key.clone(), value.clone());
+        }
+    }
+    Value::Object(merged)
+}
+
 fn collections_without(collections: &[Value], id: &str) -> Vec<Value> {
     collections
         .iter()
         .filter(|entry| entry.get("id").and_then(Value::as_str) != Some(id))
         .cloned()
         .collect()
+}
+
+fn merge_progress_entry(local: Option<&Value>, remote: &Value) -> Value {
+    let mut merged = remote.as_object().cloned().unwrap_or_default();
+    if let Some(local) = local.and_then(Value::as_object) {
+        // Presentation metadata and stream selection remain device-local. The
+        // compact remote payload only owns resume identity and timing.
+        for field in [
+            "meta",
+            "lastEpisodeName",
+            "lastEpisodeThumbnail",
+            "lastStreamUrl",
+            "lastStreamTitle",
+            "lastStream",
+            "continueWatchingBadge",
+            "continueWatchingEpisodeResolved",
+        ] {
+            if let Some(value) = local.get(field) {
+                merged.insert(field.to_string(), value.clone());
+            }
+        }
+    }
+    Value::Object(merged)
 }
 
 pub(crate) fn apply_pull_json(args_json: &str) -> Option<String> {
@@ -73,7 +116,8 @@ pub(crate) fn apply_pull_json(args_json: &str) -> Option<String> {
                 if deleted {
                     progress.remove(key);
                 } else {
-                    progress.insert(key.to_string(), payload.clone());
+                    let previous = progress.get(key);
+                    progress.insert(key.to_string(), merge_progress_entry(previous, &payload));
                 }
             }
             "watched_history" => {
@@ -92,6 +136,7 @@ pub(crate) fn apply_pull_json(args_json: &str) -> Option<String> {
                 }
             }
             "library" => {
+                let local_item = library_item_by_id(&library, key);
                 remove_from_library(&mut library, key);
                 if !deleted {
                     let status = payload
@@ -99,7 +144,7 @@ pub(crate) fn apply_pull_json(args_json: &str) -> Option<String> {
                         .and_then(Value::as_str)
                         .unwrap_or("watchlist")
                         .to_string();
-                    let item = payload.get("item").cloned().unwrap_or(Value::Null);
+                    let item = merge_library_item(local_item, payload.get("item").cloned().unwrap_or(Value::Null));
                     let slot = library
                         .entry(status)
                         .or_insert_with(|| Value::Array(Vec::new()))

@@ -57,12 +57,83 @@ fn push_single(documents: &mut Vec<Value>, args: &Value, field: &str, entity: &s
     }
 }
 
+fn compact_progress(key: &str, value: &Value) -> Value {
+    let mut compact = serde_json::Map::new();
+    let source = value.as_object();
+    let meta = source.and_then(|object| object.get("meta")).and_then(Value::as_object);
+
+    compact.insert(
+        "contentId".into(),
+        source
+            .and_then(|object| object.get("contentId"))
+            .or_else(|| meta.and_then(|object| object.get("id")))
+            .cloned()
+            .unwrap_or_else(|| json!(key)),
+    );
+    compact.insert(
+        "contentType".into(),
+        source
+            .and_then(|object| object.get("contentType"))
+            .or_else(|| meta.and_then(|object| object.get("type")))
+            .cloned()
+            .unwrap_or_else(|| json!("movie")),
+    );
+
+    for (target, aliases) in [
+        ("videoId", &["videoId", "lastVideoId"][..]),
+        ("season", &["season", "lastEpisodeSeason"][..]),
+        ("episode", &["episode", "lastEpisodeNumber"][..]),
+        ("position", &["position", "timeOffset"][..]),
+        ("duration", &["duration"][..]),
+        ("lastWatched", &["lastWatched", "savedAt"][..]),
+        ("progressKey", &["progressKey"][..]),
+        ("lastAudioLanguage", &["lastAudioLanguage"][..]),
+        ("lastSubtitleLanguage", &["lastSubtitleLanguage"][..]),
+        ("lastStreamIndex", &["lastStreamIndex"][..]),
+    ] {
+        if let Some(found) = aliases
+            .iter()
+            .find_map(|alias| source.and_then(|object| object.get(*alias)))
+            .filter(|item| !item.is_null())
+        {
+            compact.insert(target.into(), found.clone());
+        }
+    }
+    if !compact.contains_key("progressKey") {
+        compact.insert("progressKey".into(), json!(key));
+    }
+    Value::Object(compact)
+}
+
+fn compact_history(value: &Value) -> Value {
+    let object = value.as_object();
+    let mut compact = serde_json::Map::new();
+    for (target, aliases) in [
+        ("videoId", &["videoId", "lastVideoId", "id"][..]),
+        ("season", &["season", "lastEpisodeSeason"][..]),
+        ("episode", &["episode", "lastEpisodeNumber"][..]),
+        ("lastWatched", &["lastWatched", "savedAt"][..]),
+    ] {
+        if let Some(found) = aliases
+            .iter()
+            .find_map(|alias| object.and_then(|entry| entry.get(*alias)))
+            .filter(|item| !item.is_null())
+        {
+            compact.insert(target.into(), found.clone());
+        }
+    }
+    if compact.is_empty() {
+        compact.insert("watched".into(), json!(true));
+    }
+    Value::Object(compact)
+}
+
 pub(crate) fn documents_json(args_json: &str) -> Option<String> {
     let args: Value = serde_json::from_str(args_json).ok()?;
     let mut documents: Vec<Value> = Vec::new();
 
     for (key, value) in entries(args.get("progress")) {
-        documents.push(document("watch_progress", &key, value));
+        documents.push(document("watch_progress", &key, compact_progress(&key, &value)));
     }
 
     for (key, value) in entries(args.get("watched")) {
@@ -76,7 +147,7 @@ pub(crate) fn documents_json(args_json: &str) -> Option<String> {
     }
 
     for (key, value) in entries(args.get("lastWatched")) {
-        documents.push(document("watched_history", &format!("series:{key}"), value));
+        documents.push(document("watched_history", &format!("series:{key}"), compact_history(&value)));
     }
 
     for (status, items) in entries(args.get("library")) {
@@ -182,5 +253,72 @@ mod tests {
 
         assert_eq!(effective.get("autoplay"), Some(&json!(false)));
         assert_eq!(effective.get("volume"), Some(&json!(40)));
+    }
+
+    #[test]
+    fn progress_documents_only_contain_compact_resume_data() {
+        let result = documents_json(
+            &json!({
+                "progress": {
+                    "tt3823824": {
+                        "meta": {"id":"tt3823824", "type":"series", "name":"Example", "poster":"https://example/poster.jpg"},
+                        "timeOffset": 1234,
+                        "duration": 3600,
+                        "lastVideoId": "tt3823824:1:4",
+                        "lastEpisodeSeason": 1,
+                        "lastEpisodeNumber": 4,
+                        "lastStreamUrl": "https://private.example/temporary",
+                        "lastStream": {"url":"https://private.example/temporary"}
+                    }
+                }
+            }).to_string(),
+        ).expect("plan");
+        let payload = payload_for(&result, "watch_progress", "tt3823824");
+        assert_eq!(payload["contentId"], "tt3823824");
+        assert_eq!(payload["videoId"], "tt3823824:1:4");
+        assert!(payload.get("meta").is_none());
+        assert!(payload.get("lastStreamUrl").is_none());
+        assert!(payload.get("lastStream").is_none());
+    }
+
+    #[test]
+    fn library_documents_keep_metadata_for_bulk_library_display() {
+        let result = documents_json(
+            &json!({
+                "library": {
+                    "watchlist": [{
+                        "id":"tt123",
+                        "type":"movie",
+                        "name":"Example",
+                        "poster":"https://example/poster.jpg",
+                        "background":"https://example/background.jpg"
+                    }]
+                }
+            }).to_string(),
+        ).expect("plan");
+        let payload = payload_for(&result, "library", "tt123");
+        assert_eq!(payload["item"]["id"], "tt123");
+        assert_eq!(payload["item"]["poster"], "https://example/poster.jpg");
+    }
+
+    #[test]
+    fn history_documents_keep_only_episode_identity_and_time() {
+        let result = documents_json(
+            &json!({
+                "lastWatched": {
+                    "tt123": {
+                        "lastVideoId":"tt123:1:4",
+                        "lastEpisodeSeason":1,
+                        "lastEpisodeNumber":4,
+                        "lastEpisodeName":"Example",
+                        "poster":"https://example/poster.jpg"
+                    }
+                }
+            }).to_string(),
+        ).expect("plan");
+        let payload = payload_for(&result, "watched_history", "series:tt123");
+        assert_eq!(payload["videoId"], "tt123:1:4");
+        assert!(payload.get("lastEpisodeName").is_none());
+        assert!(payload.get("poster").is_none());
     }
 }

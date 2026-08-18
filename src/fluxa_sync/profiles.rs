@@ -4,7 +4,6 @@ fn remote_settings(profile: &Value) -> Map<String, Value> {
     let mut settings = Map::new();
     for field in [
         "color",
-        "pinHash",
         "isAnonymous",
         "usesPrimaryAddons",
         "usesPrimaryPlugins",
@@ -57,7 +56,6 @@ fn merge_into_local(local: &Value, remote: &Value) -> Value {
     if let Some(settings) = remote.get("settings").and_then(Value::as_object) {
         for field in [
             "color",
-            "pinHash",
             "isAnonymous",
             "usesPrimaryAddons",
             "usesPrimaryPlugins",
@@ -99,7 +97,6 @@ fn local_from_remote(remote: &Value) -> Value {
     if let Some(fields) = settings.as_object() {
         for field in [
             "color",
-            "pinHash",
             "isAnonymous",
             "usesPrimaryAddons",
             "usesPrimaryPlugins",
