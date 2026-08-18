@@ -83,6 +83,7 @@ mod local_media;
 pub mod log_sink;
 #[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
 mod mdblist_plan;
+pub mod media_demux;
 #[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
 mod nuvio_sync;
 #[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
