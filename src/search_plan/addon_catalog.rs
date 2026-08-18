@@ -345,7 +345,7 @@ pub(crate) fn resolve_transport_url_json(source_json: &str, addons_json: &str) -
     let src_addon_id = source
         .get("addonId")
         .and_then(Value::as_str)
-        .map(str::to_lowercase);
+        .map(normalized_addon_id);
     let src_catalog_id = source.get("catalogId").and_then(Value::as_str)?;
     let normalize_type = |v: &str| -> String {
         match v.trim().to_lowercase().as_str() {
@@ -359,22 +359,30 @@ pub(crate) fn resolve_transport_url_json(source_json: &str, addons_json: &str) -
         .and_then(Value::as_str)
         .map(normalize_type);
 
+    let mut fallback_transport_url: Option<&str> = None;
     for addon in &addons {
-        let manifest = addon.get("manifest")?;
+        let Some(manifest) = addon.get("manifest") else {
+            continue;
+        };
         let addon_id = manifest
             .get("id")
             .and_then(Value::as_str)
-            .unwrap_or("")
-            .to_lowercase();
+            .map(normalized_addon_id)
+            .unwrap_or_default();
         let t_url = addon
             .get("transportUrl")
             .and_then(Value::as_str)
             .unwrap_or("");
         if let Some(ref wanted_addon_id) = src_addon_id
             && !(addon_id == *wanted_addon_id
+                || addon_id.ends_with(wanted_addon_id.as_str())
+                || wanted_addon_id.ends_with(addon_id.as_str())
                 || t_url.to_lowercase().contains(wanted_addon_id.as_str()))
         {
             continue;
+        }
+        if src_addon_id.is_some() {
+            fallback_transport_url = Some(t_url);
         }
         let catalogs = manifest
             .get("catalogs")
@@ -392,7 +400,15 @@ pub(crate) fn resolve_transport_url_json(source_json: &str, addons_json: &str) -
             return serde_json::to_string(t_url).ok();
         }
     }
-    None
+    fallback_transport_url.and_then(|url| serde_json::to_string(url).ok())
+}
+
+fn normalized_addon_id(value: &str) -> String {
+    value
+        .chars()
+        .filter(|character| character.is_ascii_alphanumeric())
+        .flat_map(char::to_lowercase)
+        .collect()
 }
 
 /// Resolves the effective genre for a metadata feed option by inspecting the

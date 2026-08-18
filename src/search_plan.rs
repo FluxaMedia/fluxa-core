@@ -81,6 +81,27 @@ mod tests {
     }
 
     #[test]
+    fn collection_sources_match_normalized_aio_ids_and_dynamic_catalogs() {
+        let source = serde_json::json!({
+            "addonId": "aio-metadata",
+            "catalogId": "tmdb.discover.movie.streaming.netflix",
+            "type": "movie",
+        });
+        let addons = serde_json::json!([{
+            "transportUrl": "https://aio.example/configured/manifest.json",
+            "manifest": {
+                "id": "com.aio.metadata",
+                "catalogs": [{ "id": "tmdb.top", "type": "movie" }]
+            }
+        }]);
+
+        assert_eq!(
+            resolve_transport_url_json(&source.to_string(), &addons.to_string()),
+            Some("\"https://aio.example/configured/manifest.json\"".to_string())
+        );
+    }
+
+    #[test]
     fn discover_catalog_options_expose_genre_extra_as_flat_list() {
         let result: Value = serde_json::from_str(
             &discover_catalog_options_json(
