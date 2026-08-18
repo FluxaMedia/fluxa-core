@@ -376,6 +376,11 @@ fn folder_tile(folder_id: &str, folder_title: &str, folder: &Map<String, Value>)
             .and_then(Value::as_str)
             .unwrap_or("poster"),
     });
+    if let Some(sources) = folder.get("catalogSources").or_else(|| folder.get("sources"))
+        && let Some(fields) = tile.as_object_mut()
+    {
+        fields.insert("collectionSources".to_string(), sources.clone());
+    }
     if let Some(logo) = folder.get("titleLogoUrl").and_then(Value::as_str)
         && let Some(fields) = tile.as_object_mut()
     {
