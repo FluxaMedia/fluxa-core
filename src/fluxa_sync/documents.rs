@@ -53,8 +53,22 @@ pub(super) fn merged_with(sparse: &Value, defaults: &Value) -> Value {
 
 fn push_single(documents: &mut Vec<Value>, args: &Value, field: &str, entity: &str, key: &str) {
     if let Some(value) = args.get(field).filter(|value| !value.is_null()) {
-        documents.push(document(entity, key, value.clone()));
+        let payload = if field == "addons" { compact_addons(value) } else { value.clone() };
+        documents.push(document(entity, key, payload));
     }
+}
+
+fn compact_addons(value: &Value) -> Value {
+    Value::Array(value.as_array().cloned().unwrap_or_default().into_iter().filter_map(|addon| {
+        let object = addon.as_object()?;
+        let url = object.get("transportUrl").or_else(|| object.get("url")).and_then(Value::as_str)?;
+        Some(json!({
+            "url": url,
+            "name": object.get("name").or_else(|| object.get("manifest").and_then(|manifest| manifest.get("name"))).cloned().unwrap_or_else(|| json!(url)),
+            "enabled": object.get("enabled").cloned().unwrap_or_else(|| json!(true)),
+            "sortOrder": object.get("sortOrder").cloned().unwrap_or_else(|| json!(0)),
+        }))
+    }).collect())
 }
 
 fn compact_progress(key: &str, value: &Value) -> Value {
