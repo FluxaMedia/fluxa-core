@@ -141,6 +141,15 @@ pub(crate) fn build_local_profiles_json(args_json: &str) -> Option<String> {
         if let Some(v) = remote.get("uses_primary_plugins") {
             out.insert("usesPrimaryPlugins".into(), v.clone());
         }
+        if let Some(v) = remote.get("pin_enabled") {
+            out.insert("nuvioPinEnabled".into(), v.clone());
+        }
+        if let Some(v) = remote.get("pin_locked_until") {
+            out.insert("nuvioPinLockedUntil".into(), v.clone());
+        }
+        if let Some(v) = remote.get("updated_at") {
+            out.insert("nuvioProfileUpdatedAt".into(), v.clone());
+        }
         imported.push(Value::Object(out));
     }
 

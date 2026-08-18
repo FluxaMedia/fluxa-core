@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Discord
+    url: https://discord.gg/wan9FeDEfe
+    about: Questions, help, and general discussion.
+  - name: Fluxa for Android
+    url: https://github.com/FluxaMedia/fluxa/issues
+    about: If it's about the Android/TV app itself, report it there.
+  - name: Fluxa Desktop
+    url: https://github.com/FluxaMedia/fluxa-desktop/issues
+    about: If it's about the desktop/web/webOS app itself, report it there.

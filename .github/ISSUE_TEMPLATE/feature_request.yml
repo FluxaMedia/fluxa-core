@@ -1,0 +1,28 @@
+name: Feature request
+description: Suggest logic or an API for fluxa-core
+labels: ["enhancement", "needs triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        fluxa-core holds portable decision-making — state, stream policy, parsing, ranking, library rules. Anything platform-specific (HTTP, storage, UI) belongs in a shell, not here. Please search existing issues first.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve?
+      description: What decision or capability is missing, and which consumers need it?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What would you like to happen?
+      description: If it needs I/O, describe it as an effect the host would fulfill.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+    validations:
+      required: false

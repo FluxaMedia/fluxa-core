@@ -345,7 +345,7 @@ mod tests {
     fn imported_profile_uses_its_nuvio_avatar_catalog_entry() {
         let result: Value = serde_json::from_str(&build_local_profiles_json(&json!({
             "sessionProfile": {"id":"local","nuvioUserId":"user","nuvioEmail":"user@example.com","nuvioAccessToken":"token"},
-            "nuvioProfiles": [{"profile_index":1,"name":"Primary","avatar_id":"avatar-1","avatar_url":null}],
+            "nuvioProfiles": [{"profile_index":1,"name":"Primary","avatar_id":"avatar-1","avatar_url":null,"pin_enabled":true,"pin_locked_until":null,"updated_at":"2026-08-18T00:00:00Z"}],
             "avatarCatalog": [{"id":"avatar-1","storage_path":"profiles/avatar-1.png"}],
             "existingProfiles": [{"id":"local","nuvioUserId":"user","nuvioProfileIndex":1}],
         }).to_string()).unwrap()).unwrap();
@@ -353,5 +353,7 @@ mod tests {
             result[0]["avatarUrl"],
             json!("https://api.nuvio.tv/storage/v1/object/public/avatars/profiles/avatar-1.png")
         );
+        assert_eq!(result[0]["nuvioPinEnabled"], json!(true));
+        assert_eq!(result[0]["nuvioProfileUpdatedAt"], json!("2026-08-18T00:00:00Z"));
     }
 }

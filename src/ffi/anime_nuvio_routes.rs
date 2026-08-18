@@ -1,4 +1,5 @@
 use super::*;
+use crate::nuvio_pin;
 
 pub(super) fn route_anime_detection(method: &str, args_json: &str) -> Outcome {
     match method {
@@ -60,6 +61,15 @@ pub(super) fn route_nuvio_sync(method: &str, args_json: &str) -> Outcome {
         }
         "nuvioCollectionRequest" => opt_json(nuvio_sync::collection_request_json(args_json)),
 
+        _ => Err(unknown_method()),
+    }
+}
+
+pub(super) fn route_nuvio_pin(method: &str, args_json: &str) -> Outcome {
+    match method {
+        "nuvioPinHash" => opt_str(nuvio_pin::pin_hash_json(args_json)),
+        "nuvioPinCachePayload" => opt_json(nuvio_pin::cache_payload_json(args_json)),
+        "nuvioPinVerifyCached" => opt_json(nuvio_pin::verify_cached_json(args_json)),
         _ => Err(unknown_method()),
     }
 }

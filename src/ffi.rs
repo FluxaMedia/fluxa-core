@@ -31,7 +31,7 @@ mod watch_together_routes;
 use addon_protocol_routes::route_addon_protocol;
 use addon_resource_routes::route_addon_resource;
 use addon_support_routes::{route_addon_uptime, route_trailer_subtitles};
-use anime_nuvio_routes::{route_anime_detection, route_nuvio_sync};
+use anime_nuvio_routes::{route_anime_detection, route_nuvio_pin, route_nuvio_sync};
 use calendar_routes::route_calendar;
 use content_identity_routes::route_content_identity;
 use content_warning_routes::route_content_warnings;
@@ -219,6 +219,7 @@ const ROUTERS: &[fn(&str, &str) -> Outcome] = &[
     route_library_state,
     route_local_media,
     route_nuvio_sync,
+    route_nuvio_pin,
     route_tmdb,
     route_intro_segments,
     route_core_contract,

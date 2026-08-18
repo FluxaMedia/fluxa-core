@@ -86,6 +86,8 @@ mod mdblist_plan;
 #[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
 mod nuvio_sync;
 #[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
+mod nuvio_pin;
+#[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
 mod oauth_plan;
 #[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
 mod offline_download;

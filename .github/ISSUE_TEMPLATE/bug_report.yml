@@ -1,0 +1,53 @@
+name: Bug report
+description: Wrong behaviour in fluxa-core's logic
+labels: ["bug", "needs triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        fluxa-core is deterministic and does no I/O — a good report is usually a failing test in prose: the action, the state before, and the effect or state you expected versus what you got. Please search existing issues first.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: The action dispatched, the state before, and what core returned versus what you expected.
+    validations:
+      required: true
+  - type: dropdown
+    id: consumer
+    attributes:
+      label: Which consumer surfaced this?
+      multiple: true
+      options:
+        - Android
+        - Desktop
+        - Web / webOS
+        - Directly against the crate (tests / bindings)
+    validations:
+      required: true
+  - type: dropdown
+    id: feature-path
+    attributes:
+      label: Feature set
+      description: Which build path — the native default, or the WASM path? (Behaviour can differ.)
+      options:
+        - Default (native) features
+        - WASM (--features wasm)
+        - Not sure
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Commit / version
+      description: The fluxa-core commit or tag, if you know it.
+    validations:
+      required: false
+  - type: textarea
+    id: repro
+    attributes:
+      label: Minimal reproduction
+      description: A failing test, the action JSON, or the smallest steps that show it.
+      render: text
+    validations:
+      required: false
