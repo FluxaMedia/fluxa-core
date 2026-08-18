@@ -3,6 +3,10 @@ members = ["fluxa-streaming-engine"]
 exclude = ["fuzz"]
 resolver = "2"
 
+[profile.dev]
+debug = 1
+incremental = true
+
 [workspace.dependencies]
 dolby_vision = { version = "3.3.2", default-features = false }
 fluxa_core = { path = ".", default-features = false }
