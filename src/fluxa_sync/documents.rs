@@ -71,6 +71,21 @@ fn compact_addons(value: &Value) -> Value {
     }).collect())
 }
 
+fn compact_library_item(value: &Value) -> Value {
+    let Some(object) = value.as_object() else { return value.clone(); };
+    let allowed = [
+        "id", "type", "name", "poster", "posterShape", "background", "description",
+        "releaseInfo", "imdbRating", "genres", "addonBaseUrl", "addedAt",
+    ];
+    let mut compact = serde_json::Map::new();
+    for key in allowed {
+        if let Some(value) = object.get(key).filter(|value| !value.is_null()) {
+            compact.insert(key.into(), value.clone());
+        }
+    }
+    Value::Object(compact)
+}
+
 fn compact_progress(key: &str, value: &Value) -> Value {
     let mut compact = serde_json::Map::new();
     let source = value.as_object();
@@ -180,7 +195,7 @@ pub(crate) fn documents_json(args_json: &str) -> Option<String> {
             documents.push(document(
                 "library",
                 id,
-                json!({ "status": status, "item": item }),
+                json!({ "status": status, "item": compact_library_item(&item) }),
             ));
         }
     }
@@ -313,7 +328,8 @@ mod tests {
                         "type":"movie",
                         "name":"Example",
                         "poster":"https://example/poster.jpg",
-                        "background":"https://example/background.jpg"
+                        "background":"https://example/background.jpg",
+                        "streamUrl":"https://private.example/stream"
                     }]
                 }
             }).to_string(),
@@ -321,6 +337,7 @@ mod tests {
         let payload = payload_for(&result, "library", "tt123");
         assert_eq!(payload["item"]["id"], "tt123");
         assert_eq!(payload["item"]["poster"], "https://example/poster.jpg");
+        assert!(payload["item"].get("streamUrl").is_none());
     }
 
     #[test]
