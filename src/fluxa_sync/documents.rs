@@ -108,6 +108,14 @@ fn compact_progress(key: &str, value: &Value) -> Value {
 fn compact_history(value: &Value) -> Value {
     let object = value.as_object();
     let mut compact = serde_json::Map::new();
+    compact.insert(
+        "contentType".into(),
+        object
+            .and_then(|entry| entry.get("contentType"))
+            .or_else(|| object.and_then(|entry| entry.get("type")))
+            .cloned()
+            .unwrap_or_else(|| json!("movie")),
+    );
     for (target, aliases) in [
         ("videoId", &["videoId", "lastVideoId", "id"][..]),
         ("season", &["season", "lastEpisodeSeason"][..]),
@@ -141,7 +149,7 @@ pub(crate) fn documents_json(args_json: &str) -> Option<String> {
             documents.push(document(
                 "watched_history",
                 &format!("video:{key}"),
-                json!({ "watched": true }),
+                json!({ "watched": true, "contentType": "movie", "videoId": key }),
             ));
         }
     }
@@ -307,6 +315,7 @@ mod tests {
             &json!({
                 "lastWatched": {
                     "tt123": {
+                        "contentType":"series",
                         "lastVideoId":"tt123:1:4",
                         "lastEpisodeSeason":1,
                         "lastEpisodeNumber":4,
@@ -317,6 +326,7 @@ mod tests {
             }).to_string(),
         ).expect("plan");
         let payload = payload_for(&result, "watched_history", "series:tt123");
+        assert_eq!(payload["contentType"], "series");
         assert_eq!(payload["videoId"], "tt123:1:4");
         assert!(payload.get("lastEpisodeName").is_none());
         assert!(payload.get("poster").is_none());
