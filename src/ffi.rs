@@ -24,6 +24,7 @@ mod profile_routes;
 mod publicmetadb_routes;
 mod resource_plan_routes;
 mod search_plan_routes;
+mod stream_badge_routes;
 mod stream_policy_routes;
 mod tmdb_routes;
 mod watchlist_offline_routes;
@@ -57,6 +58,7 @@ use profile_routes::{route_profile_contract, route_profile_prefs};
 use publicmetadb_routes::route_publicmetadb;
 use resource_plan_routes::route_resource_plan;
 use search_plan_routes::route_search_plan;
+use stream_badge_routes::route_stream_badges;
 use stream_policy_routes::route_stream_policy;
 use tmdb_routes::route_tmdb;
 use watchlist_offline_routes::{route_offline, route_watchlist};
@@ -74,8 +76,8 @@ use crate::{
     headless_engine, home_ranking, integration_settings, intro_segments, library_persistence,
     library_state, mdblist_plan, nuvio_sync, offline_download, platform_plan, player_flow,
     player_policy, player_scrobble, plugins, profile_avatar_pack, profile_contract, profile_prefs,
-    publicmetadb_plan, repository_flow, search_plan, stream_policy, tmdb_plan, trailer_subtitles,
-    subtitle_sync, watchlist_plan,
+    publicmetadb_plan, repository_flow, search_plan, stream_badges, stream_policy, tmdb_plan,
+    trailer_subtitles, subtitle_sync, watchlist_plan,
 };
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -203,6 +205,7 @@ const ROUTERS: &[fn(&str, &str) -> Outcome] = &[
     route_addon_resource,
     route_resource_plan,
     route_stream_policy,
+    route_stream_badges,
     route_search_plan,
     route_player_policy,
     route_watchlist,
