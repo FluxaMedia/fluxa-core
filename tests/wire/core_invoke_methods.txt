@@ -41,6 +41,7 @@ calendarSeasonCandidates
 calendarWidgetRows
 collectionMergePlan
 collectionFolderItemsPlan
+collectionFolderTabsPlan
 canPrefetchNextEpisode
 chapterSkipSegments
 catalogHasRequiredExtraExcept

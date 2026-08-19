@@ -9,4 +9,6 @@ pub(crate) use air_date::{
 };
 pub(crate) use import_export::{export_collections_json, import_collections_json};
 pub(crate) use library_view::library_view_plan_json;
-pub(crate) use merge::{collection_folder_items_plan_json, collection_merge_plan_json};
+pub(crate) use merge::{
+    collection_folder_items_plan_json, collection_folder_tabs_plan_json, collection_merge_plan_json,
+};
