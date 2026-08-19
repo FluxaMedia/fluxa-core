@@ -219,6 +219,7 @@ pub(crate) fn collection_folder_tabs_plan_json(args_json: &str) -> Option<String
             "title": source_title(source, folder.get("title").and_then(Value::as_str).unwrap_or("")),
             "type": source.get("type").and_then(Value::as_str).unwrap_or("mixed"),
             "items": items,
+            "source": source,
         }));
     }
 
