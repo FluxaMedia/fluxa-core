@@ -240,19 +240,33 @@ impl FluxaCore {
         })
     }
 
+    #[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
     pub const FCAST_OP_PLAY: u8 = cast_protocol::FCAST_OP_PLAY;
+    #[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
     pub const FCAST_OP_PAUSE: u8 = cast_protocol::FCAST_OP_PAUSE;
+    #[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
     pub const FCAST_OP_RESUME: u8 = cast_protocol::FCAST_OP_RESUME;
+    #[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
     pub const FCAST_OP_STOP: u8 = cast_protocol::FCAST_OP_STOP;
+    #[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
     pub const FCAST_OP_SEEK: u8 = cast_protocol::FCAST_OP_SEEK;
+    #[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
     pub const FCAST_OP_PLAYBACK_UPDATE: u8 = cast_protocol::FCAST_OP_PLAYBACK_UPDATE;
+    #[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
     pub const FCAST_OP_VOLUME_UPDATE: u8 = cast_protocol::FCAST_OP_VOLUME_UPDATE;
+    #[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
     pub const FCAST_OP_SET_VOLUME: u8 = cast_protocol::FCAST_OP_SET_VOLUME;
+    #[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
     pub const FCAST_OP_PLAYBACK_ERROR: u8 = cast_protocol::FCAST_OP_PLAYBACK_ERROR;
+    #[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
     pub const FCAST_OP_SET_SPEED: u8 = cast_protocol::FCAST_OP_SET_SPEED;
+    #[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
     pub const FCAST_OP_VERSION: u8 = cast_protocol::FCAST_OP_VERSION;
+    #[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
     pub const FCAST_OP_PING: u8 = cast_protocol::FCAST_OP_PING;
+    #[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
     pub const FCAST_OP_PONG: u8 = cast_protocol::FCAST_OP_PONG;
+    #[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
     pub const FCAST_MAX_MESSAGE_BYTES: usize = cast_protocol::FCAST_MAX_MESSAGE_BYTES;
 
     #[cfg(any(feature = "full-api", not(feature = "streaming-shared")))]
