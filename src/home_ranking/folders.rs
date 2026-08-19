@@ -414,3 +414,45 @@ fn folder_tile(folder_id: &str, folder_title: &str, folder: &Map<String, Value>)
     }
     tile
 }
+
+#[cfg(test)]
+mod tests {
+    use super::build_home_collection_shelves_json;
+    use serde_json::Value;
+
+    #[test]
+    fn prime_video_collection_keeps_raw_and_resolved_sources() {
+        let profile = serde_json::json!({
+            "libraryCollections": [{
+                "id": "collections.streaming",
+                "title": "Streaming",
+                "pinToTop": true,
+                "folders": [{
+                    "id": "collections.streaming.prime-video",
+                    "title": "Prime Video",
+                    "catalogSources": [{
+                        "addonId": "aio-metadata",
+                        "catalogId": "tmdb.discover.movie.streaming.prime-video",
+                        "type": "movie",
+                        "genre": "None"
+                    }]
+                }]
+            }]
+        });
+        let addons = serde_json::json!([{
+            "transportUrl": "https://aiometadata.elfhosted.com/stremio/configured/manifest.json",
+            "manifest": {
+                "id": "aio-metadata",
+                "catalogs": [{ "id": "tmdb.top", "type": "movie" }]
+            }
+        }]);
+
+        let result: Value = serde_json::from_str(
+            &build_home_collection_shelves_json(&profile.to_string(), &addons.to_string()).unwrap(),
+        ).unwrap();
+        let tile = &result["pinnedShelves"][0]["items"][0];
+        assert_eq!(tile["id"], "collections.streaming.prime-video");
+        assert_eq!(tile["collectionSources"][0]["catalogId"], "tmdb.discover.movie.streaming.prime-video");
+        assert_eq!(result["hiddenFolderCategories"][0]["catalogSources"][0]["transportUrl"], "https://aiometadata.elfhosted.com/stremio/configured/manifest.json");
+    }
+}
