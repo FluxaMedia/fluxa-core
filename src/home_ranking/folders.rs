@@ -202,6 +202,7 @@ pub(crate) fn build_home_collection_shelves_json(
             "type": "collection",
             "items": tiles,
             "canLoadMore": false,
+            "focusGlowEnabled": c.get("focusGlowEnabled").and_then(Value::as_bool).unwrap_or(true),
         });
 
         if c.get("pinToTop").and_then(Value::as_bool).unwrap_or(false) {
@@ -395,6 +396,21 @@ fn folder_tile(folder_id: &str, folder_title: &str, folder: &Map<String, Value>)
         && let Some(fields) = tile.as_object_mut()
     {
         fields.insert("focusGifUrl".to_string(), Value::String(gif.to_string()));
+    }
+    if let Some(emoji) = folder.get("coverEmoji").and_then(Value::as_str)
+        && let Some(fields) = tile.as_object_mut()
+    {
+        fields.insert("coverEmoji".to_string(), Value::String(emoji.to_string()));
+    }
+    if let Some(fields) = tile.as_object_mut() {
+        fields.insert(
+            "hideTitle".to_string(),
+            Value::Bool(folder.get("hideTitle").and_then(Value::as_bool).unwrap_or(false)),
+        );
+        fields.insert(
+            "focusGifEnabled".to_string(),
+            Value::Bool(folder.get("focusGifEnabled").and_then(Value::as_bool).unwrap_or(true)),
+        );
     }
     tile
 }
