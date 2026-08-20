@@ -161,11 +161,28 @@ pub(crate) fn home_hero_plan_json(request_json: &str) -> Option<String> {
         }
         item
     };
-    let billboard = billboard.map(&merge_trailers).map(&merge_logos);
+    let shorten_description = |mut item: Value| {
+        let shortened = item
+            .get("description")
+            .and_then(Value::as_str)
+            .filter(|value| !value.trim().is_empty())
+            .map(crate::content_identity::shorten_synopsis);
+        if let Some(shortened) = shortened
+            && let Some(fields) = item.as_object_mut()
+        {
+            fields.insert("description".to_string(), Value::String(shortened));
+        }
+        item
+    };
+    let billboard = billboard
+        .map(&merge_trailers)
+        .map(&merge_logos)
+        .map(&shorten_description);
     slides = slides
         .into_iter()
         .map(&merge_trailers)
         .map(&merge_logos)
+        .map(&shorten_description)
         .collect();
     let autoplay = prefs
         .get("homeHeroAutoplayTrailer")
